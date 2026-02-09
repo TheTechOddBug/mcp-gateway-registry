@@ -19,6 +19,8 @@ global:
   authProvider:
     # Provider type: "keycloak" or "entra"
     type: keycloak
+    entra:
+      adminGroupId: # UUID of Entra admin group
 
   # Common ingress settings
   ingress:
@@ -140,10 +142,6 @@ registry:
 auth-server:
   app:
     replicas: 2 # set to > 1 replica for high availability
-
-  # Authentication provider configuration (inherited from global.authProvider)
-  authProvider:
-    type: keycloak  # Will be overridden by global.authProvider.type
 
   keycloak:
     enabled: true

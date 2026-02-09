@@ -8,7 +8,8 @@ data:
     {
       "_id": "registry-admins",
       "group_mappings": [
-        "registry-admins"
+        "registry-admins"{{ if eq .Values.global.authProvider.type "entra"}}{{ printf ", %s" (.Values.global.authProvider.entra.adminGroupId | quote)  }}{{ end }}
+
       ],
       "server_access": [
         {

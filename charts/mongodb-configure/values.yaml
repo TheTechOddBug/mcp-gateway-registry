@@ -1,3 +1,9 @@
+global:
+  authProvider:
+    type: keycloak
+    entra:
+      adminGroupId:
+
 # MongoDB configuration
 mongodb:
   database: mcp_registry

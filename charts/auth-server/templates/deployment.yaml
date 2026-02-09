@@ -1,3 +1,8 @@
+{{- /* Determine auth provider type - prefer global, fallback to local, default to keycloak */ -}}
+{{- $authProviderType := .Values.authProvider.type | default "keycloak" }}
+{{- if .Values.global.authProvider }}
+  {{- $authProviderType = .Values.global.authProvider.type | default $authProviderType }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,7 +53,7 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ .Values.app.envSecretName }}
-            {{- if eq (.Values.authProvider.type | default "keycloak") "keycloak" }}
+            {{- if eq $authProviderType "keycloak" }}
             - secretRef:
                 name: keycloak-client-secret
             {{- end }}
