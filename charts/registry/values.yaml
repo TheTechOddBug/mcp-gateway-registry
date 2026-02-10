@@ -1,7 +1,7 @@
 # Global configuration
 global:
   image:
-    repository: mcpgateway/registry
+    repository: public.ecr.aws/p3v1o3c6/registry
     tag: v1.0.13
     pullPolicy: IfNotPresent
 

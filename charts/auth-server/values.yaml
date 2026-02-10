@@ -1,7 +1,7 @@
 # Global configuration
 global:
   image:
-    repository: mcpgateway/auth-server
+    repository: public.ecr.aws/p3v1o3c6/auth-server
     tag: v1.0.13
     pullPolicy: IfNotPresent
 
