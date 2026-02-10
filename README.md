@@ -726,9 +726,11 @@ Our development roadmap is organized into weekly milestones with clear deliverab
 
 | Milestone | Due Date | Progress | Status | Key Issues |
 |-----------|----------|----------|--------|------------|
-| **January 2026 Week 3** | 2026-01-23 | 50% (1/2) | 🚧 In Progress | **Open:** [#295 - Multi-Level Rate Limiting](https://github.com/agentic-community/mcp-gateway-registry/issues/295)<br/>**Closed:** [#316 - Entra ID IAM APIs](https://github.com/agentic-community/mcp-gateway-registry/issues/316) |
-| **January 2026 Week 4** | 2026-01-30 | 0% (0/3) | 📅 Planned | **Open:** [#269 - AgentCore IAM Authentication](https://github.com/agentic-community/mcp-gateway-registry/issues/269), [#260 - Federation Between Registries](https://github.com/agentic-community/mcp-gateway-registry/issues/260), [#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129) |
-| **Parking Lot** | — | 100% (2/2) | 🗂️ Backlog | **Closed:** [#316 - Entra ID IAM APIs](https://github.com/agentic-community/mcp-gateway-registry/issues/316), [#315 - Distroless Docker Images](https://github.com/agentic-community/mcp-gateway-registry/issues/315) |
+| **February 2026 Week 1** | 2026-02-06 | 83% (5/6) | 🚧 In Progress | **Open:** [#358 - Custom Authorizer Endpoint](https://github.com/agentic-community/mcp-gateway-registry/issues/358)<br/>**Closed:** [#443](https://github.com/agentic-community/mcp-gateway-registry/issues/443), [#419](https://github.com/agentic-community/mcp-gateway-registry/issues/419), [#391](https://github.com/agentic-community/mcp-gateway-registry/issues/391), [#370](https://github.com/agentic-community/mcp-gateway-registry/issues/370), [#357](https://github.com/agentic-community/mcp-gateway-registry/issues/357) |
+| **February 2026 Week 2** | 2026-02-12 | 67% (2/3) | 🚧 In Progress | **Open:** [#416 - Settings Page with IAM Management](https://github.com/agentic-community/mcp-gateway-registry/issues/416)<br/>**Closed:** [#418](https://github.com/agentic-community/mcp-gateway-registry/issues/418), [#413](https://github.com/agentic-community/mcp-gateway-registry/issues/413) |
+| **February 2026 Week 3** | 2026-02-18 | 0% (0/1) | 📅 Planned | **Open:** [#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129) |
+| **February 2026 Week 4** | 2026-02-25 | 0% (0/1) | 📅 Planned | **Open:** [#295 - Multi-Level Rate Limiting](https://github.com/agentic-community/mcp-gateway-registry/issues/295) |
+| **Parking Lot** | — | 25% (2/8) | 🗂️ Backlog | 6 open issues, 2 closed |
 
 **Status Legend:** 🚧 In Progress • 📅 Planned • 🗂️ Backlog • ✅ Complete
 
@@ -738,16 +740,16 @@ Our development roadmap is organized into weekly milestones with clear deliverab
 
 The following major features span multiple milestones and represent significant architectural improvements:
 
-- **[#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129)** 🚧 **IN PROGRESS** (Jan 2026 Week 3)
+- **[#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129)** 📅 **PLANNED** (Feb 2026 Week 3)
   Dynamic tool aggregation and intelligent routing using Lua/JavaScript scripting. Enables logical grouping of tools from multiple backend servers.
 
 - **[#232 - A2A Curated Registry Discovery](https://github.com/agentic-community/mcp-gateway-registry/issues/232)** ✅ **COMPLETED**
   Enable agent-to-agent discovery and tool invocation through curated registry patterns.
 
-- **[#260 - Federation Between MCP Registry Instances](https://github.com/agentic-community/mcp-gateway-registry/issues/260)** 🚧 **IN PROGRESS**
-  Support for federated registry discovery and access across multiple registry instances. UI implementation complete.
+- **[#260 - Federation Between MCP Registry Instances](https://github.com/agentic-community/mcp-gateway-registry/issues/260)** ✅ **COMPLETED**
+  Federated registry with bi-directional sync, peer management, chain prevention, orphan detection, and security scan propagation across registries.
 
-- **[#295 - Multi-Level Tool Usage Rate Limiting](https://github.com/agentic-community/mcp-gateway-registry/issues/295)** 📅 **PLANNED** (Jan 2026 Week 3)
+- **[#295 - Multi-Level Tool Usage Rate Limiting](https://github.com/agentic-community/mcp-gateway-registry/issues/295)** 📅 **PLANNED** (Feb 2026 Week 4)
   Comprehensive rate limiting architecture with detailed implementation guide for tool usage control.
 
 - **[#297 - Unified UI Registration Flow](https://github.com/agentic-community/mcp-gateway-registry/issues/297)** ✅ **COMPLETED**
@@ -756,6 +758,9 @@ The following major features span multiple milestones and represent significant 
 ---
 
 #### Recently Completed
+
+- **[#260 - Federation Between MCP Registry Instances](https://github.com/agentic-community/mcp-gateway-registry/issues/260)** ✅ **COMPLETED** (v1.0.13)
+  Federated registry with bi-directional sync between registry instances. Features peer management UI, automatic sync with configurable filters, chain prevention for clean topology, orphan detection, and security scan propagation. [Federation Guide](docs/federation.md) | [Federation Architecture](docs/design/federation-architecture.md)
 
 - **[#316 - Entra ID IAM APIs](https://github.com/agentic-community/mcp-gateway-registry/issues/316)** ✅ **COMPLETED**
   Full IAM support for Microsoft Entra ID with harmonized API for user/group management. Includes M2M service accounts, self-signed JWT tokens, and fine-grained access control through scopes. [Authentication Design](docs/design/authentication-design.md) | [Scopes Management](docs/scopes-mgmt.md)
