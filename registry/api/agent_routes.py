@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from ..core.config import settings
 from ..repositories.factory import get_search_repository
 from ..repositories.interfaces import SearchRepositoryBase
+from ..utils.request_utils import get_client_ip
 
 
 def get_search_repo() -> SearchRepositoryBase:
@@ -483,7 +484,7 @@ async def list_agents(
     set_audit_action(request, "list", "agent", description="List all agents")
     
     # CRITICAL DIAGNOSTIC: Log that we reached this endpoint
-    logger.info(f"[GET_AGENTS_ENTRY] GET /api/agents called from {request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or (request.client.host if request.client else 'unknown')}")
+    logger.info(f"[GET_AGENTS_ENTRY] GET /api/agents called from {get_client_ip(request)}")
     logger.info(f"[GET_AGENTS_ENTRY] Request headers: {dict(request.headers)}")
 
     # CRITICAL DIAGNOSTIC: Log user_context received by endpoint (for comparison with /servers)

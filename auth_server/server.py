@@ -50,6 +50,7 @@ from registry.audit.mcp_logger import MCPLogger
 from registry.audit.service import AuditLogger
 from registry.audit.models import Identity, MCPServer
 from registry.core.config import settings
+from registry.utils.request_utils import get_client_ip
 
 # Configure logging
 logging.basicConfig(
@@ -1214,9 +1215,7 @@ async def validate_request(request: Request):
             logger.error(f"Error reading request payload: {type(e).__name__}: {e}")
 
         # Log request for debugging with anonymized IP
-        # Prefer X-Forwarded-For header (first IP) for accurate client IP behind proxies
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        client_ip = forwarded_for.split(",")[0].strip() if forwarded_for else (request.client.host if request.client else "unknown")
+        client_ip = get_client_ip(request)
         logger.info(f"Validation request from {anonymize_ip(client_ip)}")
         logger.info(f"Request Method: {request.method}")
 
@@ -1610,7 +1609,7 @@ async def validate_request(request: Request):
                         duration_ms=duration_ms,
                         mcp_session_id=mcp_session_id,
                         transport='streamable-http',  # Default, could be extracted from request
-                        client_ip=request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else 'unknown'),
+                        client_ip=get_client_ip(request),
                         forwarded_for=request.headers.get("X-Forwarded-For"),
                         user_agent=request.headers.get("User-Agent"),
                     )
@@ -1661,7 +1660,7 @@ async def validate_request(request: Request):
                         mcp_session_id=mcp_session_id,
                         error_code=401,
                         error_message=str(e),
-                        client_ip=request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else 'unknown'),
+                        client_ip=get_client_ip(request),
                         forwarded_for=request.headers.get("X-Forwarded-For"),
                         user_agent=request.headers.get("User-Agent"),
                     )
