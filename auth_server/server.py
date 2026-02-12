@@ -1214,7 +1214,9 @@ async def validate_request(request: Request):
             logger.error(f"Error reading request payload: {type(e).__name__}: {e}")
 
         # Log request for debugging with anonymized IP
-        client_ip = request.client.host if request.client else "unknown"
+        # Prefer X-Forwarded-For header (first IP) for accurate client IP behind proxies
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        client_ip = forwarded_for.split(",")[0].strip() if forwarded_for else (request.client.host if request.client else "unknown")
         logger.info(f"Validation request from {anonymize_ip(client_ip)}")
         logger.info(f"Request Method: {request.method}")
 
@@ -1608,7 +1610,7 @@ async def validate_request(request: Request):
                         duration_ms=duration_ms,
                         mcp_session_id=mcp_session_id,
                         transport='streamable-http',  # Default, could be extracted from request
-                        client_ip=request.client.host if request.client else 'unknown',
+                        client_ip=request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else 'unknown'),
                         forwarded_for=request.headers.get("X-Forwarded-For"),
                         user_agent=request.headers.get("User-Agent"),
                     )
@@ -1659,7 +1661,7 @@ async def validate_request(request: Request):
                         mcp_session_id=mcp_session_id,
                         error_code=401,
                         error_message=str(e),
-                        client_ip=request.client.host if request.client else 'unknown',
+                        client_ip=request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (request.client.host if request.client else 'unknown'),
                         forwarded_for=request.headers.get("X-Forwarded-For"),
                         user_agent=request.headers.get("User-Agent"),
                     )
@@ -2075,7 +2077,7 @@ def main():
     logger.info(f"Starting simplified auth server on {args.host}:{args.port}")
     logger.info(f"Default region: {args.region}")
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":

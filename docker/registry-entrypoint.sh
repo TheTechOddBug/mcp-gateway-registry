@@ -204,7 +204,7 @@ export EMBEDDINGS_MODEL_DIMENSIONS=$EMBEDDINGS_MODEL_DIMENSIONS
 echo "Starting MCP Registry in the background..."
 cd /app
 source /app/.venv/bin/activate
-uvicorn registry.main:app --host 0.0.0.0 --port 7860 &
+uvicorn registry.main:app --host 0.0.0.0 --port 7860 --proxy-headers --forwarded-allow-ips='*' &
 echo "MCP Registry started."
 
 # Wait for nginx config to be generated (check that placeholders are replaced)

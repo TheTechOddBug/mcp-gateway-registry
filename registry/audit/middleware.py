@@ -260,10 +260,14 @@ class AuditMiddleware(BaseHTTPMiddleware):
         # Calculate duration
         duration_ms = (time.perf_counter() - start_time) * 1000
         
-        # Extract client IP
-        client_ip = "unknown"
-        if request.client:
+        # Extract client IP - prefer X-Forwarded-For for accurate IP behind proxies
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        elif request.client:
             client_ip = request.client.host
+        else:
+            client_ip = "unknown"
         
         # Get content length from request headers (may be None)
         request_content_length = None
