@@ -556,3 +556,36 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.integration)
         elif "auth_server/" in str(item.fspath):
             item.add_marker(pytest.mark.auth)
+
+
+# =============================================================================
+# DEPLOYMENT MODE FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def client_registry_only(mock_settings) -> Generator[Any, None, None]:
+    """Test client with registry-only deployment mode."""
+    from fastapi.testclient import TestClient
+    from registry.core.config import DeploymentMode, RegistryMode
+
+    object.__setattr__(mock_settings, 'deployment_mode', DeploymentMode.REGISTRY_ONLY)
+    object.__setattr__(mock_settings, 'registry_mode', RegistryMode.FULL)
+
+    from registry.main import app
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def client_skills_only(mock_settings) -> Generator[Any, None, None]:
+    """Test client with skills-only registry mode."""
+    from fastapi.testclient import TestClient
+    from registry.core.config import DeploymentMode, RegistryMode
+
+    object.__setattr__(mock_settings, 'deployment_mode', DeploymentMode.REGISTRY_ONLY)
+    object.__setattr__(mock_settings, 'registry_mode', RegistryMode.SKILLS_ONLY)
+
+    from registry.main import app
+    with TestClient(app) as client:
+        yield client

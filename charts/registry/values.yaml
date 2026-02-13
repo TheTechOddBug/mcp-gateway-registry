@@ -26,6 +26,12 @@ app:
   federationEncryptionKey: # If not provided, a Fernet key is auto-generated
   registryId: # Unique identifier for this registry instance (optional)
 
+  # Deployment mode: with-gateway (nginx integration) or registry-only (catalog only)
+  deployment_mode: with-gateway
+
+  # Registry mode: full, skills-only, mcp-servers-only, agents-only
+  registry_mode: full
+
 # Service configuration
 service:
   type: ClusterIP

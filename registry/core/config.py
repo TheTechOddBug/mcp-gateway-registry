@@ -1,9 +1,25 @@
+import logging
 import secrets
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
+
+
+class DeploymentMode(str, Enum):
+    """Deployment mode options."""
+    WITH_GATEWAY = "with-gateway"
+    REGISTRY_ONLY = "registry-only"
+
+
+class RegistryMode(str, Enum):
+    """Registry operating modes."""
+    FULL = "full"
+    SKILLS_ONLY = "skills-only"
+    MCP_SERVERS_ONLY = "mcp-servers-only"
+    AGENTS_ONLY = "agents-only"
 
 
 class Settings(BaseSettings):
@@ -93,6 +109,21 @@ class Settings(BaseSettings):
     audit_log_mongodb_enabled: bool = True  # Enable/disable MongoDB storage for audit logs
     audit_log_mongodb_ttl_days: int = 7  # Days to retain audit events in MongoDB (default 7 days)
     
+    # Deployment Mode Configuration
+    deployment_mode: DeploymentMode = Field(
+        default=DeploymentMode.WITH_GATEWAY,
+        description="Deployment mode: with-gateway or registry-only"
+    )
+    registry_mode: RegistryMode = Field(
+        default=RegistryMode.FULL,
+        description="Registry operating mode"
+    )
+
+    @property
+    def nginx_updates_enabled(self) -> bool:
+        """Check if nginx updates should be performed."""
+        return self.deployment_mode == DeploymentMode.WITH_GATEWAY
+
     # Storage Backend Configuration
     storage_backend: str = "file"  # Options: "file", "documentdb"
 
@@ -302,6 +333,60 @@ class EmbeddingConfig:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "indexing_strategy": "hybrid"
         }
+
+
+logger = logging.getLogger(__name__)
+
+
+def _validate_mode_combination(
+    deployment_mode: DeploymentMode,
+    registry_mode: RegistryMode
+) -> Tuple[DeploymentMode, RegistryMode, bool]:
+    """
+    Validate and potentially correct deployment/registry mode combination.
+
+    Args:
+        deployment_mode: Current deployment mode setting
+        registry_mode: Current registry mode setting
+
+    Returns:
+        Tuple of (corrected_deployment_mode, corrected_registry_mode, was_corrected)
+    """
+    # Invalid: with-gateway + skills-only
+    # Skills don't need gateway, auto-convert to registry-only
+    if (deployment_mode == DeploymentMode.WITH_GATEWAY and
+            registry_mode == RegistryMode.SKILLS_ONLY):
+        return (DeploymentMode.REGISTRY_ONLY, RegistryMode.SKILLS_ONLY, True)
+
+    return (deployment_mode, registry_mode, False)
+
+
+def _print_config_warning_banner(
+    original_deployment: DeploymentMode,
+    original_registry: RegistryMode,
+    corrected_deployment: DeploymentMode,
+    corrected_registry: RegistryMode
+) -> None:
+    """Print conspicuous warning banner for invalid configuration."""
+    banner = """
+================================================================================
+WARNING: Invalid configuration detected!
+
+DEPLOYMENT_MODE={original_deploy} is incompatible with REGISTRY_MODE={original_reg}
+Skills do not require gateway integration.
+
+Auto-converting to:
+  DEPLOYMENT_MODE={corrected_deploy}
+  REGISTRY_MODE={corrected_reg}
+================================================================================
+""".format(
+        original_deploy=original_deployment.value,
+        original_reg=original_registry.value,
+        corrected_deploy=corrected_deployment.value,
+        corrected_reg=corrected_registry.value
+    )
+    logger.warning(banner)
+    print(banner)
 
 
 # Global settings instance

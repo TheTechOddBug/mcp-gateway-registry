@@ -33,6 +33,19 @@ fi
 # --- Environment Variable Setup ---
 echo "Setting up environment variables..."
 
+# Get deployment mode (default: with-gateway)
+DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-with-gateway}"
+REGISTRY_MODE="${REGISTRY_MODE:-full}"
+
+echo "============================================================"
+echo "Starting MCP Gateway Registry"
+echo "  DEPLOYMENT_MODE: ${DEPLOYMENT_MODE}"
+echo "  REGISTRY_MODE: ${REGISTRY_MODE}"
+if [ "$DEPLOYMENT_MODE" = "registry-only" ]; then
+    echo "  Note: Dynamic MCP server location blocks will NOT be generated"
+fi
+echo "============================================================"
+
 # Generate secret key if not provided
 if [ -z "$SECRET_KEY" ]; then
     SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')

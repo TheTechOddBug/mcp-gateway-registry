@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 import type { Server } from './ServerCard';
+import { useRegistryConfig } from '../hooks/useRegistryConfig';
 
 type IDE = 'vscode' | 'cursor' | 'cline' | 'claude-code';
 
@@ -18,19 +19,34 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
   onShowToast,
 }) => {
   const [selectedIDE, setSelectedIDE] = useState<IDE>('vscode');
+  const { config: registryConfig, loading: configLoading } = useRegistryConfig();
+
+  // Determine if we're in registry-only mode
+  // While config is loading, default to with-gateway behavior (safer default)
+  const isRegistryOnly = !configLoading && registryConfig?.deployment_mode === 'registry-only';
 
   const generateMCPConfig = useCallback(() => {
     const serverName = server.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-    // Get base URL and strip port for nginx proxy compatibility
-    const currentUrl = new URL(window.location.origin);
-    const baseUrl = `${currentUrl.protocol}//${currentUrl.hostname}`;
+    // URL determination with fallback chain:
+    // 1. mcp_endpoint (custom override) - always takes precedence
+    // 2. proxy_pass_url (in registry-only mode)
+    // 3. Constructed gateway URL (default/fallback)
+    let url: string;
 
-    // Clean up server path - remove trailing slashes and ensure single leading slash
-    const cleanPath = server.path.replace(/\/+$/, '').replace(/^\/+/, '/');
+    if (server.mcp_endpoint) {
+      url = server.mcp_endpoint;
+    } else if (isRegistryOnly && server.proxy_pass_url) {
+      url = server.proxy_pass_url;
+    } else {
+      const currentUrl = new URL(window.location.origin);
+      const baseUrl = `${currentUrl.protocol}//${currentUrl.hostname}`;
+      const cleanPath = server.path.replace(/\/+$/, '').replace(/^\/+/, '/');
+      url = `${baseUrl}${cleanPath}/mcp`;
+    }
 
-    // Use custom mcp_endpoint if available, otherwise construct default URL
-    const url = server.mcp_endpoint || `${baseUrl}${cleanPath}/mcp`;
+    // In registry-only mode, don't include gateway auth headers
+    const includeAuthHeaders = !isRegistryOnly;
 
     switch (selectedIDE) {
       case 'vscode':
@@ -39,27 +55,33 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
             [serverName]: {
               type: 'http',
               url,
-              headers: {
-                Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
-              },
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
+                },
+              }),
             },
           },
-          inputs: [
-            {
-              type: 'promptString',
-              id: 'auth-token',
-              description: 'Gateway Authentication Token',
-            },
-          ],
+          ...(includeAuthHeaders && {
+            inputs: [
+              {
+                type: 'promptString',
+                id: 'auth-token',
+                description: 'Gateway Authentication Token',
+              },
+            ],
+          }),
         };
       case 'cursor':
         return {
           mcpServers: {
             [serverName]: {
               url,
-              headers: {
-                Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
-              },
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
+                },
+              }),
             },
           },
         };
@@ -70,9 +92,11 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
               type: 'streamableHttp',
               url,
               disabled: false,
-              headers: {
-                Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
-              },
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
+                },
+              }),
             },
           },
         };
@@ -82,9 +106,11 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
             [serverName]: {
               type: 'http',
               url,
-              headers: {
-                Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
-              },
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
+                },
+              }),
             },
           },
         };
@@ -94,14 +120,16 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
             [serverName]: {
               type: 'http',
               url,
-              headers: {
-                Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
-              },
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: 'Bearer [YOUR_AUTH_TOKEN]',
+                },
+              }),
             },
           },
         };
     }
-  }, [server.name, server.path, selectedIDE]);
+  }, [server.name, server.path, server.proxy_pass_url, server.mcp_endpoint, selectedIDE, isRegistryOnly]);
 
   const copyConfigToClipboard = useCallback(async () => {
     try {
@@ -145,25 +173,43 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
               <li>
                 Paste it into your <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">mcp.json</code> file
               </li>
-              <li>
-                Replace <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">[YOUR_AUTH_TOKEN]</code> with your
-                gateway authentication token
-              </li>
-              <li>
-                Replace <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">[YOUR_CLIENT_ID]</code> with your
-                client ID
-              </li>
+              {!isRegistryOnly && (
+                <>
+                  <li>
+                    Replace <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">[YOUR_AUTH_TOKEN]</code> with your
+                    gateway authentication token
+                  </li>
+                  <li>
+                    Replace <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">[YOUR_CLIENT_ID]</code> with your
+                    client ID
+                  </li>
+                </>
+              )}
               <li>Restart your AI coding assistant to load the new configuration</li>
             </ol>
           </div>
 
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-            <h4 className="font-medium text-amber-900 dark:text-amber-100 mb-2">Authentication Required</h4>
-            <p className="text-sm text-amber-800 dark:text-amber-200">
-              This configuration requires gateway authentication tokens. The tokens authenticate your AI assistant with
-              the MCP Gateway, not the individual server. Visit the authentication documentation for setup instructions.
-            </p>
-          </div>
+          {!isRegistryOnly ? (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+              <h4 className="font-medium text-amber-900 dark:text-amber-100 mb-2">Authentication Required</h4>
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                This configuration requires gateway authentication tokens. The tokens authenticate your AI assistant with
+                the MCP Gateway, not the individual server. Visit the authentication documentation for setup instructions.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Direct Connection Mode</h4>
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                This registry operates in catalog-only mode. The configuration connects directly to the MCP server
+                endpoint without going through a gateway proxy.
+              </p>
+              <p className="text-sm text-blue-800 dark:text-blue-200 mt-2">
+                <strong>Note:</strong> The MCP server may still require authentication (API key, auth header, etc.).
+                Check the server's documentation to determine if any credentials are needed.
+              </p>
+            </div>
+          )}
 
           {server.mcp_endpoint && (
             <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">

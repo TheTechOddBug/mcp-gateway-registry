@@ -294,3 +294,17 @@ registry_api_token = "m3zT65wREARMVDToKosg_DgNkKqS_434hNxy3sslGPY"
 #   - Azure China: https://login.chinacloudapi.cn
 #   - Azure Germany: https://login.microsoftonline.de
 # entra_login_base_url = "https://login.microsoftonline.com"
+
+# ============================================================================
+# DEPLOYMENT MODE CONFIGURATION
+# ============================================================================
+
+# Deployment mode: "with-gateway" or "registry-only"
+# with-gateway: Full integration with nginx reverse proxy
+# registry-only: Registry operates as catalog/discovery service only
+deployment_mode = "with-gateway"
+
+# Registry mode: "full", "skills-only", "mcp-servers-only", "agents-only"
+# full: All features enabled
+# skills-only: Only skills functionality (automatically uses registry-only deployment)
+registry_mode = "full"

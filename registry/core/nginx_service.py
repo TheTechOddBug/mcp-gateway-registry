@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 
 from .config import settings
+from .metrics import NGINX_UPDATES_SKIPPED
 from registry.constants import HealthStatus, REGISTRY_CONSTANTS
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,14 @@ class NginxConfigService:
 
     def generate_config(self, servers: Dict[str, Dict[str, Any]]) -> bool:
         """Generate Nginx configuration (synchronous version for non-async contexts)."""
+        if not settings.nginx_updates_enabled:
+            logger.debug(
+                f"Skipping MCP server location block generation - "
+                f"DEPLOYMENT_MODE={settings.deployment_mode.value}"
+            )
+            NGINX_UPDATES_SKIPPED.labels(operation="generate_config").inc()
+            return True
+
         try:
             # Check if we're in an async context
             try:
@@ -159,7 +168,19 @@ class NginxConfigService:
             return False
         
     async def generate_config_async(self, servers: Dict[str, Dict[str, Any]]) -> bool:
-        """Generate Nginx configuration with additional server names and dynamic location blocks."""
+        """Generate Nginx configuration with additional server names and dynamic location blocks.
+
+        In registry-only mode, this is a no-op - we don't generate
+        location blocks for registered servers.
+        """
+        if not settings.nginx_updates_enabled:
+            logger.debug(
+                f"Skipping MCP server location block generation - "
+                f"DEPLOYMENT_MODE={settings.deployment_mode.value}"
+            )
+            NGINX_UPDATES_SKIPPED.labels(operation="generate_config").inc()
+            return True
+
         try:
             # Read template
             if not self.nginx_template_path.exists():
@@ -339,7 +360,17 @@ class NginxConfigService:
             return False
             
     def reload_nginx(self) -> bool:
-        """Reload Nginx configuration (if running in appropriate environment)."""
+        """Reload Nginx configuration (if running in appropriate environment).
+
+        In registry-only mode, skip reload since no config changes were made.
+        """
+        if not settings.nginx_updates_enabled:
+            logger.debug(
+                f"Skipping nginx reload - DEPLOYMENT_MODE={settings.deployment_mode.value}"
+            )
+            NGINX_UPDATES_SKIPPED.labels(operation="reload").inc()
+            return True
+
         try:
             import subprocess
 

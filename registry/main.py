@@ -31,6 +31,7 @@ from registry.api.federation_routes import router as federation_router
 from registry.api.federation_export_routes import router as federation_export_router
 from registry.api.peer_management_routes import router as peer_management_router
 from registry.api.skill_routes import router as skill_router
+from registry.api.config_routes import router as config_router
 from registry.health.routes import router as health_router
 from registry.audit.routes import router as audit_router
 
@@ -51,7 +52,8 @@ from registry.services.peer_federation_service import get_peer_federation_servic
 from registry.services.peer_sync_scheduler import get_peer_sync_scheduler
 
 # Import core configuration
-from registry.core.config import settings
+from registry.core.config import settings, _validate_mode_combination, _print_config_warning_banner
+from registry.core.metrics import DEPLOYMENT_MODE_INFO
 
 # Import audit logging
 from registry.audit import AuditLogger, add_audit_middleware
@@ -108,10 +110,54 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging configured. Writing to file: {log_file_path}")
 
 
+def _log_startup_configuration() -> None:
+    """Log startup configuration with clear formatting."""
+    logger.info("=" * 60)
+    logger.info("Registry starting with:")
+    logger.info(f"  - DEPLOYMENT_MODE: {settings.deployment_mode.value}")
+    logger.info(f"  - REGISTRY_MODE: {settings.registry_mode.value}")
+    logger.info(f"  - Nginx updates: {'ENABLED' if settings.nginx_updates_enabled else 'DISABLED'}")
+    logger.info("=" * 60)
+
+
+def _initialize_deployment_metrics() -> None:
+    """Initialize deployment mode Prometheus metrics."""
+    DEPLOYMENT_MODE_INFO.labels(
+        deployment_mode=settings.deployment_mode.value,
+        registry_mode=settings.registry_mode.value
+    ).set(1)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle management."""
     logger.info("🚀 Starting MCP Gateway Registry...")
+
+    # Validate and potentially correct mode combination
+    original_deployment = settings.deployment_mode
+    original_registry = settings.registry_mode
+
+    corrected_deployment, corrected_registry, was_corrected = _validate_mode_combination(
+        original_deployment,
+        original_registry
+    )
+
+    if was_corrected:
+        _print_config_warning_banner(
+            original_deployment,
+            original_registry,
+            corrected_deployment,
+            corrected_registry
+        )
+        # Update settings (use object.__setattr__ for frozen pydantic settings)
+        object.__setattr__(settings, 'deployment_mode', corrected_deployment)
+        object.__setattr__(settings, 'registry_mode', corrected_registry)
+
+    # Log startup configuration
+    _log_startup_configuration()
+
+    # Initialize Prometheus metrics
+    _initialize_deployment_metrics()
 
     # Initialize audit logger reference (middleware added at module level)
     audit_logger = getattr(app.state, 'audit_logger', None)
@@ -241,14 +287,17 @@ async def lifespan(app: FastAPI):
         await peer_sync_scheduler.start()
         logger.info("Peer sync scheduler started")
 
-        logger.info("🌐 Generating initial Nginx configuration...")
-        enabled_service_paths = await server_service.get_enabled_services()
-        enabled_servers = {}
-        for path in enabled_service_paths:
-            server_info = await server_service.get_server_info(path)
-            if server_info:
-                enabled_servers[path] = server_info
-        await nginx_service.generate_config_async(enabled_servers)
+        if settings.nginx_updates_enabled:
+            logger.info("🌐 Generating initial Nginx configuration...")
+            enabled_service_paths = await server_service.get_enabled_services()
+            enabled_servers = {}
+            for path in enabled_service_paths:
+                server_info = await server_service.get_server_info(path)
+                if server_info:
+                    enabled_servers[path] = server_info
+            await nginx_service.generate_config_async(enabled_servers)
+        else:
+            logger.info("⏭️ Skipping Nginx configuration (registry-only mode)")
 
         logger.info("✅ All services initialized successfully!")
         
@@ -389,6 +438,7 @@ app.include_router(management_router, prefix="/api")
 app.include_router(search_router, prefix="/api/search", tags=["Semantic Search"])
 app.include_router(federation_router, prefix="/api", tags=["federation"])
 app.include_router(skill_router, prefix="/api", tags=["skills"])
+app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(health_router, prefix="/api/health", tags=["Health Monitoring"])
 app.include_router(federation_export_router)
 app.include_router(peer_management_router)
@@ -472,7 +522,13 @@ async def get_current_user(user_context: Dict[str, Any] = Depends(nginx_proxied_
 @app.get("/health")
 async def health_check():
     """Simple health check for load balancers and monitoring."""
-    return {"status": "healthy", "service": "mcp-gateway-registry"}
+    return {
+        "status": "healthy",
+        "service": "mcp-gateway-registry",
+        "deployment_mode": settings.deployment_mode.value,
+        "registry_mode": settings.registry_mode.value,
+        "nginx_updates_enabled": settings.nginx_updates_enabled,
+    }
 
 
 # Version endpoint for UI
