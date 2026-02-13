@@ -1,4 +1,6 @@
 # This template patches the Keycloak ingress hostname to use the global domain
+# Only deployed when the auth provider is keycloak (not entra)
+{{- if eq .Values.global.authProvider.type "keycloak" }}
 {{- $routingMode := .Values.global.ingress.routingMode | default "subdomain" }}
 {{- $pathPrefix := .Values.global.ingress.paths.keycloak | default "/keycloak" }}
 apiVersion: networking.k8s.io/v1
@@ -45,3 +47,4 @@ spec:
                 port:
                   number: 8080
     {{- end }}
+{{- end }}
