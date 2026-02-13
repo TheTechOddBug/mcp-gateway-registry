@@ -6,7 +6,8 @@ This collection of charts deploys everything needed to install the MCP Gateway R
 
 ### Amazon EKS Cluster
 
-For production deployments, we recommend using the [AWS AI/ML on Amazon EKS](https://github.com/awslabs/ai-on-eks) blueprints to provision a production-ready EKS cluster:
+For production deployments, we recommend using the [AWS AI/ML on Amazon EKS](https://github.com/awslabs/ai-on-eks)
+blueprints to provision a production-ready EKS cluster:
 
 ```bash
 # Clone AI on EKS repository
@@ -20,6 +21,7 @@ cd infra/custom
 ```
 
 The ai-on-eks blueprints provide:
+
 - GPU support for AI/ML workloads
 - Karpenter for efficient auto-scaling
 - EKS-optimized configurations
@@ -118,7 +120,6 @@ auth-server:
 
 See the [Entra ID documentation](../../docs/entra.md) for details on setting up your Entra ID app registration.
 
-
 ### Routing Modes
 
 The stack supports two routing modes for accessing services:
@@ -126,11 +127,13 @@ The stack supports two routing modes for accessing services:
 #### Subdomain-Based Routing (Default)
 
 Services are accessed via subdomains:
+
 - `keycloak.{domain}` - Keycloak authentication server
 - `auth-server.{domain}` - MCP Gateway auth server
 - `mcpregistry.{domain}` - MCP server registry
 
 **Configuration:**
+
 ```yaml
 global:
   domain: "yourdomain.com"
@@ -143,12 +146,14 @@ global:
 #### Path-Based Routing
 
 Services are accessed via paths on a single domain:
+
 - `{domain}/keycloak` - Keycloak authentication server (default, configurable)
 - `{domain}/auth-server` - MCP Gateway auth server (default, configurable)
 - `{domain}/registry` - MCP server registry (default, configurable)
 - `{domain}/` - MCP server registry (root path)
 
 **Configuration:**
+
 ```yaml
 global:
   domain: "yourdomain.com"
@@ -161,6 +166,7 @@ global:
 ```
 
 **Important:** If you customize the Keycloak path, update the helm variable:
+
 ```yaml
 keycloak:
   httpRelativePath: /keycloak/
@@ -179,6 +185,10 @@ helm install mcp-gateway-registry -n MYNAMESPACE --create-namespace .
 ```
 
 This will deploy the necessary resources for a Kubernetes deployment of the MCP Gateway Registry
+
+**Note:** You can add `--set global.chartVersion=$(git rev-parse HEAD)` to your helm install command, which will create
+a configmap that has the version of the repository as the value. This can aid in debugging by making it much faster to
+identify which version was used to deploy the charts.
 
 ## Deploy Process
 
@@ -208,6 +218,7 @@ Navigate to the registry based on your routing mode:
 **Path mode:** https://DOMAIN/registry or https://DOMAIN/
 
 ### With Keycloak
+
 The username/password are displayed in the output of the `keycloak-configure job`
 
 ```bash
@@ -232,7 +243,8 @@ You will see the credentials in the output
 
 ### With Entra ID:
 
-Navigate to https://mcpregistry.DOMAIN to log in. Users will authenticate using their Microsoft Entra ID credentials. Ensure that:
+Navigate to https://mcpregistry.DOMAIN to log in. Users will authenticate using their Microsoft Entra ID credentials.
+Ensure that:
 
 1. Your Entra ID app registration has the correct redirect URIs configured
 2. Users are assigned to the appropriate Entra ID groups
@@ -258,13 +270,17 @@ For production environments, we recommend running at least 2 replicas of each se
 
 ### Topology Spread Constraints
 
-By default, neither the auth-server nor registry deployments include `topologySpreadConstraints`. This is intentional for several reasons:
+By default, neither the auth-server nor registry deployments include `topologySpreadConstraints`. This is intentional
+for several reasons:
 
-1. **Routing Complexity**: Routing is complex and handled differently between deployments  
-2. **Development Flexibility**: Single-node or small clusters (common in dev/test) would fail to schedule pods with strict spread constraints
+1. **Routing Complexity**: Routing is complex and handled differently between deployments
+2. **Development Flexibility**: Single-node or small clusters (common in dev/test) would fail to schedule pods with
+   strict spread constraints
 3. **Custom Requirements**: Organizations often have specific topology requirements that vary by environment
 
-For production deployments on multi-AZ clusters, we recommend adding topology spread constraints to both deployments to distribute pods across availability zones and nodes. This improves fault tolerance and ensures service availability during zone or node failures.
+For production deployments on multi-AZ clusters, we recommend adding topology spread constraints to both deployments to
+distribute pods across availability zones and nodes. This improves fault tolerance and ensures service availability
+during zone or node failures.
 
 #### Adding Topology Spread Constraints
 
@@ -341,4 +357,5 @@ kubectl patch deployment registry -n MYNAMESPACE --type='json' -p='[
 - **`topology.kubernetes.io/zone`**: Spreads pods across availability zones for zone-level fault tolerance
 - **`kubernetes.io/hostname`**: Spreads pods across different nodes within each zone for node-level fault tolerance
 - **`maxSkew: 1`**: Ensures pods are distributed as evenly as possible (difference between zones/nodes is at most 1)
-- **`whenUnsatisfiable: ScheduleAnyway`**: Uses soft constraints that prefer even distribution but won't block scheduling if perfect distribution isn't possible. Change to `DoNotSchedule` for strict enforcement
+- **`whenUnsatisfiable: ScheduleAnyway`**: Uses soft constraints that prefer even distribution but won't block
+  scheduling if perfect distribution isn't possible. Change to `DoNotSchedule` for strict enforcement
