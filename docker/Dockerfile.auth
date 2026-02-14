@@ -1,27 +1,51 @@
-# Auth Dockerfile - separate and scalable auth service
-FROM python:3.12-slim
+# Auth Dockerfile - multi-stage build for smaller image and better caching
+
+# ===== BUILD STAGE =====
+FROM python:3.12-slim AS builder
 
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install build dependencies (only needed for compiling wheels)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
     build-essential \
-    && apt-get clean \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy auth server files and registry module
+# Install uv and create venv (rarely changes)
+RUN pip install --no-cache-dir uv && \
+    uv venv .venv --python 3.12
+
+# Copy ONLY the dependency manifest first to leverage Docker layer caching.
+# Dependencies are reinstalled only when pyproject.toml changes, not on every code change.
+COPY auth_server/pyproject.toml /app/pyproject.toml
+
+RUN . .venv/bin/activate && \
+    uv pip install --requirement pyproject.toml
+
+# ===== RUNTIME STAGE =====
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+
+# Install only runtime system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the pre-built virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Copy entrypoint script early (rarely changes, avoids cache bust from code changes)
+COPY docker/auth-entrypoint.sh /app/auth-entrypoint.sh
+RUN chmod +x /app/auth-entrypoint.sh
+
+# Now copy the actual application code (this layer changes frequently but deps are cached above)
 COPY auth_server/ /app/
 COPY registry/ /app/registry/
-
-# Install uv and setup Python environment
-RUN pip install uv && \
-    uv venv .venv --python 3.12 && \
-    . .venv/bin/activate && \
-    uv pip install --requirement pyproject.toml
 
 # Create logs directory
 RUN mkdir -p /app/logs
@@ -33,9 +57,5 @@ EXPOSE 8888
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8888/health || exit 1
 
-# Copy entrypoint script
-COPY docker/auth-entrypoint.sh /app/auth-entrypoint.sh
-RUN chmod +x /app/auth-entrypoint.sh
-
 # Start the auth server via entrypoint
-ENTRYPOINT ["/app/auth-entrypoint.sh"] 
+ENTRYPOINT ["/app/auth-entrypoint.sh"]
