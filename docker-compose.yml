@@ -66,6 +66,10 @@ services:
       args:
         BUILD_VERSION: ${BUILD_VERSION:-1.0.0}
     environment:
+      # Deployment Mode Configuration
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-with-gateway}
+      - REGISTRY_MODE=${REGISTRY_MODE:-full}
+      - GATEWAY_ADDITIONAL_SERVER_NAMES=${GATEWAY_ADDITIONAL_SERVER_NAMES:-}
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}

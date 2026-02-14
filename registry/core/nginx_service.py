@@ -167,13 +167,23 @@ class NginxConfigService:
             logger.error(f"Failed to generate Nginx configuration: {e}", exc_info=True)
             return False
         
-    async def generate_config_async(self, servers: Dict[str, Dict[str, Any]]) -> bool:
+    async def generate_config_async(
+        self,
+        servers: Dict[str, Dict[str, Any]],
+        force_base_config: bool = False
+    ) -> bool:
         """Generate Nginx configuration with additional server names and dynamic location blocks.
 
-        In registry-only mode, this is a no-op - we don't generate
-        location blocks for registered servers.
+        Args:
+            servers: Dictionary of server path -> server info for location blocks
+            force_base_config: If True, generate base config even in registry-only mode
+                              (used at startup to ensure nginx has valid config)
+
+        In registry-only mode:
+        - At startup (force_base_config=True): generates base config with empty location blocks
+        - On server changes (force_base_config=False): skips regeneration (no-op)
         """
-        if not settings.nginx_updates_enabled:
+        if not settings.nginx_updates_enabled and not force_base_config:
             logger.debug(
                 f"Skipping MCP server location block generation - "
                 f"DEPLOYMENT_MODE={settings.deployment_mode.value}"
@@ -267,26 +277,28 @@ class NginxConfigService:
                 else:
                     logger.warning("NGINX_DISABLE_API_AUTH_REQUEST enabled but could not find /api/ auth_request block in template")
             
-            # Get health service to check server health
-            from ..health.service import health_service
-            
             # Generate location blocks for enabled and healthy servers with transport support
+            # In registry-only mode, skip MCP server location blocks (use empty list)
             location_blocks = []
-            for path, server_info in servers.items():
-                proxy_pass_url = server_info.get("proxy_pass_url")
-                if proxy_pass_url:
-                    # Check if server is healthy (including auth-expired which is still reachable)
-                    health_status = health_service.server_health_status.get(path, HealthStatus.UNKNOWN)
-                    
-                    # Include servers that are healthy or just have expired auth (server is up)
-                    if HealthStatus.is_healthy(health_status):
-                        # Generate transport-aware location blocks
-                        transport_blocks = self._generate_transport_location_blocks(path, server_info)
-                        location_blocks.extend(transport_blocks)
-                        logger.debug(f"Added location blocks for healthy service: {path}")
-                    else:
-                        # Add commented out block for unhealthy services
-                        commented_block = f"""
+            if settings.nginx_updates_enabled:
+                # Get health service to check server health
+                from ..health.service import health_service
+
+                for path, server_info in servers.items():
+                    proxy_pass_url = server_info.get("proxy_pass_url")
+                    if proxy_pass_url:
+                        # Check if server is healthy (including auth-expired which is still reachable)
+                        health_status = health_service.server_health_status.get(path, HealthStatus.UNKNOWN)
+
+                        # Include servers that are healthy or just have expired auth (server is up)
+                        if HealthStatus.is_healthy(health_status):
+                            # Generate transport-aware location blocks
+                            transport_blocks = self._generate_transport_location_blocks(path, server_info)
+                            location_blocks.extend(transport_blocks)
+                            logger.debug(f"Added location blocks for healthy service: {path}")
+                        else:
+                            # Add commented out block for unhealthy services
+                            commented_block = f"""
 #    location {path}/ {{
 #        # Service currently unhealthy (status: {health_status})
 #        # Proxy to MCP server
@@ -297,8 +309,12 @@ class NginxConfigService:
 #        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 #        proxy_set_header X-Forwarded-Proto $scheme;
 #    }}"""
-                        location_blocks.append(commented_block)
-                        logger.debug(f"Added commented location block for unhealthy service {path} (status: {health_status})")
+                            location_blocks.append(commented_block)
+                            logger.debug(f"Added commented location block for unhealthy service {path} (status: {health_status})")
+            else:
+                logger.info(
+                    f"Registry-only mode: generating base nginx config without MCP server location blocks"
+                )
             
             # Fetch additional server names (custom domains/IPs)
             additional_server_names = await self.get_additional_server_names()
@@ -349,7 +365,11 @@ class NginxConfigService:
                     keycloak_port = '8080'
 
             # Generate version map for multi-version servers
-            version_map = await self._generate_version_map(servers)
+            # In registry-only mode, skip version map generation (use empty string)
+            if settings.nginx_updates_enabled:
+                version_map = await self._generate_version_map(servers)
+            else:
+                version_map = ""
 
             # Replace placeholders in template
             root_path = os.environ.get("ROOT_PATH", "").rstrip("/")
@@ -367,9 +387,10 @@ class NginxConfigService:
                 f.write(config_content)
 
             logger.info(f"Generated Nginx configuration with {len(location_blocks)} location blocks and additional server names: {additional_server_names}")
-            
+
             # Automatically reload nginx after generating config
-            self.reload_nginx()
+            # Use force=True when generating base config to ensure nginx picks up changes
+            self.reload_nginx(force=force_base_config)
             
             return True
             
@@ -377,12 +398,15 @@ class NginxConfigService:
             logger.error(f"Failed to generate Nginx configuration: {e}", exc_info=True)
             return False
             
-    def reload_nginx(self) -> bool:
+    def reload_nginx(self, force: bool = False) -> bool:
         """Reload Nginx configuration (if running in appropriate environment).
 
-        In registry-only mode, skip reload since no config changes were made.
+        Args:
+            force: If True, reload even in registry-only mode (used after base config generation)
+
+        In registry-only mode, skip reload unless force=True.
         """
-        if not settings.nginx_updates_enabled:
+        if not settings.nginx_updates_enabled and not force:
             logger.debug(
                 f"Skipping nginx reload - DEPLOYMENT_MODE={settings.deployment_mode.value}"
             )

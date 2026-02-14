@@ -35,8 +35,15 @@ def nginx_service():
 
         mock_path_class.return_value = mock_template
 
-        service = NginxConfigService()
-        return service
+        # Mock settings.nginx_updates_enabled to True for testing
+        with patch("registry.core.nginx_service.settings") as mock_settings:
+            mock_settings.nginx_updates_enabled = True
+            mock_settings.deployment_mode = MagicMock()
+            mock_settings.deployment_mode.value = "with-gateway"
+            mock_settings.nginx_config_path = "/etc/nginx/conf.d/nginx_rev_proxy.conf"
+
+            service = NginxConfigService()
+            yield service
 
 
 @pytest.fixture
