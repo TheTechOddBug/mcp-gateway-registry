@@ -29,4 +29,4 @@ fi
 echo "Starting Auth Server..."
 cd /app
 source .venv/bin/activate
-exec uvicorn server:app --host 0.0.0.0 --port 8888
+exec uvicorn server:app --host 0.0.0.0 --port 8888 --proxy-headers --forwarded-allow-ips='*'
