@@ -1829,17 +1829,26 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         {/* Fixed Header Section */}
         <div className="flex-shrink-0 space-y-4 pb-4">
           {/* View Filter Tabs - conditionally show based on registry mode */}
+          {/* Calculate if multiple features are enabled to determine if "All" tab is needed */}
           <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-            <button
-              onClick={() => handleChangeViewFilter('all')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'all'
-                  ? 'border-purple-500 text-purple-600 dark:text-purple-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              All
-            </button>
+            {/* Only show "All" tab if more than one feature is enabled */}
+            {[
+              registryConfig?.features.mcp_servers !== false,
+              registryConfig?.features.agents !== false,
+              registryConfig?.features.skills !== false,
+              registryConfig?.features.federation !== false
+            ].filter(Boolean).length > 1 && (
+              <button
+                onClick={() => handleChangeViewFilter('all')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'all'
+                    ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                All
+              </button>
+            )}
             {registryConfig?.features.mcp_servers !== false && (
               <button
                 onClick={() => handleChangeViewFilter('servers')}
@@ -1947,7 +1956,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                 </>
               ) : (
                 <>
-                  Showing {filteredServers.length} servers, {filteredAgents.length} agents, {filteredSkills.length} skills
+                  {/* Dynamic count display based on enabled features */}
+                  Showing{' '}
+                  {registryConfig?.features.mcp_servers !== false && (
+                    <>{filteredServers.length} servers</>
+                  )}
+                  {registryConfig?.features.mcp_servers !== false && registryConfig?.features.agents !== false && ', '}
+                  {registryConfig?.features.agents !== false && (
+                    <>{filteredAgents.length} agents</>
+                  )}
+                  {(registryConfig?.features.mcp_servers !== false || registryConfig?.features.agents !== false) && registryConfig?.features.skills !== false && ', '}
+                  {registryConfig?.features.skills !== false && (
+                    <>{filteredSkills.length} skills</>
+                  )}
                 </>
               )}
               {activeFilter !== 'all' && (

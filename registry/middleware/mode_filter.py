@@ -21,12 +21,15 @@ logger = logging.getLogger(__name__)
 
 
 # Endpoints that are always allowed regardless of mode
+# These are administrative/infrastructure endpoints, not feature-specific
 ALWAYS_ALLOWED_PREFIXES = (
     "/health",
     "/api/version",
     "/api/config",
     "/api/auth/",
     "/api/tokens/",
+    "/api/audit/",
+    "/api/management/",
     "/oauth2/",
     "/docs",
     "/openapi.json",

@@ -55,6 +55,19 @@ class TestPathAllowed:
         assert _is_path_allowed("/api/tokens/generate", RegistryMode.SKILLS_ONLY) is True
         assert _is_path_allowed("/oauth2/callback", RegistryMode.SKILLS_ONLY) is True
 
+    def test_audit_always_allowed(self):
+        """Audit endpoints should always be allowed (administrative functionality)."""
+        assert _is_path_allowed("/api/audit/logs", RegistryMode.SKILLS_ONLY) is True
+        assert _is_path_allowed("/api/audit/export", RegistryMode.SKILLS_ONLY) is True
+        assert _is_path_allowed("/api/audit/logs", RegistryMode.MCP_SERVERS_ONLY) is True
+        assert _is_path_allowed("/api/audit/logs", RegistryMode.AGENTS_ONLY) is True
+
+    def test_management_always_allowed(self):
+        """Management endpoints should always be allowed (administrative functionality)."""
+        assert _is_path_allowed("/api/management/settings", RegistryMode.SKILLS_ONLY) is True
+        assert _is_path_allowed("/api/management/", RegistryMode.MCP_SERVERS_ONLY) is True
+        assert _is_path_allowed("/api/management/", RegistryMode.AGENTS_ONLY) is True
+
     def test_full_mode_allows_all(self):
         """Full mode should allow all endpoints."""
         assert _is_path_allowed("/api/servers", RegistryMode.FULL) is True

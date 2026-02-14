@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { useRegistryConfig } from './useRegistryConfig';
 
 interface ServerVersion {
   version: string;
@@ -73,6 +74,9 @@ export const useServerStats = (): UseServerStatsReturn => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Get registry config to determine which features are enabled
+  const { config: registryConfig } = useRegistryConfig();
+
   // Helper function to map backend health status to frontend status
   const mapHealthStatus = (healthStatus: string): 'healthy' | 'unhealthy' | 'unknown' => {
     if (!healthStatus || healthStatus === 'unknown') return 'unknown';
@@ -85,12 +89,35 @@ export const useServerStats = (): UseServerStatsReturn => {
     try {
       setLoading(true);
       setError(null);
-      
-      // Fetch both servers and agents in parallel
-      const [serversResponse, agentsResponse] = await Promise.all([
-        axios.get('/api/servers'),
-        axios.get('/api/agents').catch(() => ({ data: { agents: [] } })) // Graceful fallback
-      ]);
+
+      // Check which features are enabled based on registry mode
+      const serversEnabled = registryConfig?.features.mcp_servers !== false;
+      const agentsEnabled = registryConfig?.features.agents !== false;
+      const skillsEnabled = registryConfig?.features.skills !== false;
+
+      // Build fetch promises based on enabled features
+      const fetchPromises: Promise<any>[] = [];
+
+      if (serversEnabled) {
+        fetchPromises.push(axios.get('/api/servers').catch(() => ({ data: { servers: [] } })));
+      } else {
+        fetchPromises.push(Promise.resolve({ data: { servers: [] } }));
+      }
+
+      if (agentsEnabled) {
+        fetchPromises.push(axios.get('/api/agents').catch(() => ({ data: { agents: [] } })));
+      } else {
+        fetchPromises.push(Promise.resolve({ data: { agents: [] } }));
+      }
+
+      // Fetch skills for stats if skills are enabled
+      if (skillsEnabled) {
+        fetchPromises.push(axios.get('/api/skills').catch(() => ({ data: { skills: [] } })));
+      } else {
+        fetchPromises.push(Promise.resolve({ data: { skills: [] } }));
+      }
+
+      const [serversResponse, agentsResponse, skillsResponse] = await Promise.all(fetchPromises);
       
       // The API returns {"servers": [...]} 
       const responseData = serversResponse.data || {};
@@ -99,7 +126,11 @@ export const useServerStats = (): UseServerStatsReturn => {
       // The agents API returns {"agents": [...]}
       const agentsData = agentsResponse.data || {};
       const agentsList = agentsData.agents || [];
-      
+
+      // The skills API returns {"skills": [...]}
+      const skillsData = skillsResponse.data || {};
+      const skillsList = skillsData.skills || [];
+
       // Debug logging to see what servers are returned
       console.log('🔍 Server filtering debug info:');
       console.log(`📊 Total servers returned from API: ${serversList.length}`);
@@ -186,29 +217,56 @@ export const useServerStats = (): UseServerStatsReturn => {
       setServers(transformedServers);
       setAgents(transformedAgents);
 
-      // Combine for stats calculation
-      const allServices = [...transformedServers, ...transformedAgents];
-
-      // Calculate stats from combined list
+      // Calculate stats based on what features are enabled
       let total = 0;
       let enabled = 0;
       let disabled = 0;
       let withIssues = 0;
-      
-      allServices.forEach((service) => {
-        total++;
-        if (service.enabled) {
-          enabled++;
-        } else {
-          disabled++;
-        }
-        
-        // Check if service has issues (unhealthy status)
-        if (service.status === 'unhealthy') {
-          withIssues++;
-        }
-      });
-      
+
+      // Include servers in stats if enabled
+      if (serversEnabled) {
+        transformedServers.forEach((service) => {
+          total++;
+          if (service.enabled) {
+            enabled++;
+          } else {
+            disabled++;
+          }
+          if (service.status === 'unhealthy') {
+            withIssues++;
+          }
+        });
+      }
+
+      // Include agents in stats if enabled
+      if (agentsEnabled) {
+        transformedAgents.forEach((service) => {
+          total++;
+          if (service.enabled) {
+            enabled++;
+          } else {
+            disabled++;
+          }
+          if (service.status === 'unhealthy') {
+            withIssues++;
+          }
+        });
+      }
+
+      // Include skills in stats if enabled (and servers/agents are not)
+      // This ensures skills-only mode shows skill stats
+      if (skillsEnabled) {
+        skillsList.forEach((skill: any) => {
+          total++;
+          if (skill.is_enabled !== false) {
+            enabled++;
+          } else {
+            disabled++;
+          }
+          // Skills don't have health status, so no withIssues increment
+        });
+      }
+
       const newStats = {
         total,
         enabled,
@@ -216,10 +274,10 @@ export const useServerStats = (): UseServerStatsReturn => {
         withIssues,
       };
       
-      console.log('📈 Calculated stats (servers + agents):', newStats);
+      console.log('Calculated stats (servers + agents + skills):', newStats);
       setStats(newStats);
     } catch (err: any) {
-      console.error('Failed to fetch server/agent data:', err);
+      console.error('Failed to fetch data:', err);
       setError(err.response?.data?.detail || 'Failed to fetch data');
       setServers([]);
       setAgents([]);
@@ -227,7 +285,7 @@ export const useServerStats = (): UseServerStatsReturn => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [registryConfig]);
 
   useEffect(() => {
     fetchData();
