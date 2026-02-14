@@ -287,8 +287,10 @@ async def lifespan(app: FastAPI):
         await peer_sync_scheduler.start()
         logger.info("Peer sync scheduler started")
 
+        # Always generate nginx configuration at startup to ensure placeholders are replaced
+        # In registry-only mode, generate base config without MCP server location blocks
         if settings.nginx_updates_enabled:
-            logger.info("🌐 Generating initial Nginx configuration...")
+            logger.info("Generating initial Nginx configuration with MCP server locations...")
             enabled_service_paths = await server_service.get_enabled_services()
             enabled_servers = {}
             for path in enabled_service_paths:
@@ -297,7 +299,9 @@ async def lifespan(app: FastAPI):
                     enabled_servers[path] = server_info
             await nginx_service.generate_config_async(enabled_servers)
         else:
-            logger.info("⏭️ Skipping Nginx configuration (registry-only mode)")
+            logger.info("Generating base Nginx configuration (registry-only mode)...")
+            # Generate base config with empty location blocks but substitute all placeholders
+            await nginx_service.generate_config_async({}, force_base_config=True)
 
         logger.info("✅ All services initialized successfully!")
         

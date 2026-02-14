@@ -585,6 +585,14 @@ module "ecs_service_registry" {
         {
           name  = "AUDIT_LOG_MONGODB_TTL_DAYS"
           value = tostring(var.audit_log_ttl_days)
+        },
+        {
+          name  = "DEPLOYMENT_MODE"
+          value = var.deployment_mode
+        },
+        {
+          name  = "REGISTRY_MODE"
+          value = var.registry_mode
         }
       ]
 

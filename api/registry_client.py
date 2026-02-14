@@ -1094,6 +1094,31 @@ class RegistryClient:
         logger.info(f"Health check completed: {result.get('status', 'unknown')}")
         return result
 
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Get registry configuration including deployment mode and features.
+
+        Returns:
+            Configuration response with deployment_mode, registry_mode,
+            nginx_updates_enabled, and features dict
+
+        Raises:
+            requests.HTTPError: If request fails
+        """
+        logger.info("Fetching registry configuration")
+
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/config"
+        )
+
+        result = response.json()
+        logger.info(
+            f"Registry config: deployment_mode={result.get('deployment_mode')}, "
+            f"registry_mode={result.get('registry_mode')}"
+        )
+        return result
+
     def add_server_to_groups(
         self,
         server_name: str,

@@ -21,6 +21,12 @@ Server Management:
     # Health check
     uv run python registry_management.py healthcheck
 
+    # Get registry configuration (deployment mode, features)
+    uv run python registry_management.py config
+
+    # Get registry configuration as JSON
+    uv run python registry_management.py config --json
+
     # Rate a server (1-5 stars)
     uv run python registry_management.py server-rate --path /cloudflare-docs --rating 5
 
@@ -702,6 +708,50 @@ def cmd_healthcheck(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.error(f"Health check failed: {e}")
+        return 1
+
+
+def cmd_config(args: argparse.Namespace) -> int:
+    """
+    Get registry configuration including deployment mode and features.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.get_config()
+
+        logger.info(
+            f"Deployment Mode: {response.get('deployment_mode', 'unknown')}"
+        )
+        logger.info(
+            f"Registry Mode: {response.get('registry_mode', 'unknown')}"
+        )
+        logger.info(
+            f"Nginx Updates Enabled: {response.get('nginx_updates_enabled', 'unknown')}"
+        )
+
+        if args.json:
+            print(json.dumps(response, indent=2))
+        else:
+            print("\nRegistry Configuration:")
+            print(f"  Deployment Mode:       {response.get('deployment_mode')}")
+            print(f"  Registry Mode:         {response.get('registry_mode')}")
+            print(f"  Nginx Updates Enabled: {response.get('nginx_updates_enabled')}")
+            print("\nEnabled Features:")
+            features = response.get("features", {})
+            for feature, enabled in features.items():
+                status = "enabled" if enabled else "disabled"
+                print(f"  {feature}: {status}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to get config: {e}")
         return 1
 
 
@@ -3405,6 +3455,17 @@ Examples:
     # Healthcheck command
     healthcheck_parser = subparsers.add_parser("healthcheck", help="Health check all servers")
 
+    # Config command
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Get registry configuration (deployment mode, features)"
+    )
+    config_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw JSON instead of formatted text"
+    )
+
     # Add to groups command
     add_groups_parser = subparsers.add_parser("add-to-groups", help="Add server to groups")
     add_groups_parser.add_argument(
@@ -4461,6 +4522,7 @@ Examples:
         "toggle": cmd_toggle,
         "remove": cmd_remove,
         "healthcheck": cmd_healthcheck,
+        "config": cmd_config,
         "add-to-groups": cmd_add_to_groups,
         "remove-from-groups": cmd_remove_from_groups,
         "create-group": cmd_create_group,

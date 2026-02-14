@@ -502,3 +502,47 @@ variable "audit_log_ttl_days" {
     error_message = "Audit log TTL must be between 1 and 365 days"
   }
 }
+
+# =============================================================================
+# DEPLOYMENT MODE CONFIGURATION
+# =============================================================================
+
+variable "deployment_mode" {
+  description = <<-EOT
+    Controls how the registry integrates with the gateway/nginx.
+    - "with-gateway" (default): Full integration with nginx reverse proxy.
+      Nginx config is regenerated when servers are registered/deleted.
+      Frontend shows gateway authentication instructions.
+    - "registry-only": Registry operates as catalog/discovery service only.
+      Nginx config is NOT updated on server changes.
+      Frontend shows direct connection mode (proxy_pass_url).
+      Use when registry is separate from gateway infrastructure.
+  EOT
+  type        = string
+  default     = "with-gateway"
+
+  validation {
+    condition     = contains(["with-gateway", "registry-only"], var.deployment_mode)
+    error_message = "deployment_mode must be either 'with-gateway' or 'registry-only'"
+  }
+}
+
+variable "registry_mode" {
+  description = <<-EOT
+    Controls which features are enabled (informational - for UI feature flags).
+    This setting affects the /api/config response which the frontend can use
+    to show/hide navigation elements. Currently informational only - all APIs remain active.
+    - "full" (default): All features enabled (mcp_servers, agents, skills, federation)
+    - "skills-only": Only skills feature flag enabled
+    - "mcp-servers-only": Only MCP server feature flag enabled
+    - "agents-only": Only A2A agent feature flag enabled
+    Note: with-gateway + skills-only is invalid and auto-corrects to registry-only + skills-only
+  EOT
+  type        = string
+  default     = "full"
+
+  validation {
+    condition     = contains(["full", "skills-only", "mcp-servers-only", "agents-only"], var.registry_mode)
+    error_message = "registry_mode must be one of: 'full', 'skills-only', 'mcp-servers-only', 'agents-only'"
+  }
+}

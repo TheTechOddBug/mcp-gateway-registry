@@ -557,3 +557,19 @@ variable "audit_log_ttl_days" {
   type        = number
   default     = 7
 }
+
+# =============================================================================
+# DEPLOYMENT MODE CONFIGURATION
+# =============================================================================
+
+variable "deployment_mode" {
+  description = "Controls how the registry integrates with the gateway/nginx. 'with-gateway' for full integration, 'registry-only' for catalog-only mode."
+  type        = string
+  default     = "with-gateway"
+}
+
+variable "registry_mode" {
+  description = "Controls which features are enabled (informational - for UI feature flags). Options: 'full', 'skills-only', 'mcp-servers-only', 'agents-only'."
+  type        = string
+  default     = "full"
+}
