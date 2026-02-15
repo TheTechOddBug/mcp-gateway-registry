@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from ..audit import set_audit_action
 from ..auth.dependencies import nginx_proxied_auth
+from ..core.config import settings, RegistryMode
 from ..repositories.factory import get_search_repository
 from ..repositories.interfaces import SearchRepositoryBase
 from ..services.agent_service import agent_service
@@ -388,6 +389,26 @@ async def semantic_search(
                 match_context=skill.get("match_context"),
             )
         )
+
+    # Filter results based on registry mode
+    # In skills-only mode, only return skills; in servers-only mode, only return servers, etc.
+    mode = settings.registry_mode
+
+    if mode == RegistryMode.SKILLS_ONLY:
+        # Only skills are enabled
+        filtered_servers = []
+        filtered_tools = []
+        filtered_agents = []
+    elif mode == RegistryMode.MCP_SERVERS_ONLY:
+        # Only servers and tools are enabled
+        filtered_agents = []
+        filtered_skills = []
+    elif mode == RegistryMode.AGENTS_ONLY:
+        # Only agents are enabled
+        filtered_servers = []
+        filtered_tools = []
+        filtered_skills = []
+    # In FULL mode, return all results (no filtering needed)
 
     return SemanticSearchResponse(
         query=request.query.strip(),
