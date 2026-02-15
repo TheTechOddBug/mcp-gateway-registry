@@ -853,7 +853,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
     );
 
     try {
-      await axios.post(`/api/skills${path}/toggle?enabled=${enabled}`);
+      await axios.post(`/api/skills${path}/toggle`, { enabled });
 
       showToast(`Skill ${enabled ? 'enabled' : 'disabled'} successfully!`, 'success');
     } catch (error: any) {
