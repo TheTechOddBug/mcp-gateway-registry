@@ -90,6 +90,7 @@ COPY --from=backend-builder /app/pyproject.toml /app/pyproject.toml
 # These rarely change and don't depend on the Python build
 COPY docker/nginx_rev_proxy_http_only.conf /app/docker/nginx_rev_proxy_http_only.conf
 COPY docker/nginx_rev_proxy_http_and_https.conf /app/docker/nginx_rev_proxy_http_and_https.conf
+COPY docker/lua/ /app/docker/lua/
 
 # Copy entrypoint early (rarely changes)
 COPY docker/registry-entrypoint.sh /app/registry-entrypoint.sh

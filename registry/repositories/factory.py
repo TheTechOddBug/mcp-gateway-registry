@@ -9,12 +9,14 @@ from ..core.config import settings
 from .interfaces import (
     ServerRepositoryBase,
     AgentRepositoryBase,
+    BackendSessionRepositoryBase,
     ScopeRepositoryBase,
     SecurityScanRepositoryBase,
     SearchRepositoryBase,
     FederationConfigRepositoryBase,
     PeerFederationRepositoryBase,
     SkillRepositoryBase,
+    VirtualServerRepositoryBase,
 )
 from .audit_repository import AuditRepositoryBase
 
@@ -30,6 +32,8 @@ _federation_config_repo: Optional[FederationConfigRepositoryBase] = None
 _peer_federation_repo: Optional[PeerFederationRepositoryBase] = None
 _audit_repo: Optional[AuditRepositoryBase] = None
 _skill_repo: Optional[SkillRepositoryBase] = None
+_virtual_server_repo: Optional[VirtualServerRepositoryBase] = None
+_backend_session_repo: Optional[BackendSessionRepositoryBase] = None
 
 
 def get_server_repository() -> ServerRepositoryBase:
@@ -219,9 +223,55 @@ def get_skill_repository() -> SkillRepositoryBase:
     return _skill_repo
 
 
+def get_virtual_server_repository() -> VirtualServerRepositoryBase:
+    """Get virtual server repository singleton."""
+    global _virtual_server_repo
+
+    if _virtual_server_repo is not None:
+        return _virtual_server_repo
+
+    backend = settings.storage_backend
+    logger.info(f"Creating virtual server repository with backend: {backend}")
+
+    if backend in ("documentdb", "mongodb-ce"):
+        from .documentdb.virtual_server_repository import DocumentDBVirtualServerRepository
+        _virtual_server_repo = DocumentDBVirtualServerRepository()
+    else:
+        # File-based virtual server repository not implemented
+        # Fall back to DocumentDB repository
+        from .documentdb.virtual_server_repository import DocumentDBVirtualServerRepository
+        _virtual_server_repo = DocumentDBVirtualServerRepository()
+
+    return _virtual_server_repo
+
+
+def get_backend_session_repository() -> Optional[BackendSessionRepositoryBase]:
+    """Get backend session repository singleton.
+
+    Note: Backend session repository only supports DocumentDB/MongoDB backends.
+    Returns None if storage backend is 'file'.
+    """
+    global _backend_session_repo
+
+    if _backend_session_repo is not None:
+        return _backend_session_repo
+
+    backend = settings.storage_backend
+    logger.info(f"Creating backend session repository with backend: {backend}")
+
+    if backend in ("documentdb", "mongodb-ce"):
+        from .documentdb.backend_session_repository import DocumentDBBackendSessionRepository
+        _backend_session_repo = DocumentDBBackendSessionRepository()
+    else:
+        logger.warning("Backend session repository requires MongoDB backend. File backend not supported.")
+        return None
+
+    return _backend_session_repo
+
+
 def reset_repositories() -> None:
     """Reset all repository singletons. USE ONLY IN TESTS."""
-    global _server_repo, _agent_repo, _scope_repo, _security_scan_repo, _search_repo, _federation_config_repo, _peer_federation_repo, _audit_repo, _skill_repo
+    global _server_repo, _agent_repo, _scope_repo, _security_scan_repo, _search_repo, _federation_config_repo, _peer_federation_repo, _audit_repo, _skill_repo, _virtual_server_repo, _backend_session_repo
     _server_repo = None
     _agent_repo = None
     _scope_repo = None
@@ -231,3 +281,5 @@ def reset_repositories() -> None:
     _peer_federation_repo = None
     _audit_repo = None
     _skill_repo = None
+    _virtual_server_repo = None
+    _backend_session_repo = None

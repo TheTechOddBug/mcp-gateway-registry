@@ -418,6 +418,45 @@ def mock_security_scan_repository():
     return mock
 
 
+@pytest.fixture
+def mock_virtual_server_repository():
+    """
+    Mock virtual server repository to avoid DocumentDB access.
+
+    Returns:
+        AsyncMock instance with common virtual server repository methods
+    """
+    mock = AsyncMock()
+    mock.ensure_indexes = AsyncMock()
+    mock.get.return_value = None
+    mock.list_all.return_value = []
+    mock.list_enabled.return_value = []
+    mock.create = AsyncMock()
+    mock.update = AsyncMock()
+    mock.delete.return_value = True
+    mock.get_state.return_value = False
+    mock.set_state.return_value = True
+    return mock
+
+
+@pytest.fixture
+def mock_backend_session_repository():
+    """
+    Mock backend session repository to avoid DocumentDB access.
+
+    Returns:
+        AsyncMock instance with common backend session repository methods
+    """
+    mock = AsyncMock()
+    mock.ensure_indexes = AsyncMock()
+    mock.get_backend_session.return_value = None
+    mock.store_backend_session = AsyncMock()
+    mock.delete_backend_session = AsyncMock()
+    mock.create_client_session = AsyncMock()
+    mock.validate_client_session.return_value = False
+    return mock
+
+
 @pytest.fixture(autouse=True)
 def mock_all_repositories(
     mock_scope_repository,
@@ -425,7 +464,9 @@ def mock_all_repositories(
     mock_agent_repository,
     mock_search_repository,
     mock_federation_config_repository,
-    mock_security_scan_repository
+    mock_security_scan_repository,
+    mock_virtual_server_repository,
+    mock_backend_session_repository,
 ):
     """
     Auto-mock all repository factory functions to prevent DocumentDB access.
@@ -440,6 +481,8 @@ def mock_all_repositories(
         mock_search_repository: Mock search repository
         mock_federation_config_repository: Mock federation config repository
         mock_security_scan_repository: Mock security scan repository
+        mock_virtual_server_repository: Mock virtual server repository
+        mock_backend_session_repository: Mock backend session repository
 
     Yields:
         None
@@ -451,7 +494,9 @@ def mock_all_repositories(
          patch('registry.repositories.factory.get_agent_repository', return_value=mock_agent_repository), \
          patch('registry.repositories.factory.get_search_repository', return_value=mock_search_repository), \
          patch('registry.repositories.factory.get_federation_config_repository', return_value=mock_federation_config_repository), \
-         patch('registry.repositories.factory.get_security_scan_repository', return_value=mock_security_scan_repository):
+         patch('registry.repositories.factory.get_security_scan_repository', return_value=mock_security_scan_repository), \
+         patch('registry.repositories.factory.get_virtual_server_repository', return_value=mock_virtual_server_repository), \
+         patch('registry.repositories.factory.get_backend_session_repository', return_value=mock_backend_session_repository):
         logger.debug("Auto-mocked all repository factory functions")
         yield
 

@@ -161,6 +161,7 @@ services:
       - ${HOME}/mcp-gateway/auth_server/scopes.yml:/app/auth_server/scopes.yml
       - ${HOME}/mcp-gateway/federation.json:/app/config/federation.json
       - ${HOME}/mcp-gateway/ssl:/etc/ssl:ro
+      - ${HOME}/.aws:/root/.aws:ro
     depends_on:
       auth-server:
         condition: service_started

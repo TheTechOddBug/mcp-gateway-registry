@@ -128,3 +128,46 @@ class ServerAlreadyExistsError(ServerRegistryError):
     ):
         self.path = path
         super().__init__(f"Server already exists at path: {path}")
+
+
+# Virtual Server-specific exceptions
+
+
+class VirtualServerRegistryError(RegistryError):
+    """Base exception for virtual server operations."""
+
+    pass
+
+
+class VirtualServerNotFoundError(VirtualServerRegistryError):
+    """Virtual server does not exist."""
+
+    def __init__(
+        self,
+        path: str,
+    ):
+        self.path = path
+        super().__init__(f"Virtual server not found: {path}")
+
+
+class VirtualServerAlreadyExistsError(VirtualServerRegistryError):
+    """Virtual server with this path already exists."""
+
+    def __init__(
+        self,
+        path: str,
+    ):
+        self.path = path
+        super().__init__(f"Virtual server already exists at path: {path}")
+
+
+class VirtualServerValidationError(VirtualServerRegistryError):
+    """Virtual server data failed validation."""
+
+    pass
+
+
+class VirtualServerServiceError(VirtualServerRegistryError):
+    """Internal service error during virtual server operation."""
+
+    pass
