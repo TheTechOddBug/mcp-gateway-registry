@@ -6,8 +6,9 @@
 # 1. Creating a virtual server with required_scopes
 # 2. Creating a user group with matching scopes
 # 3. Creating an M2M service account in that group
-# 4. Verifying the virtual server is accessible
-# 5. Cleanup
+# 4. Creating a regular user in that group (for UI testing)
+# 5. Verifying the virtual server is accessible
+# 6. Cleanup
 #
 # Usage:
 #   ./test_virtual_server_scopes_e2e.sh --registry-url <URL> --token-file <PATH>
@@ -41,6 +42,8 @@ VS_CONFIG="$PROJECT_ROOT/cli/examples/virtual-server-scoped-example.json"
 GROUP_CONFIG="$PROJECT_ROOT/cli/examples/virtual-server-scoped-users.json"
 GROUP_NAME="virtual-scoped-tools-test-users"
 M2M_NAME="vs-scope-test-bot"
+USER_NAME="vs-scope-test-user"
+USER_EMAIL="vs-scope-test-user@example.com"
 
 # Temporary file for modified configs
 TEMP_VS_CONFIG=""
@@ -186,6 +189,7 @@ _cleanup() {
         _log_warn "Credentials saved to: $CREDS_FILE"
         _log_warn "Virtual server path: $VS_PATH"
         _log_warn "M2M account: $M2M_NAME"
+        _log_warn "Regular user: $USER_NAME"
         _log_warn "Group: $GROUP_NAME"
         _cleanup_temp_files
         return
@@ -198,8 +202,16 @@ _cleanup() {
     uv run python "$PROJECT_ROOT/api/registry_management.py" \
         --registry-url "$REGISTRY_URL" \
         --token-file "$TOKEN_FILE" \
-        user-delete --username "$M2M_NAME" 2>/dev/null || \
+        user-delete --username "$M2M_NAME" --force 2>/dev/null || \
         _log_warn "M2M account may not exist or could not be deleted"
+
+    # Delete regular user
+    _log_info "Deleting regular user: $USER_NAME"
+    uv run python "$PROJECT_ROOT/api/registry_management.py" \
+        --registry-url "$REGISTRY_URL" \
+        --token-file "$TOKEN_FILE" \
+        user-delete --username "$USER_NAME" --force 2>/dev/null || \
+        _log_warn "Regular user may not exist or could not be deleted"
 
     # Delete group
     _log_info "Deleting group: $GROUP_NAME"
@@ -266,50 +278,83 @@ _test_create_m2m_account() {
 
     echo "$M2M_OUTPUT"
 
-    # Extract credentials and save to file only if --no-cleanup was specified
-    if [[ "$CLEANUP_ON_EXIT" != "true" ]]; then
-        # Output format is plain text like "Client ID: xxx" and "Client Secret: xxx"
-        CLIENT_ID=$(echo "$M2M_OUTPUT" | grep "Client ID:" | head -1 | sed 's/Client ID: //')
-        CLIENT_SECRET=$(echo "$M2M_OUTPUT" | grep "Client Secret:" | head -1 | sed 's/Client Secret: //')
-
-        # Generate a random password for testing
-        RANDOM_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
-
-        if [[ -n "$CLIENT_ID" ]]; then
-            _log_info "Saving credentials to $CREDS_FILE"
-            cat > "$CREDS_FILE" << EOF
-# Virtual Server Scope Test Credentials
-# Created: $(date -Iseconds)
-# Registry: $REGISTRY_URL
-
-M2M_NAME=$M2M_NAME
-GROUP_NAME=$GROUP_NAME
-VS_PATH=$VS_PATH
-
-CLIENT_ID=$CLIENT_ID
-CLIENT_SECRET=$CLIENT_SECRET
-RANDOM_PASSWORD=$RANDOM_PASSWORD
-
-# To get a token for this service account:
-# curl -X POST "\${KEYCLOAK_URL}/realms/mcp-gateway/protocol/openid-connect/token" \\
-#   -d "client_id=\${CLIENT_ID}" \\
-#   -d "client_secret=\${CLIENT_SECRET}" \\
-#   -d "grant_type=client_credentials"
-EOF
-            chmod 600 "$CREDS_FILE"
-            _log_info "Credentials saved to $CREDS_FILE"
-        else
-            _log_warn "Could not extract credentials from output"
-        fi
-    fi
+    # Extract credentials for later use
+    CLIENT_ID=$(echo "$M2M_OUTPUT" | grep "Client ID:" | head -1 | sed 's/Client ID: //')
+    CLIENT_SECRET=$(echo "$M2M_OUTPUT" | grep "Client Secret:" | head -1 | sed 's/Client Secret: //')
 
     _log_info "Verifying M2M account was created..."
     _run_cmd "Listing users..." user-list --search "$M2M_NAME"
 }
 
 
+_test_create_regular_user() {
+    _log_step "Step 4: Create Regular User in Group"
+
+    # Generate a random password
+    USER_PASSWORD=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
+
+    _log_info "Creating regular user: $USER_NAME"
+    _log_info "Email: $USER_EMAIL"
+    _log_info "Password: $USER_PASSWORD"
+
+    # Create regular user with password
+    uv run python "$PROJECT_ROOT/api/registry_management.py" \
+        --registry-url "$REGISTRY_URL" \
+        --token-file "$TOKEN_FILE" \
+        user-create-human \
+        --username "$USER_NAME" \
+        --email "$USER_EMAIL" \
+        --first-name "Test" \
+        --last-name "User" \
+        --password "$USER_PASSWORD" \
+        --groups "$GROUP_NAME" 2>&1
+
+    # Save credentials to file only if --no-cleanup was specified
+    if [[ "$CLEANUP_ON_EXIT" != "true" ]]; then
+        _log_info "Saving credentials to $CREDS_FILE"
+        cat > "$CREDS_FILE" << EOF
+# Virtual Server Scope Test Credentials
+# Created: $(date -Iseconds)
+# Registry: $REGISTRY_URL
+
+# Test Configuration
+VS_PATH=$VS_PATH
+GROUP_NAME=$GROUP_NAME
+
+# M2M Service Account (for API/programmatic access)
+M2M_NAME=$M2M_NAME
+CLIENT_ID=$CLIENT_ID
+CLIENT_SECRET=$CLIENT_SECRET
+
+# Regular User (for UI testing)
+USER_NAME=$USER_NAME
+USER_EMAIL=$USER_EMAIL
+USER_PASSWORD=$USER_PASSWORD
+
+# To get a token for the M2M service account:
+# curl -X POST "\${KEYCLOAK_URL}/realms/mcp-gateway/protocol/openid-connect/token" \\
+#   -d "client_id=\${CLIENT_ID}" \\
+#   -d "client_secret=\${CLIENT_SECRET}" \\
+#   -d "grant_type=client_credentials"
+
+# To get a token for the regular user:
+# curl -X POST "\${KEYCLOAK_URL}/realms/mcp-gateway/protocol/openid-connect/token" \\
+#   -d "client_id=mcp-gateway-ui" \\
+#   -d "username=\${USER_NAME}" \\
+#   -d "password=\${USER_PASSWORD}" \\
+#   -d "grant_type=password"
+EOF
+        chmod 600 "$CREDS_FILE"
+        _log_info "Credentials saved to $CREDS_FILE"
+    fi
+
+    _log_info "Verifying regular user was created..."
+    _run_cmd "Listing users..." user-list --search "$USER_NAME"
+}
+
+
 _test_verify_access() {
-    _log_step "Step 4: Verify Virtual Server Access"
+    _log_step "Step 5: Verify Virtual Server Access"
 
     _log_info "Testing virtual server listing..."
     _run_cmd "Listing virtual servers..." vs-list --json
@@ -322,7 +367,7 @@ _test_verify_access() {
 
 
 _test_scope_enforcement() {
-    _log_step "Step 5: Verify Scope-Based Tool Filtering"
+    _log_step "Step 6: Verify Scope-Based Tool Filtering"
 
     _log_info "The virtual server has the following scope configuration:"
     _log_info "  - Server-level required_scopes: [virtual-scoped-tools/access]"
@@ -370,6 +415,7 @@ main() {
     _test_create_virtual_server
     _test_create_group
     _test_create_m2m_account
+    _test_create_regular_user
     _test_verify_access
     _test_scope_enforcement
 
