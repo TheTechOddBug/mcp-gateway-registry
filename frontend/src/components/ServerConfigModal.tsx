@@ -146,11 +146,25 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
           },
         };
       case 'cline':
-      case 'roo-code':
         return {
           mcpServers: {
             [serverName]: {
               type: 'streamableHttp',
+              url,
+              disabled: false,
+              ...(includeAuthHeaders && {
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                },
+              }),
+            },
+          },
+        };
+      case 'roo-code':
+        return {
+          mcpServers: {
+            [serverName]: {
+              type: 'streamable-http',
               url,
               disabled: false,
               ...(includeAuthHeaders && {
