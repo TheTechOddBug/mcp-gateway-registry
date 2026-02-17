@@ -432,13 +432,19 @@ The Lua router (`virtual_router.lua`) implements the full MCP protocol for virtu
 |--------|--------------|---------|-----------------|-------|
 | `initialize` | None | No | Creates session | Returns virtual server capabilities |
 | `ping` | None | No | No | Responds directly |
-| `notifications/initialized` | None | No | Yes | Acknowledged, no-op |
+| `notifications/initialized` | None | No | No | Returns HTTP 202 Accepted per MCP spec |
+| `notifications/cancelled` | None | No | No | Returns HTTP 202 Accepted per MCP spec |
 | `tools/list` | All distinct backends | 60s TTL | Yes | Aggregated and scope-filtered |
 | `tools/call` | Single backend | No | Yes | Alias translated, routed to owner backend |
 | `resources/list` | All distinct backends | 60s TTL | Yes | Aggregated with lookup map |
 | `resources/read` | Single backend | No | Yes | Routed via lookup map |
 | `prompts/list` | All distinct backends | 60s TTL | Yes | Aggregated with lookup map |
 | `prompts/get` | Single backend | No | Yes | Routed via lookup map |
+
+**HTTP Method Handling:**
+- `POST` - JSON-RPC requests and notifications
+- `GET` - Returns HTTP 405 (server-initiated SSE streams not supported)
+- `DELETE` - Returns HTTP 405 (client-initiated session termination not supported)
 
 ### Concurrent Backend Requests
 
