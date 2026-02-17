@@ -129,7 +129,7 @@ Interactive terminal interface for chatting with AI models and discovering MCP t
 
 ## What's New
 
-- **Virtual MCP Server Support** - Aggregate tools, resources, and prompts from multiple backend MCP servers into a single unified endpoint. Clients connect to one virtual server that presents a curated, access-controlled view of capabilities from any combination of registered backends. Features include tool aliasing (resolve naming conflicts), version pinning (lock to specific backend versions), per-tool scope-based access control, session multiplexing (one client session maps to N backend sessions transparently), and 60-second cached aggregation for `tools/list`, `resources/list`, and `prompts/list`. Supports all MCP JSON-RPC methods including `initialize`, `ping`, `tools/call`, `resources/read`, and `prompts/get`. [Design Document](docs/design/virtual-mcp-server.md) | [Issue #129](https://github.com/agentic-community/mcp-gateway-registry/issues/129)
+- **Virtual MCP Server Support** - Aggregate tools, resources, and prompts from multiple backend MCP servers into a single unified endpoint. Clients connect to one virtual server that presents a curated, access-controlled view of capabilities from any combination of registered backends. Features include tool aliasing (resolve naming conflicts), version pinning (lock to specific backend versions), per-tool scope-based access control, session multiplexing (one client session maps to N backend sessions transparently), and 60-second cached aggregation for `tools/list`, `resources/list`, and `prompts/list`. Supports all MCP JSON-RPC methods including `initialize`, `ping`, `tools/call`, `resources/read`, and `prompts/get`. [Design Document](docs/design/virtual-mcp-server.md) | [CLI Commands](docs/virtual-server-cli.md)
 
 - **Registry-Only Deployment Mode** - Run the registry as a standalone catalog/discovery service without nginx gateway integration. In `registry-only` mode, nginx configuration is not updated when servers are registered, and MCP proxy requests return 503 with instructions to use direct connection. The frontend adapts to show `proxy_pass_url` instead of gateway URLs. Combined with `REGISTRY_MODE` settings (`full`, `skills-only`, `mcp-servers-only`, `agents-only`), you can configure the registry for specific use cases. For example, set `REGISTRY_MODE=skills-only` to run a dedicated Skills Registry that only manages Agent Skills (SKILL.md files) without MCP servers or A2A agents - ideal for teams that want a lightweight skill library. The UI automatically adapts to show only relevant features, and API endpoints for disabled features return 503. Invalid combinations like `with-gateway + skills-only` are auto-corrected with warnings. [Registry Deployment Modes Guide](docs/registry-deployment-modes.md)
 
@@ -732,7 +732,7 @@ Our development roadmap is organized into weekly milestones with clear deliverab
 |-----------|----------|----------|--------|------------|
 | **February 2026 Week 1** | 2026-02-06 | 83% (5/6) | 🚧 In Progress | **Open:** [#358 - Custom Authorizer Endpoint](https://github.com/agentic-community/mcp-gateway-registry/issues/358)<br/>**Closed:** [#443](https://github.com/agentic-community/mcp-gateway-registry/issues/443), [#419](https://github.com/agentic-community/mcp-gateway-registry/issues/419), [#391](https://github.com/agentic-community/mcp-gateway-registry/issues/391), [#370](https://github.com/agentic-community/mcp-gateway-registry/issues/370), [#357](https://github.com/agentic-community/mcp-gateway-registry/issues/357) |
 | **February 2026 Week 2** | 2026-02-12 | 67% (2/3) | 🚧 In Progress | **Open:** [#416 - Settings Page with IAM Management](https://github.com/agentic-community/mcp-gateway-registry/issues/416)<br/>**Closed:** [#418](https://github.com/agentic-community/mcp-gateway-registry/issues/418), [#413](https://github.com/agentic-community/mcp-gateway-registry/issues/413) |
-| **February 2026 Week 3** | 2026-02-18 | 0% (0/1) | 📅 Planned | **Open:** [#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129) |
+| **February 2026 Week 3** | 2026-02-18 | 100% (1/1) | ✅ Complete | **Closed:** [#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129) |
 | **February 2026 Week 4** | 2026-02-25 | 0% (0/1) | 📅 Planned | **Open:** [#295 - Multi-Level Rate Limiting](https://github.com/agentic-community/mcp-gateway-registry/issues/295) |
 | **Parking Lot** | — | 25% (2/8) | 🗂️ Backlog | 6 open issues, 2 closed |
 
@@ -744,8 +744,8 @@ Our development roadmap is organized into weekly milestones with clear deliverab
 
 The following major features span multiple milestones and represent significant architectural improvements:
 
-- **[#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129)** 📅 **PLANNED** (Feb 2026 Week 3)
-  Dynamic tool aggregation and intelligent routing using Lua/JavaScript scripting. Enables logical grouping of tools from multiple backend servers.
+- **[#129 - Virtual MCP Server Support](https://github.com/agentic-community/mcp-gateway-registry/issues/129)** ✅ **COMPLETED**
+  Dynamic tool aggregation and intelligent routing using Lua scripting. Enables logical grouping of tools from multiple backend servers into a single virtual endpoint.
 
 - **[#232 - A2A Curated Registry Discovery](https://github.com/agentic-community/mcp-gateway-registry/issues/232)** ✅ **COMPLETED**
   Enable agent-to-agent discovery and tool invocation through curated registry patterns.

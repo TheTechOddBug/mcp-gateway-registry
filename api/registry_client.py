@@ -631,6 +631,78 @@ class VirtualServerSearchResult(BaseModel):
     endpoint_url: Optional[str] = Field(None, description="URL for agents to connect to this virtual MCP server")
 
 
+class ToolMapping(BaseModel):
+    """Tool mapping for virtual MCP servers."""
+
+    tool_name: str = Field(..., description="Original tool name on backend server")
+    alias: Optional[str] = Field(None, description="Renamed tool name in virtual server")
+    backend_server_path: str = Field(..., description="Backend server path (e.g., /github)")
+    backend_version: Optional[str] = Field(None, description="Pin to specific backend version")
+    description_override: Optional[str] = Field(None, description="Override tool description")
+
+
+class ToolScopeOverride(BaseModel):
+    """Per-tool scope override for access control."""
+
+    tool_alias: str = Field(..., description="Tool alias or name")
+    required_scopes: List[str] = Field(default_factory=list, description="Required scopes for this tool")
+
+
+class VirtualServerCreateRequest(BaseModel):
+    """Request to create a virtual MCP server."""
+
+    path: str = Field(..., description="Virtual server path (e.g., /virtual/dev-tools)")
+    server_name: str = Field(..., description="Display name for the virtual server")
+    description: Optional[str] = Field(None, description="Virtual server description")
+    tool_mappings: List[ToolMapping] = Field(..., min_length=1, description="Tool mappings (at least one)")
+    required_scopes: List[str] = Field(default_factory=list, description="Server-level required scopes")
+    tool_scope_overrides: List[ToolScopeOverride] = Field(default_factory=list, description="Per-tool scope overrides")
+    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    supported_transports: List[str] = Field(default_factory=lambda: ["streamable-http"], description="Supported transports")
+    is_enabled: bool = Field(True, description="Whether to enable on creation")
+
+
+class VirtualServerConfig(BaseModel):
+    """Full virtual MCP server configuration."""
+
+    path: str = Field(..., description="Virtual server path")
+    server_name: str = Field(..., description="Display name")
+    description: Optional[str] = Field(None, description="Description")
+    tool_mappings: List[ToolMapping] = Field(default_factory=list, description="Tool mappings")
+    required_scopes: List[str] = Field(default_factory=list, description="Server-level scopes")
+    tool_scope_overrides: List[ToolScopeOverride] = Field(default_factory=list, description="Per-tool scope overrides")
+    tags: List[str] = Field(default_factory=list, description="Tags")
+    supported_transports: List[str] = Field(default_factory=list, description="Supported transports")
+    is_enabled: bool = Field(False, description="Whether enabled")
+    num_stars: float = Field(0.0, description="Average rating")
+    rating_details: List[Dict[str, Any]] = Field(default_factory=list, description="Individual ratings")
+    created_by: Optional[str] = Field(None, description="Creator username")
+    created_at: Optional[str] = Field(None, description="Creation timestamp")
+    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+
+
+class VirtualServerListResponse(BaseModel):
+    """Response for listing virtual servers."""
+
+    virtual_servers: List[VirtualServerConfig] = Field(default_factory=list, description="Virtual servers")
+    total: int = Field(0, description="Total count")
+
+
+class VirtualServerToggleResponse(BaseModel):
+    """Response from toggling a virtual server."""
+
+    path: str = Field(..., description="Virtual server path")
+    is_enabled: bool = Field(..., description="New enabled state")
+    message: str = Field(..., description="Status message")
+
+
+class VirtualServerDeleteResponse(BaseModel):
+    """Response from deleting a virtual server."""
+
+    path: str = Field(..., description="Deleted virtual server path")
+    message: str = Field(..., description="Status message")
+
+
 class SemanticSearchResponse(BaseModel):
     """Comprehensive semantic search response with all entity types."""
 
@@ -1028,7 +1100,7 @@ class RegistryClient:
         logger.debug(f"{method} {url}")
 
         # Determine content type based on endpoint
-        # Agent, Management, Search, Federation, Skills, version, and group import endpoints use JSON
+        # Agent, Management, Search, Federation, Skills, Virtual Servers, version, and group import endpoints use JSON
         # Server registration uses form data
         if (endpoint.startswith("/api/agents") or
             endpoint.startswith("/api/management") or
@@ -1036,6 +1108,7 @@ class RegistryClient:
             endpoint.startswith("/api/federation") or
             endpoint.startswith("/api/peers") or
             endpoint.startswith("/api/skills") or
+            endpoint.startswith("/api/virtual-servers") or
             endpoint == "/api/servers/groups/import" or
             "/versions" in endpoint):
             # Send as JSON for agent, management, search, federation, and import endpoints
@@ -3489,3 +3562,264 @@ class RegistryClient:
         result = response.json()
         logger.info(f"Skill rating: {result.get('num_stars')} stars")
         return SkillRatingResponse(**result)
+
+    # =========================================================================
+    # Virtual MCP Server Operations
+    # =========================================================================
+
+    def create_virtual_server(
+        self,
+        request: VirtualServerCreateRequest
+    ) -> VirtualServerConfig:
+        """
+        Create a new virtual MCP server.
+
+        Args:
+            request: Virtual server creation request with tool mappings
+
+        Returns:
+            VirtualServerConfig with created server details
+
+        Raises:
+            requests.HTTPError: If creation fails (400 invalid, 409 conflict)
+        """
+        logger.info(f"Creating virtual server: {request.path}")
+        logger.debug(f"Virtual server config:\n{json.dumps(request.model_dump(), indent=2)}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/api/virtual-servers",
+            data=request.model_dump()
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server created: {result.get('path')}")
+        return VirtualServerConfig(**result)
+
+
+    def list_virtual_servers(
+        self,
+        enabled_only: bool = False,
+        tag: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> VirtualServerListResponse:
+        """
+        List virtual MCP servers.
+
+        Args:
+            enabled_only: If True, only return enabled servers
+            tag: Filter by tag
+            limit: Maximum number of results
+            offset: Pagination offset
+
+        Returns:
+            VirtualServerListResponse with list of servers
+        """
+        params = {
+            "limit": limit,
+            "offset": offset
+        }
+        if enabled_only:
+            params["enabled_only"] = "true"
+        if tag:
+            params["tag"] = tag
+
+        logger.info(f"Listing virtual servers (enabled_only={enabled_only}, tag={tag})")
+
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/virtual-servers",
+            params=params
+        )
+
+        result = response.json()
+        logger.info(f"Found {result.get('total', 0)} virtual servers")
+        return VirtualServerListResponse(**result)
+
+
+    def get_virtual_server(
+        self,
+        path: str
+    ) -> VirtualServerConfig:
+        """
+        Get details of a virtual MCP server.
+
+        Args:
+            path: Virtual server path (e.g., /virtual/dev-tools)
+
+        Returns:
+            VirtualServerConfig with server details
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Getting virtual server: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/virtual-servers{api_path}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server: {result.get('server_name')}")
+        return VirtualServerConfig(**result)
+
+
+    def update_virtual_server(
+        self,
+        path: str,
+        request: VirtualServerCreateRequest
+    ) -> VirtualServerConfig:
+        """
+        Update an existing virtual MCP server.
+
+        Args:
+            path: Virtual server path
+            request: Updated configuration
+
+        Returns:
+            VirtualServerConfig with updated server details
+
+        Raises:
+            requests.HTTPError: If server not found (404) or invalid (400)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Updating virtual server: {api_path}")
+        logger.debug(f"Updated config:\n{json.dumps(request.model_dump(), indent=2)}")
+
+        response = self._make_request(
+            method="PUT",
+            endpoint=f"/api/virtual-servers{api_path}",
+            data=request.model_dump()
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server updated: {result.get('path')}")
+        return VirtualServerConfig(**result)
+
+
+    def delete_virtual_server(
+        self,
+        path: str
+    ) -> VirtualServerDeleteResponse:
+        """
+        Delete a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            VirtualServerDeleteResponse with confirmation
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Deleting virtual server: {api_path}")
+
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/virtual-servers{api_path}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server deleted: {api_path}")
+        return VirtualServerDeleteResponse(**result)
+
+
+    def toggle_virtual_server(
+        self,
+        path: str,
+        enable: bool
+    ) -> VirtualServerToggleResponse:
+        """
+        Enable or disable a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+            enable: True to enable, False to disable
+
+        Returns:
+            VirtualServerToggleResponse with new state
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        action = "enable" if enable else "disable"
+        logger.info(f"Toggling virtual server {api_path}: {action}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/virtual-servers{api_path}/{action}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server {action}d: {result.get('is_enabled')}")
+        return VirtualServerToggleResponse(**result)
+
+
+    def rate_virtual_server(
+        self,
+        path: str,
+        rating: int
+    ) -> Dict[str, Any]:
+        """
+        Rate a virtual MCP server (1-5 stars).
+
+        Args:
+            path: Virtual server path
+            rating: Rating value (1-5)
+
+        Returns:
+            Rating response with average rating
+
+        Raises:
+            requests.HTTPError: If server not found (404) or invalid rating (400)
+        """
+        if not 1 <= rating <= 5:
+            raise ValueError("Rating must be between 1 and 5")
+
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Rating virtual server {api_path}: {rating} stars")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/virtual-servers{api_path}/rate",
+            data={"rating": rating}
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server rated: avg={result.get('average_rating')}")
+        return result
+
+
+    def get_virtual_server_rating(
+        self,
+        path: str
+    ) -> Dict[str, Any]:
+        """
+        Get rating information for a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            Dict with rating details (num_stars, rating_count, etc.)
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Getting rating for virtual server: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/virtual-servers{api_path}/rating"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server rating: {result.get('num_stars')} stars")
+        return result
