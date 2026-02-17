@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
-type EntityType = 'mcp_server' | 'tool' | 'a2a_agent' | 'skill';
+type EntityType = 'mcp_server' | 'tool' | 'a2a_agent' | 'skill' | 'virtual_server';
 
-const DEFAULT_ENTITY_TYPES: EntityType[] = ['mcp_server', 'tool', 'a2a_agent', 'skill'];
+const DEFAULT_ENTITY_TYPES: EntityType[] = ['mcp_server', 'tool', 'a2a_agent', 'skill', 'virtual_server'];
 const DEFAULT_ENTITY_TYPES_KEY = DEFAULT_ENTITY_TYPES.join('|');
 
 export interface MatchingToolHit {
@@ -80,16 +80,38 @@ export interface SemanticSkillHit {
   match_context?: string;
 }
 
+export interface VirtualServerToolHit {
+  name: string;
+  description?: string;
+  backend_server?: string;
+}
+
+export interface SemanticVirtualServerHit {
+  path: string;
+  server_name: string;
+  description?: string;
+  tags: string[];
+  num_tools: number;
+  backend_count?: number;
+  backend_paths?: string[];
+  is_enabled: boolean;
+  relevance_score: number;
+  match_context?: string;
+  matching_tools?: VirtualServerToolHit[];
+}
+
 export interface SemanticSearchResponse {
   query: string;
   servers: SemanticServerHit[];
   tools: SemanticToolHit[];
   agents: SemanticAgentHit[];
   skills: SemanticSkillHit[];
+  virtual_servers: SemanticVirtualServerHit[];
   total_servers: number;
   total_tools: number;
   total_agents: number;
   total_skills: number;
+  total_virtual_servers: number;
 }
 
 interface UseSemanticSearchOptions {

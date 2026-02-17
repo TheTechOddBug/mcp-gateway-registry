@@ -34,6 +34,11 @@ from ..schemas.virtual_server_models import (
     VirtualServerConfig,
     VirtualServerInfo,
 )
+from ..services.rating_service import (
+    calculate_average_rating,
+    update_rating_details,
+    validate_rating,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -306,6 +311,76 @@ class VirtualServerService:
 
         return await self._resolve_tool_list(config)
 
+    async def rate_virtual_server(
+        self,
+        path: str,
+        username: str,
+        rating: int,
+    ) -> dict:
+        """Rate a virtual server.
+
+        Args:
+            path: Virtual server path
+            username: Username submitting the rating
+            rating: Rating value (1-5)
+
+        Returns:
+            Dict with average_rating and is_new_rating
+
+        Raises:
+            VirtualServerNotFoundError: If virtual server not found
+            ValueError: If rating is invalid
+        """
+        validate_rating(rating)
+
+        config = await self._repo.get(path)
+        if not config:
+            raise VirtualServerNotFoundError(path)
+
+        rating_details = config.rating_details or []
+        updated_details, is_new = update_rating_details(
+            rating_details,
+            username,
+            rating,
+        )
+        average = calculate_average_rating(updated_details)
+
+        success = await self._repo.update_rating(path, average, updated_details)
+        if not success:
+            raise VirtualServerNotFoundError(path)
+
+        logger.info(
+            f"User '{username}' rated virtual server '{path}': {rating} stars "
+            f"(new avg: {average:.2f}, new={is_new})"
+        )
+
+        return {
+            "average_rating": average,
+            "is_new_rating": is_new,
+            "total_ratings": len(updated_details),
+        }
+
+    async def get_virtual_server_rating(
+        self,
+        path: str,
+    ) -> dict:
+        """Get rating information for a virtual server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            Dict with num_stars and rating_details
+
+        Raises:
+            VirtualServerNotFoundError: If virtual server not found
+        """
+        rating_info = await self._repo.get_rating(path)
+        if rating_info is None:
+            raise VirtualServerNotFoundError(path)
+
+        return rating_info
+
     async def _validate_tool_mappings(
         self,
         tool_mappings: list[ToolMapping],
@@ -480,6 +555,8 @@ class VirtualServerService:
             backend_paths=backend_paths,
             is_enabled=config.is_enabled,
             tags=config.tags,
+            num_stars=config.num_stars,
+            rating_details=config.rating_details,
             created_by=config.created_by,
             created_at=config.created_at,
             updated_at=config.updated_at,

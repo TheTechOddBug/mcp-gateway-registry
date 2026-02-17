@@ -1392,3 +1392,191 @@ class TestNginxReloadLock:
         assert all(results)
         # The lock ensures serialization: start-end-start-end, not start-start-end-end
         assert call_order == ["start", "end", "start", "end"]
+
+
+# --- Unit tests for rating functionality ---
+
+
+class TestVirtualServerRating:
+    """Tests for VirtualServerService rating operations."""
+
+    @pytest.fixture
+    def mock_vs_repo(self):
+        """Create mock virtual server repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_server_repo(self):
+        """Create mock server repository."""
+        return AsyncMock()
+
+    @pytest.fixture
+    def service(self, mock_vs_repo, mock_server_repo):
+        """Create VirtualServerService with mocked repos."""
+        with (
+            patch(
+                "registry.services.virtual_server_service.get_virtual_server_repository",
+                return_value=mock_vs_repo,
+            ),
+            patch(
+                "registry.services.virtual_server_service.get_server_repository",
+                return_value=mock_server_repo,
+            ),
+        ):
+            svc = VirtualServerService()
+            return svc
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_new_rating(self, service, mock_vs_repo):
+        """Test rating a virtual server for the first time."""
+        mock_vs_repo.get.return_value = VirtualServerConfig(
+            path="/virtual/dev",
+            server_name="Dev",
+            num_stars=0.0,
+            rating_details=[],
+        )
+        mock_vs_repo.update_rating.return_value = True
+
+        result = await service.rate_virtual_server(
+            path="/virtual/dev",
+            username="testuser",
+            rating=4,
+        )
+
+        assert result["average_rating"] == 4.0
+        assert result["is_new_rating"] is True
+        assert result["total_ratings"] == 1
+        mock_vs_repo.update_rating.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_update_existing(self, service, mock_vs_repo):
+        """Test updating an existing rating."""
+        mock_vs_repo.get.return_value = VirtualServerConfig(
+            path="/virtual/dev",
+            server_name="Dev",
+            num_stars=4.0,
+            rating_details=[{"user": "testuser", "rating": 4}],
+        )
+        mock_vs_repo.update_rating.return_value = True
+
+        result = await service.rate_virtual_server(
+            path="/virtual/dev",
+            username="testuser",
+            rating=5,
+        )
+
+        assert result["average_rating"] == 5.0
+        assert result["is_new_rating"] is False
+        assert result["total_ratings"] == 1
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_multiple_users(self, service, mock_vs_repo):
+        """Test rating with multiple users."""
+        mock_vs_repo.get.return_value = VirtualServerConfig(
+            path="/virtual/dev",
+            server_name="Dev",
+            num_stars=4.0,
+            rating_details=[{"user": "user1", "rating": 4}],
+        )
+        mock_vs_repo.update_rating.return_value = True
+
+        result = await service.rate_virtual_server(
+            path="/virtual/dev",
+            username="user2",
+            rating=5,
+        )
+
+        assert result["average_rating"] == 4.5
+        assert result["is_new_rating"] is True
+        assert result["total_ratings"] == 2
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_not_found(self, service, mock_vs_repo):
+        """Test rating a nonexistent virtual server raises error."""
+        mock_vs_repo.get.return_value = None
+
+        with pytest.raises(VirtualServerNotFoundError):
+            await service.rate_virtual_server(
+                path="/virtual/nonexistent",
+                username="testuser",
+                rating=4,
+            )
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_invalid_rating_low(self, service):
+        """Test rating with value below minimum raises error."""
+        with pytest.raises(ValueError, match="between 1 and 5"):
+            await service.rate_virtual_server(
+                path="/virtual/dev",
+                username="testuser",
+                rating=0,
+            )
+
+    @pytest.mark.asyncio
+    async def test_rate_virtual_server_invalid_rating_high(self, service):
+        """Test rating with value above maximum raises error."""
+        with pytest.raises(ValueError, match="between 1 and 5"):
+            await service.rate_virtual_server(
+                path="/virtual/dev",
+                username="testuser",
+                rating=6,
+            )
+
+    @pytest.mark.asyncio
+    async def test_get_virtual_server_rating(self, service, mock_vs_repo):
+        """Test getting rating information."""
+        mock_vs_repo.get_rating.return_value = {
+            "num_stars": 4.5,
+            "rating_details": [
+                {"user": "user1", "rating": 4},
+                {"user": "user2", "rating": 5},
+            ],
+        }
+
+        result = await service.get_virtual_server_rating("/virtual/dev")
+
+        assert result["num_stars"] == 4.5
+        assert len(result["rating_details"]) == 2
+        mock_vs_repo.get_rating.assert_called_once_with("/virtual/dev")
+
+    @pytest.mark.asyncio
+    async def test_get_virtual_server_rating_not_found(self, service, mock_vs_repo):
+        """Test getting rating for nonexistent virtual server raises error."""
+        mock_vs_repo.get_rating.return_value = None
+
+        with pytest.raises(VirtualServerNotFoundError):
+            await service.get_virtual_server_rating("/virtual/nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_get_virtual_server_rating_no_ratings(self, service, mock_vs_repo):
+        """Test getting rating for server with no ratings."""
+        mock_vs_repo.get_rating.return_value = {
+            "num_stars": 0.0,
+            "rating_details": [],
+        }
+
+        result = await service.get_virtual_server_rating("/virtual/dev")
+
+        assert result["num_stars"] == 0.0
+        assert result["rating_details"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_virtual_servers_includes_rating(self, service, mock_vs_repo):
+        """Test that list_virtual_servers includes rating info."""
+        mock_vs_repo.list_all.return_value = [
+            VirtualServerConfig(
+                path="/virtual/dev",
+                server_name="Dev",
+                tool_mappings=[
+                    ToolMapping(tool_name="search", backend_server_path="/github"),
+                ],
+                num_stars=4.5,
+                rating_details=[{"user": "user1", "rating": 4}],
+            ),
+        ]
+
+        result = await service.list_virtual_servers()
+
+        assert len(result) == 1
+        assert result[0].num_stars == 4.5
+        assert len(result[0].rating_details) == 1

@@ -58,6 +58,24 @@ export interface VirtualServerConfig {
 
 /**
  * Lightweight virtual server summary for listings.
+ *
+ * Optionally includes detailed fields (tool_mappings, required_scopes, etc.)
+ * when the full configuration is needed for display purposes.
+ */
+/**
+ * Rating detail for a virtual server.
+ */
+export interface RatingDetail {
+  user: string;
+  rating: number;
+}
+
+
+/**
+ * Lightweight virtual server summary for listings.
+ *
+ * Optionally includes detailed fields (tool_mappings, required_scopes, etc.)
+ * when the full configuration is needed for display purposes.
  */
 export interface VirtualServerInfo {
   path: string;
@@ -68,9 +86,15 @@ export interface VirtualServerInfo {
   backend_paths: string[];
   is_enabled: boolean;
   tags: string[];
+  num_stars?: number;
+  rating_details?: RatingDetail[];
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  // Optional detailed fields for modal display
+  tool_mappings?: ToolMapping[];
+  required_scopes?: string[];
+  supported_transports?: string[];
 }
 
 

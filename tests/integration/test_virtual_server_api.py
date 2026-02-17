@@ -78,6 +78,15 @@ def mock_vs_service():
     mock.delete_virtual_server = AsyncMock(return_value=True)
     mock.toggle_virtual_server = AsyncMock(return_value=True)
     mock.resolve_tools = AsyncMock(return_value=[])
+    mock.rate_virtual_server = AsyncMock(return_value={
+        "average_rating": 4.0,
+        "is_new_rating": True,
+        "total_ratings": 1,
+    })
+    mock.get_virtual_server_rating = AsyncMock(return_value={
+        "num_stars": 4.0,
+        "rating_details": [{"user": "testuser", "rating": 4}],
+    })
     return mock
 
 
@@ -591,3 +600,140 @@ class TestNormalizeVirtualPath:
         with pytest.raises(HTTPException) as exc_info:
             _normalize_virtual_path("/virtual/sub/path")
         assert exc_info.value.status_code == 400
+
+
+class TestRateVirtualServer:
+    """Tests for POST /api/virtual-servers/{path}/rate."""
+
+    def test_rate_success(self, client, mock_auth_user, mock_vs_service):
+        """Test rating a virtual server successfully."""
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.post(
+                "/api/virtual-servers/virtual/dev-essentials/rate",
+                json={"rating": 4},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["average_rating"] == 4.0
+        assert data["is_new_rating"] is True
+        assert data["total_ratings"] == 1
+
+    def test_rate_not_found(self, client, mock_auth_user, mock_vs_service):
+        """Test rating a nonexistent virtual server returns 404."""
+        from registry.exceptions import VirtualServerNotFoundError
+
+        mock_vs_service.rate_virtual_server.side_effect = VirtualServerNotFoundError(
+            "/virtual/nonexistent"
+        )
+
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.post(
+                "/api/virtual-servers/virtual/nonexistent/rate",
+                json={"rating": 4},
+            )
+
+        assert response.status_code == 404
+
+    def test_rate_invalid_rating(self, client, mock_auth_user, mock_vs_service):
+        """Test rating with invalid value returns 400."""
+        mock_vs_service.rate_virtual_server.side_effect = ValueError(
+            "Rating must be between 1 and 5"
+        )
+
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.post(
+                "/api/virtual-servers/virtual/dev-essentials/rate",
+                json={"rating": 10},
+            )
+
+        assert response.status_code == 400
+        assert "between 1 and 5" in response.json()["detail"]
+
+    def test_rate_update_existing(self, client, mock_auth_user, mock_vs_service):
+        """Test updating an existing rating."""
+        mock_vs_service.rate_virtual_server.return_value = {
+            "average_rating": 5.0,
+            "is_new_rating": False,
+            "total_ratings": 1,
+        }
+
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.post(
+                "/api/virtual-servers/virtual/dev-essentials/rate",
+                json={"rating": 5},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["is_new_rating"] is False
+
+
+class TestGetVirtualServerRating:
+    """Tests for GET /api/virtual-servers/{path}/rating."""
+
+    def test_get_rating_success(self, client, mock_auth_user, mock_vs_service):
+        """Test getting rating information successfully."""
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.get(
+                "/api/virtual-servers/virtual/dev-essentials/rating",
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["num_stars"] == 4.0
+        assert len(data["rating_details"]) == 1
+        assert data["rating_details"][0]["user"] == "testuser"
+
+    def test_get_rating_not_found(self, client, mock_auth_user, mock_vs_service):
+        """Test getting rating for nonexistent virtual server returns 404."""
+        from registry.exceptions import VirtualServerNotFoundError
+
+        mock_vs_service.get_virtual_server_rating.side_effect = VirtualServerNotFoundError(
+            "/virtual/nonexistent"
+        )
+
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.get(
+                "/api/virtual-servers/virtual/nonexistent/rating",
+            )
+
+        assert response.status_code == 404
+
+    def test_get_rating_empty(self, client, mock_auth_user, mock_vs_service):
+        """Test getting rating for server with no ratings."""
+        mock_vs_service.get_virtual_server_rating.return_value = {
+            "num_stars": 0.0,
+            "rating_details": [],
+        }
+
+        with patch(
+            "registry.api.virtual_server_routes.get_virtual_server_service",
+            return_value=mock_vs_service,
+        ):
+            response = client.get(
+                "/api/virtual-servers/virtual/dev-essentials/rating",
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["num_stars"] == 0.0
+        assert data["rating_details"] == []

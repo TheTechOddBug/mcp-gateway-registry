@@ -18,6 +18,7 @@ from fastapi import (
     Request,
     status,
 )
+from pydantic import BaseModel
 
 from ..audit.context import set_audit_action
 from ..auth.dependencies import nginx_proxied_auth
@@ -169,6 +170,84 @@ async def get_virtual_server_tools(
             "tools": [t.model_dump(mode="json") for t in tools],
             "total_count": len(tools),
         }
+    except VirtualServerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Virtual server not found: {normalized}",
+        )
+
+
+# --- Rating Endpoints (must be before catch-all GET) ---
+
+
+class RatingRequest(BaseModel):
+    """Request model for rating a virtual server."""
+
+    rating: int
+
+
+@router.post(
+    "/virtual-servers/{vs_path:path}/rate",
+    response_model=dict,
+    summary="Rate a virtual server",
+)
+async def rate_virtual_server(
+    http_request: Request,
+    rating_request: RatingRequest,
+    user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    vs_path: str = Path(..., description="Virtual server path"),
+) -> dict:
+    """Submit or update a rating for a virtual server.
+
+    Requires authentication. Each user can have one rating per server.
+    """
+    normalized = _normalize_virtual_path(vs_path)
+    username = user_context.get("username", "anonymous")
+
+    set_audit_action(
+        http_request,
+        "rate",
+        "virtual_server",
+        resource_id=normalized,
+        description=f"Rate virtual server with {rating_request.rating} stars",
+    )
+
+    service = get_virtual_server_service()
+
+    try:
+        result = await service.rate_virtual_server(
+            path=normalized,
+            username=username,
+            rating=rating_request.rating,
+        )
+        return result
+    except VirtualServerNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Virtual server not found: {normalized}",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.get(
+    "/virtual-servers/{vs_path:path}/rating",
+    response_model=dict,
+    summary="Get virtual server rating",
+)
+async def get_virtual_server_rating(
+    user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    vs_path: str = Path(..., description="Virtual server path"),
+) -> dict:
+    """Get rating information for a virtual server."""
+    normalized = _normalize_virtual_path(vs_path)
+    service = get_virtual_server_service()
+
+    try:
+        return await service.get_virtual_server_rating(normalized)
     except VirtualServerNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -158,6 +158,18 @@ class VirtualServerConfig(BaseModel):
         description="Supported MCP transport types",
     )
 
+    # Rating
+    num_stars: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=5.0,
+        description="Average star rating (0-5)",
+    )
+    rating_details: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of individual ratings with user and rating",
+    )
+
     # Audit
     created_by: str | None = Field(
         None,
@@ -233,6 +245,11 @@ class VirtualServerInfo(BaseModel):
     )
     is_enabled: bool = Field(default=False, description="Whether the server is enabled")
     tags: list[str] = Field(default_factory=list, description="Tags")
+    num_stars: float = Field(default=0.0, description="Average star rating")
+    rating_details: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of individual ratings",
+    )
     created_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -221,3 +221,59 @@ class DocumentDBVirtualServerRepository(VirtualServerRepositoryBase):
             logger.info(f"Set virtual server {path} enabled={enabled}")
             return True
         return False
+
+    async def update_rating(
+        self,
+        path: str,
+        num_stars: float,
+        rating_details: list[dict[str, Any]],
+    ) -> bool:
+        """Update virtual server rating.
+
+        Args:
+            path: Virtual server path
+            num_stars: Calculated average star rating
+            rating_details: List of rating entries with user and rating
+
+        Returns:
+            True if update succeeded, False if server not found
+        """
+        collection = await self._get_collection()
+        result = await collection.update_one(
+            {"_id": path},
+            {
+                "$set": {
+                    "num_stars": num_stars,
+                    "rating_details": rating_details,
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+            },
+        )
+        if result.modified_count > 0 or result.matched_count > 0:
+            logger.info(f"Updated rating for virtual server {path}: {num_stars:.2f} stars")
+            return True
+        return False
+
+    async def get_rating(
+        self,
+        path: str,
+    ) -> dict[str, Any] | None:
+        """Get virtual server rating info.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            Dict with num_stars and rating_details, or None if not found
+        """
+        collection = await self._get_collection()
+        doc = await collection.find_one(
+            {"_id": path},
+            {"num_stars": 1, "rating_details": 1},
+        )
+        if doc:
+            return {
+                "num_stars": doc.get("num_stars", 0.0),
+                "rating_details": doc.get("rating_details", []),
+            }
+        return None
