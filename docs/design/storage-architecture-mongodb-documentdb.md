@@ -24,7 +24,7 @@ The MCP Gateway Registry supports three storage backends for data persistence:
 2. **MongoDB CE** (Local Development) - MongoDB Community Edition 8.2 with application-level vector search
 3. **AWS DocumentDB** (Production) - MongoDB-compatible service with native vector search
 
-This document focuses on the MongoDB and DocumentDB backends, which provide production-grade distributed storage with semantic search capabilities.
+This document focuses on the MongoDB and DocumentDB backends, which provide distributed storage with semantic search capabilities.
 
 ### Architecture Diagram
 
