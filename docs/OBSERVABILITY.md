@@ -760,7 +760,7 @@ docker compose exec otel-collector env | grep -i key
 
 ### Example Complete Setup
 
-See `config/otel-collector-config.example.yaml` for a complete production-ready configuration template.
+See `config/otel-collector-config.example.yaml` for a complete configuration template.
 
 ## Grafana Dashboards
 

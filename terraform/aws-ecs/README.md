@@ -23,7 +23,7 @@ Production-grade infrastructure for the MCP Gateway Registry using AWS ECS Farga
 
 ### Network Architecture
 
-The infrastructure is deployed within a dedicated VPC spanning two availability zones for high availability. User traffic enters through Route 53 DNS resolution, directing requests to either the Main ALB (for Registry and Auth Server) or the Keycloak ALB (for identity management). AWS Certificate Manager provisions and manages SSL/TLS certificates for secure HTTPS communication.
+The infrastructure is deployed within a dedicated VPC spanning two availability zones for redundancy. User traffic enters through Route 53 DNS resolution, directing requests to either the Main ALB (for Registry and Auth Server) or the Keycloak ALB (for identity management). AWS Certificate Manager provisions and manages SSL/TLS certificates for secure HTTPS communication.
 
 ### Application Load Balancers
 
@@ -46,7 +46,7 @@ The infrastructure is deployed within a dedicated VPC spanning two availability 
 
 The infrastructure runs on an ECS cluster with Fargate launch type, eliminating server management. Three primary service types run as containerized tasks:
 
-**Registry Tasks** provide the core MCP server registry and discovery service. An auto-scaling group manages task count based on CPU and memory utilization, with tasks deployed across both availability zones for high availability. The registry retrieves secrets from AWS Secrets Manager for secure credential management, writes logs to CloudWatch Logs for centralized monitoring, and stores server metadata in DocumentDB for persistent, distributed access with native vector search capabilities.
+**Registry Tasks** provide the core MCP server registry and discovery service. An auto-scaling group manages task count based on CPU and memory utilization, with tasks deployed across both availability zones for redundancy. The registry retrieves secrets from AWS Secrets Manager for secure credential management, writes logs to CloudWatch Logs for centralized monitoring, and stores server metadata in DocumentDB for persistent, distributed access with native vector search capabilities.
 
 **Auth Server Tasks** handle OAuth2/OIDC authentication and authorization for the entire platform. These tasks manage user sessions and token validation, integrate with Keycloak for identity federation, and auto-scale based on demand. User data and session information is stored in Aurora PostgreSQL Serverless for reliable, scalable persistence.
 
@@ -54,9 +54,9 @@ The infrastructure runs on an ECS cluster with Fargate launch type, eliminating 
 
 ### Data Layer
 
-**Amazon Aurora PostgreSQL Serverless v2** provides a fully managed, auto-scaling database with capacity ranging from 0.5 to 2 ACUs based on workload demands. The database stores user credentials, session data, and application state with automatic backups and point-in-time recovery capabilities. Deployed in a multi-AZ configuration for high availability, Aurora uses RDS Proxy for efficient connection pooling and management across ECS tasks.
+**Amazon Aurora PostgreSQL Serverless v2** provides a fully managed, auto-scaling database with capacity ranging from 0.5 to 2 ACUs based on workload demands. The database stores user credentials, session data, and application state with automatic backups and point-in-time recovery capabilities. Deployed in a multi-AZ configuration for redundancy, Aurora uses RDS Proxy for efficient connection pooling and management across ECS tasks.
 
-**Amazon DocumentDB** (MongoDB-compatible) serves as the primary data store for the MCP Gateway Registry. DocumentDB provides distributed, scalable storage for server metadata, agent registrations, scopes, and security scan results. With native HNSW vector search support, DocumentDB enables sub-100ms semantic queries for server and agent discovery. The cluster automatically scales storage and replicates data across multiple availability zones for high availability and durability.
+**Amazon DocumentDB** (MongoDB-compatible) serves as the primary data store for the MCP Gateway Registry. DocumentDB provides distributed, scalable storage for server metadata, agent registrations, scopes, and security scan results. With native HNSW vector search support, DocumentDB enables sub-100ms semantic queries for server and agent discovery. The cluster automatically scales storage and replicates data across multiple availability zones for redundancy and durability.
 
 ### Observability
 

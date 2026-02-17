@@ -158,7 +158,7 @@ DevOps automation agent for infrastructure and deployment management.
 - Auto-Scale Application
 
 **Security:** AWS SigV4 + Client Certificate
-**Features:** Multi-cloud support, verified trust level, 99.95% SLA
+**Features:** Multi-cloud support, verified trust level
 
 **Usage:**
 ```bash

@@ -1,6 +1,6 @@
 # Agent-to-Agent (A2A) Protocol Support
 
-The MCP Gateway & Registry now supports **Agent-to-Agent (A2A) communication**, enabling AI agents to securely register themselves and discover other agents within a centralized registry. This creates a self-managed agent ecosystem where agents can autonomously find, connect to, and communicate with other agents while maintaining enterprise-grade security and access control.
+The MCP Gateway & Registry now supports **Agent-to-Agent (A2A) communication**, enabling AI agents to securely register themselves and discover other agents within a centralized registry. This creates a self-managed agent ecosystem where agents can autonomously find, connect to, and communicate with other agents while maintaining security and access control features.
 
 ## Overview
 

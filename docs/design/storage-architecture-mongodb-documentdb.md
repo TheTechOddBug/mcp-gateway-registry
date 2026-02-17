@@ -298,7 +298,7 @@ AWS DocumentDB is a MongoDB-compatible managed database service optimized for cl
 
 1. **DocumentDB Cluster**
    - Managed by AWS
-   - Multi-AZ deployment for high availability
+   - Multi-AZ deployment for redundancy
    - Auto-scaling read replicas
    - Automated backups and point-in-time recovery
 
@@ -417,7 +417,7 @@ The application code is identical, but DocumentDB executes it much faster.
      master_username         = var.master_username
      master_password         = var.master_password
 
-     # High availability
+     # Redundancy
      backup_retention_period = 7
      preferred_backup_window = "03:00-04:00"
 

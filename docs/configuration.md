@@ -25,7 +25,7 @@ This document provides a comprehensive reference for all configuration files in 
 
 The MCP Gateway Registry supports multiple authentication providers. Choose one by setting the `AUTH_PROVIDER` environment variable:
 
-- **`keycloak`**: Enterprise-grade open-source identity and access management with individual agent audit trails
+- **`keycloak`**: Open-source identity and access management with individual agent audit trails
 - **`cognito`**: Amazon managed authentication service
 
 Based on your selection, configure the corresponding provider-specific variables below.
@@ -529,7 +529,7 @@ When using Keycloak as the authentication provider, the following configuration 
 
 ### Supported Providers
 
-- **Keycloak**: Enterprise-grade open-source identity and access management
+- **Keycloak**: Open-source identity and access management
 - **Amazon Cognito**: Amazon managed authentication service
 - **GitHub**: Repository and development services (planned)
 - **Google**: Google Workspace and consumer services (planned)

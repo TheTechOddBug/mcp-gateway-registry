@@ -19,7 +19,7 @@ Switch between providers with simple configuration changes - no code modificatio
 - **Backward Compatible**: Works seamlessly with existing FAISS indices
 - **Easy Configuration**: Simple environment variable setup
 - **Extensible**: Easy to add new providers
-- **Production-Ready**: Terraform support for AWS deployments
+- **AWS Deployable**: Terraform support for AWS deployments
 
 ## Quick Start
 

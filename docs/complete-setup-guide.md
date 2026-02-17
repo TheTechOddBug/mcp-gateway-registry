@@ -278,7 +278,7 @@ ls -la ${HOME}/mcp-gateway/models/all-MiniLM-L6-v2/
 
 ## 5. Setting Up Keycloak Identity Provider
 
-Keycloak provides enterprise-grade authentication with support for both human users and AI agents.
+Keycloak provides authentication with support for both human users and AI agents.
 
 ### Set Keycloak Passwords
 
@@ -1290,7 +1290,7 @@ curl -f https://mcpgateway.mycorp.com/realms/mcp-gateway
 ### Configure Production Settings
 
 1. **Domain Name**: Set up a domain name and update configurations
-2. **Load Balancer**: Add an Application Load Balancer for high availability
+2. **Load Balancer**: Add an Application Load Balancer for redundancy and load distribution
 3. **Backup Strategy**: Implement regular backups of PostgreSQL database
 4. **Scaling**: Consider EKS deployment for auto-scaling capabilities
 
@@ -1307,7 +1307,7 @@ curl -f https://mcpgateway.mycorp.com/realms/mcp-gateway
 - [Keycloak Advanced Configuration](keycloak-integration.md) - Enterprise features
 - [API Reference](registry_api.md) - Programmatic registry management
 - [Dynamic Tool Discovery](dynamic-tool-discovery.md) - AI agent capabilities
-- [Production Deployment](production-deployment.md) - Best practices for production
+- [AWS ECS Deployment](../terraform/aws-ecs/README.md) - Deployment best practices
 
 ### Getting Help
 

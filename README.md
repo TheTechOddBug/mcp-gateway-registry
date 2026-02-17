@@ -1,7 +1,7 @@
 <div align="center">
 <img src="registry/static/mcp_gateway_horizontal_white_logo.png" alt="MCP Gateway & Registry Logo" width="100%">
 
-**Unified Agent & MCP Server Registry – Enterprise-Ready Gateway for AI Development Tools**
+**Unified Agent & MCP Server Registry – Gateway for AI Development Tools**
 
 [![GitHub stars](https://img.shields.io/github/stars/agentic-community/mcp-gateway-registry?style=flat&logo=github)](https://github.com/agentic-community/mcp-gateway-registry/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/agentic-community/mcp-gateway-registry?style=flat&logo=github)](https://github.com/agentic-community/mcp-gateway-registry/network)
@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/github/license/agentic-community/mcp-gateway-registry?style=flat)](https://github.com/agentic-community/mcp-gateway-registry/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/agentic-community/mcp-gateway-registry?style=flat&logo=github)](https://github.com/agentic-community/mcp-gateway-registry/releases)
 
-[🚀 Get Running Now](#option-a-pre-built-images-instant-setup) | [Production Deployment](terraform/aws-ecs/README.md) | [Quick Start](#quick-start) | [Documentation](docs/) | [Enterprise Features](#enterprise-features) | [Community](#community)
+[🚀 Get Running Now](#option-a-pre-built-images-instant-setup) | [AWS Deployment](terraform/aws-ecs/README.md) | [Quick Start](#quick-start) | [Documentation](docs/) | [Enterprise Features](#enterprise-features) | [Community](#community)
 
 **Demo Videos:** ⭐ [MCP Registry CLI Demo](https://github.com/user-attachments/assets/98200866-e8bd-4ac3-bad6-c6d42b261dbe) | [Full End-to-End Functionality](https://github.com/user-attachments/assets/5ffd8e81-8885-4412-a4d4-3339bbdba4fb) | [OAuth 3-Legged Authentication](https://github.com/user-attachments/assets/3c3a570b-29e6-4dd3-b213-4175884396cc) | [Dynamic Tool Discovery](https://github.com/user-attachments/assets/cee25b31-61e4-4089-918c-c3757f84518c) | [Agent Skills](https://github.com/user-attachments/assets/5d1f227a-25f8-480d-9ff9-acba2498844b) | [Virtual MCP Servers](https://app.vidcast.io/share/954e6296-f217-4559-8d86-88cec25af763)
 
@@ -19,7 +19,7 @@
 
 ## What is MCP Gateway & Registry?
 
-The **MCP Gateway & Registry** is a unified, enterprise-ready platform that centralizes access to both MCP Servers and AI Agents using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction). It serves three core functions:
+The **MCP Gateway & Registry** is a unified platform designed for centralizing access to both MCP Servers and AI Agents using the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction). It serves three core functions:
 
 1. **Unified MCP Server Gateway** – Centralized access point for multiple MCP servers
 2. **MCP Servers Registry** – Register, discover, and manage access to MCP servers with unified governance
@@ -53,7 +53,7 @@ The platform integrates with external registries such as Anthropic's MCP Registr
 ✅ Developers use standard OAuth 2LO/3LO flows for enterprise MCP servers
 ✅ Centralized credential management with secure vault integration
 ✅ Complete visibility and audit trail for all tool usage
-✅ Enterprise-grade security with governed tool access
+✅ Security features with governed tool access
 ✅ Dynamic tool discovery and invocation for autonomous workflows
 ✅ Registry provides discoverable, curated MCP servers for multi-tenant use
 ✅ Agents can discover and communicate with other agents through unified Agent Registry
@@ -152,7 +152,7 @@ Interactive terminal interface for chatting with AI models and discovering MCP t
 - **🔧 Registry Management API** - New programmatic API for managing servers, groups, and users. Python client (`api/registry_client.py`) with type-safe interfaces, RESTful HTTP endpoints (`/api/management/*`), and comprehensive error handling. Replaces shell scripts with modern API approach while maintaining backward compatibility. [API Documentation](api/README.md) | [Service Management Guide](docs/service-management.md)
 - **⭐ Server & Agent Rating System** - Rate and review agents with an interactive 5-star rating widget. Users can submit ratings via the UI or CLI, view aggregate ratings with individual rating details, and update their existing ratings. Features include a rotating buffer (max 100 ratings per agent), one rating per user, float average calculations, and full OpenAPI documentation. Enables community-driven agent quality assessment and discovery.
 - **🧠 Flexible Embeddings Support** - Choose from three embedding provider options for semantic search: local sentence-transformers, OpenAI, or any LiteLLM-supported provider including Amazon Bedrock Titan, Cohere, and 100+ other models. Switch providers with simple configuration changes. [Embeddings Guide](docs/embeddings.md)
-- **☁️ AWS ECS Production Deployment** - Production-ready deployment on Amazon ECS Fargate with multi-AZ architecture, Application Load Balancer with HTTPS, auto-scaling, CloudWatch monitoring, and NAT Gateway high availability. Complete Terraform configuration for deploying the entire stack. [ECS Deployment Guide](terraform/aws-ecs/README.md)
+- **☁️ AWS ECS Deployment** - Deployment configuration on Amazon ECS Fargate with multi-AZ architecture, Application Load Balancer with HTTPS, auto-scaling, CloudWatch monitoring, and NAT Gateway redundancy. Complete Terraform configuration for deploying the entire stack. [ECS Deployment Guide](terraform/aws-ecs/README.md)
 - **📦 Flexible Deployment Modes** - Three deployment options to match your requirements: (1) CloudFront Only for quick setup without custom domains, (2) Custom Domain with Route53/ACM for branded URLs, or (3) CloudFront + Custom Domain for production with CDN benefits. [Deployment Modes Guide](docs/deployment-modes.md)
 - **🔗 Federated Registry** - MCP Gateway registry now supports federation of servers and agents from other registries. [Federation Guide](docs/federation.md)
 - **🔗 Agent-to-Agent (A2A) Protocol Support** - Agents can now register, discover, and communicate with other agents through a secure, centralized registry. Enable autonomous agent ecosystems with Keycloak-based access control and fine-grained permissions. [A2A Guide](docs/a2a.md)
@@ -393,9 +393,9 @@ flowchart TB
 
 ## Key Advantages
 
-### **Enterprise-Grade Security**
+### **Security Features**
 - OAuth 2.0/3.0 compliance with IdP integration
-- Fine-grained access control at tool and method level  
+- Fine-grained access control at tool and method level
 - Zero-trust network architecture
 - Complete audit trails and comprehensive analytics for compliance
 
@@ -405,7 +405,7 @@ flowchart TB
 - Instant onboarding for new team members and AI agent deployments
 - Unified governance for both AI agents and human developers
 
-### **Production Ready**
+### **Deployment Features**
 - Container-native (Docker/Kubernetes)
 - Real-time health monitoring and alerting
 - Dual authentication supporting both human and machine authentication
@@ -656,7 +656,7 @@ echo 'ASOR_ACCESS_TOKEN=your_token' >> .env
 
 **Fine-Grained Permissions:** Tool-level, method-level, team-based, and temporary access controls. [Learn more](docs/scopes.md)
 
-### Production Deployment
+### Deployment Options
 
 **Cloud Platforms:** Amazon EC2, Amazon EKS
 
@@ -670,13 +670,13 @@ echo 'ASOR_ACCESS_TOKEN=your_token' >> .env
 <img src="terraform/aws-ecs/img/MCP-Gateway-Registry-first-login.png" alt="MCP Gateway Registry on AWS ECS" width="800"/>
 </div>
 
-**Production-ready deployment** on Amazon ECS Fargate with comprehensive enterprise features:
+**Deployment configuration** on Amazon ECS Fargate with comprehensive enterprise features:
 
-- **Multi-AZ Architecture** - High availability across multiple availability zones
+- **Multi-AZ Architecture** - Redundancy across multiple availability zones
 - **Application Load Balancer** - HTTPS/SSL termination with automatic certificate management via ACM
 - **Auto-scaling** - Dynamic scaling based on CPU and memory utilization
 - **CloudWatch Integration** - Comprehensive monitoring, logging, and alerting
-- **NAT Gateway HA** - High-availability NAT gateway configuration for secure outbound connectivity
+- **NAT Gateway HA** - Redundant NAT gateway configuration for secure outbound connectivity
 - **Keycloak Integration** - Enterprise authentication with RDS Aurora PostgreSQL backend
 - **EFS Shared Storage** - Persistent storage for models, logs, and configuration
 - **Service Discovery** - AWS Cloud Map for service-to-service communication
@@ -694,7 +694,7 @@ echo 'ASOR_ACCESS_TOKEN=your_token' >> .env
 | Getting Started | Enterprise Setup | Developer & Operations |
 |------------------|-------------------|------------------------|
 | [Complete Setup Guide](docs/complete-setup-guide.md)<br/>**NEW!** Step-by-step from scratch on AWS EC2 | [Authentication Guide](docs/auth.md)<br/>OAuth and identity provider integration | [AI Coding Assistants Setup](docs/ai-coding-assistants-setup.md)<br/>VS Code, Cursor, Claude Code integration |
-| [Installation Guide](docs/installation.md)<br/>Complete setup instructions for EC2 and EKS | [AWS ECS Deployment](terraform/aws-ecs/README.md)<br/>Production-ready deployment on AWS ECS Fargate | [API Reference](docs/registry_api.md)<br/>Programmatic registry management |
+| [Installation Guide](docs/installation.md)<br/>Complete setup instructions for EC2 and EKS | [AWS ECS Deployment](terraform/aws-ecs/README.md)<br/>Deployment guide for AWS ECS Fargate | [API Reference](docs/registry_api.md)<br/>Programmatic registry management |
 | [Keycloak Integration](docs/keycloak-integration.md)<br/>Enterprise identity with agent audit trails | [Token Refresh Service](docs/token-refresh-service.md)<br/>Automated token refresh and lifecycle management | [MCP Registry CLI](docs/mcp-registry-cli.md)<br/>Command-line client for registry management |
 | [Configuration Reference](docs/configuration.md)<br/>Environment variables and settings | [Amazon Cognito Setup](docs/cognito.md)<br/>Step-by-step IdP configuration | [Observability Guide](docs/OBSERVABILITY.md)<br/>**NEW!** Metrics, monitoring, and OpenTelemetry setup |
 | | [Anthropic Registry Import](docs/anthropic-registry-import.md)<br/>**NEW!** Import servers from Anthropic MCP Registry | [Federation Guide](docs/federation.md)<br/>External registry integration (Anthropic, ASOR) |
@@ -702,7 +702,7 @@ echo 'ASOR_ACCESS_TOKEN=your_token' >> .env
 | | [Service Management](docs/service-management.md)<br/>Server lifecycle and operations | [Anthropic Registry API](docs/anthropic_registry_api.md)<br/>**NEW!** REST API compatibility |
 | | | [Fine-Grained Access Control](docs/scopes.md)<br/>Permission management and security |
 | | | [Dynamic Tool Discovery](docs/dynamic-tool-discovery.md)<br/>Autonomous agent capabilities |
-| | | [Production Deployment](docs/installation.md)<br/>Complete setup for production environments |
+| | | [Deployment Guide](docs/installation.md)<br/>Complete setup for deployment environments |
 | | | [Troubleshooting Guide](docs/FAQ.md)<br/>Common issues and solutions |
 
 ---

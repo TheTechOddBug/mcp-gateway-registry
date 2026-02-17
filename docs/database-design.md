@@ -18,7 +18,7 @@ The MCP Gateway Registry supports three storage backends for data persistence:
 
 3. **AWS DocumentDB** (Production, Recommended)
    - MongoDB-compatible managed service
-   - Production-ready with clustering support
+   - Supports clustering configuration
    - Native vector search with HNSW indexes
    - Multi-tenancy support via namespaces
    - Recommended for all production deployments
