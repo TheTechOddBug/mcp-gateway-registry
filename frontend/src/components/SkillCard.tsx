@@ -18,9 +18,12 @@ import {
   ClockIcon,
   ClipboardIcon,
   ArrowDownTrayIcon,
+  ShieldCheckIcon,
+  ShieldExclamationIcon,
 } from '@heroicons/react/24/outline';
 import { Skill } from '../types/skill';
 import StarRatingWidget from './StarRatingWidget';
+import SecurityScanModal from './SecurityScanModal';
 
 /**
  * Props for the SkillCard component.
@@ -134,12 +137,32 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
   const [lastCheckedTime, setLastCheckedTime] = useState<string | null>(
     skill.last_checked_time || null
   );
+  const [showSecurityScan, setShowSecurityScan] = useState(false);
+  const [securityScanResult, setSecurityScanResult] = useState<any>(null);
+  const [loadingSecurityScan, setLoadingSecurityScan] = useState(false);
 
   // Sync health status from props when skill changes
   useEffect(() => {
     setHealthStatus(skill.health_status || 'unknown');
     setLastCheckedTime(skill.last_checked_time || null);
   }, [skill.health_status, skill.last_checked_time]);
+
+  // Fetch security scan status on mount to show correct icon color
+  useEffect(() => {
+    const fetchSecurityScan = async () => {
+      try {
+        const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+        const response = await axios.get(
+          `/api/skills${skillApiPath}/security-scan`,
+          headers ? { headers } : undefined
+        );
+        setSecurityScanResult(response.data);
+      } catch {
+        // Silently ignore - no scan result available
+      }
+    };
+    fetchSecurityScan();
+  }, [skillApiPath, authToken]);
 
   // Extract skill name from path for API calls
   // skill.path is like "/skills/doc-coauthoring", API routes already have /skills prefix
@@ -271,6 +294,57 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
     }
   }, [skill.path, authToken, loadingHealthCheck, onShowToast, onSkillUpdate]);
 
+  const handleViewSecurityScan = useCallback(async () => {
+    if (loadingSecurityScan) return;
+
+    setShowSecurityScan(true);
+    setLoadingSecurityScan(true);
+    try {
+      const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+      const response = await axios.get(
+        `/api/skills${skillApiPath}/security-scan`,
+        headers ? { headers } : undefined
+      );
+      setSecurityScanResult(response.data);
+    } catch (error: any) {
+      if (error.response?.status !== 404) {
+        if (onShowToast) {
+          onShowToast('Failed to load security scan results', 'error');
+        }
+      }
+      setSecurityScanResult(null);
+    } finally {
+      setLoadingSecurityScan(false);
+    }
+  }, [skillApiPath, authToken, loadingSecurityScan, onShowToast]);
+
+  const handleRescan = useCallback(async () => {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+    const response = await axios.post(
+      `/api/skills${skillApiPath}/rescan`,
+      undefined,
+      headers ? { headers } : undefined
+    );
+    setSecurityScanResult(response.data);
+  }, [skillApiPath, authToken]);
+
+  const getSecurityIconState = () => {
+    if (!securityScanResult) {
+      return { Icon: ShieldCheckIcon, color: 'text-gray-400 dark:text-gray-500', title: 'View security scan results' };
+    }
+    if (securityScanResult.scan_failed) {
+      return { Icon: ShieldExclamationIcon, color: 'text-red-500 dark:text-red-400', title: 'Security scan failed' };
+    }
+    const hasVulnerabilities = securityScanResult.critical_issues > 0 ||
+      securityScanResult.high_severity > 0 ||
+      securityScanResult.medium_severity > 0 ||
+      securityScanResult.low_severity > 0;
+    if (hasVulnerabilities) {
+      return { Icon: ShieldExclamationIcon, color: 'text-red-500 dark:text-red-400', title: 'Security issues found' };
+    }
+    return { Icon: ShieldCheckIcon, color: 'text-green-500 dark:text-green-400', title: 'Security scan passed' };
+  };
+
   return (
     <>
       <div className="group rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 h-full flex flex-col bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border-2 border-amber-200 dark:border-amber-700 hover:border-amber-300 dark:hover:border-amber-600">
@@ -344,6 +418,15 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
                 </button>
               )}
 
+              {/* Security Scan Button */}
+              <button
+                onClick={handleViewSecurityScan}
+                className={`p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-all duration-200 flex-shrink-0 ${getSecurityIconState().color}`}
+                title={getSecurityIconState().title}
+              >
+                {React.createElement(getSecurityIconState().Icon, { className: `h-4 w-4 ${loadingSecurityScan ? 'animate-pulse' : ''}` })}
+              </button>
+
               {/* Details Button */}
               <button
                 onClick={handleViewDetails}
@@ -366,7 +449,11 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
               {skill.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
-                  className="px-2 py-1 text-xs font-medium bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded"
+                  className={`px-2 py-1 text-xs font-medium rounded ${
+                    tag === 'security-pending'
+                      ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700'
+                      : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                  }`}
                 >
                   #{tag}
                 </span>
@@ -657,6 +744,18 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
           </div>
         </div>
       )}
+      {/* Security Scan Modal */}
+      <SecurityScanModal
+        resourceName={skill.name}
+        resourceType="skill"
+        isOpen={showSecurityScan}
+        onClose={() => setShowSecurityScan(false)}
+        loading={loadingSecurityScan}
+        scanResult={securityScanResult}
+        onRescan={canModify ? handleRescan : undefined}
+        canRescan={canModify}
+        onShowToast={onShowToast}
+      />
     </>
   );
 });

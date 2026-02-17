@@ -34,7 +34,7 @@ export interface SecurityScanResult {
 
 interface SecurityScanModalProps {
   resourceName: string;
-  resourceType: 'server' | 'agent';
+  resourceType: 'server' | 'agent' | 'skill';
   isOpen: boolean;
   onClose: () => void;
   loading: boolean;
