@@ -50,6 +50,11 @@
       "last 1 safari version"
     ]
   },
+  "jest": {
+    "transformIgnorePatterns": [
+      "node_modules/(?!axios)/"
+    ]
+  },
   "proxy": "http://localhost:7860",
   "overrides": {
     "nth-check": "^2.1.1",

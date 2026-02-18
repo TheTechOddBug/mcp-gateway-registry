@@ -650,3 +650,130 @@ python -c "import yaml; yaml.safe_load(open('file.yml'))"  # YAML validation
 - **OAuth flows**: `.oauth-tokens/` directory contains generated tokens and logs
 - **Registry operations**: Check `registry.log` for service-level issues
 - **Authentication**: Check `auth.log` for OAuth and FGAC issues
+
+---
+
+## Viewing Configuration via UI
+
+Administrators can view and export the current system configuration through the web interface.
+
+### Accessing the Configuration Viewer
+
+1. Navigate to **Settings** from the main dashboard
+2. Select **System Config** > **Configuration** from the sidebar
+
+![System Configuration Viewer](img/system-config.png)
+
+### Features
+
+The Configuration Viewer provides:
+
+- **Grouped View**: Configuration parameters organized into 11 categories:
+  - Deployment Mode
+  - Storage Backend
+  - Authentication
+  - Embeddings / Vector Search
+  - Health Checks
+  - WebSocket Settings
+  - Security Scanning (MCP Servers)
+  - Security Scanning (Agents)
+  - Audit Logging
+  - Federation
+  - Well-Known Discovery
+
+- **Search**: Filter configuration parameters by name or value
+- **Expand/Collapse**: View all groups or focus on specific categories
+- **Sensitive Value Masking**: Passwords, API keys, and secrets are automatically masked
+- **Statistics**: Quick overview showing total, enabled, disabled, and issue counts
+
+### Export Options
+
+Click the **Export** button to download configuration in multiple formats:
+
+| Format | Description | Use Case |
+|--------|-------------|----------|
+| ENV | Shell environment variables | Docker/shell deployment |
+| JSON | Structured JSON format | Programmatic access |
+| TFVARS | Terraform variables | Infrastructure as Code |
+| YAML | YAML format | Kubernetes ConfigMaps |
+
+**Note**: Sensitive values are masked by default in exports. Use `include_sensitive=true` with caution.
+
+---
+
+## Configuration API
+
+The registry provides REST API endpoints for programmatic configuration access.
+
+### GET /api/config
+
+Returns basic configuration information (public endpoint).
+
+```bash
+curl -X GET "https://your-registry/api/config"
+```
+
+**Response:**
+```json
+{
+  "deployment_mode": "with-gateway",
+  "registry_mode": "full",
+  "nginx_updates_enabled": true,
+  "features": {
+    "mcp_servers": true,
+    "agents": true,
+    "skills": true
+  }
+}
+```
+
+### GET /api/config/full
+
+Returns complete configuration grouped by category (admin only).
+
+```bash
+curl -X GET "https://your-registry/api/config/full" \
+  -H "Cookie: session=<session-cookie>"
+```
+
+**Response:**
+```json
+{
+  "groups": {
+    "deployment": {
+      "title": "Deployment Mode",
+      "order": 1,
+      "fields": {
+        "deployment_mode": {
+          "label": "Deployment Mode",
+          "value": { "raw": "with-gateway", "display": "with-gateway", "is_masked": false }
+        }
+      }
+    }
+  },
+  "generated_at": "2025-01-15T10:30:00Z"
+}
+```
+
+### GET /api/config/export
+
+Export configuration in various formats (admin only).
+
+```bash
+# Export as ENV format
+curl -X GET "https://your-registry/api/config/export?format=env" \
+  -H "Cookie: session=<session-cookie>"
+
+# Export as JSON with sensitive values
+curl -X GET "https://your-registry/api/config/export?format=json&include_sensitive=true" \
+  -H "Cookie: session=<session-cookie>"
+```
+
+**Query Parameters:**
+
+| Parameter | Values | Default | Description |
+|-----------|--------|---------|-------------|
+| `format` | `env`, `json`, `tfvars`, `yaml` | `env` | Export format |
+| `include_sensitive` | `true`, `false` | `false` | Include sensitive values (use with caution) |
+
+**Rate Limiting**: These endpoints are rate-limited to 10 requests per minute per user.

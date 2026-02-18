@@ -7,10 +7,12 @@ import {
   GlobeAltIcon,
   ArrowLeftIcon,
   ClipboardDocumentListIcon,
+  CogIcon,
   ServerStackIcon,
 } from '@heroicons/react/24/outline';
 import FederationPeers from '../components/FederationPeers';
 import FederationPeerForm from '../components/FederationPeerForm';
+import ConfigPanel from '../components/ConfigPanel';
 import VirtualServerList from '../components/VirtualServerList';
 import AuditLogsPage from './AuditLogsPage';
 import { useAuth } from '../contexts/AuthContext';
@@ -89,6 +91,15 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
       { id: 'm2m', label: 'M2M Accounts', path: '/settings/iam/m2m' },
     ],
     disabled: true, // IAM not implemented yet
+  },
+  {
+    id: 'system-config',
+    label: 'System Config',
+    icon: <CogIcon className="h-5 w-5" />,
+    items: [
+      { id: 'configuration', label: 'Configuration', path: '/settings/system-config/configuration' },
+    ],
+    adminOnly: true,
   },
 ];
 
@@ -213,6 +224,11 @@ const SettingsPage: React.FC = () => {
     // Virtual MCP > Servers
     if (path === '/settings/virtual-mcp/servers' || path === '/settings/virtual-mcp') {
       return <VirtualServerList onShowToast={showToast} />;
+    }
+
+    // System Config > Configuration
+    if (path === '/settings/system-config/configuration' || path === '/settings/system-config') {
+      return <ConfigPanel showToast={showToast} />;
     }
 
     // IAM placeholders (not implemented yet)

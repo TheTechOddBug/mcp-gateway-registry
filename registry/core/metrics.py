@@ -2,6 +2,19 @@
 
 from prometheus_client import Counter, Gauge
 
+# Configuration viewer metrics
+CONFIG_VIEW_REQUESTS = Counter(
+    "mcp_config_view_requests_total",
+    "Total configuration view requests",
+    ["user_type"],
+)
+
+CONFIG_EXPORT_REQUESTS = Counter(
+    "mcp_config_export_requests_total",
+    "Total configuration export requests",
+    ["format", "includes_sensitive"],
+)
+
 # Deployment mode info gauge
 DEPLOYMENT_MODE_INFO = Gauge(
     'registry_deployment_mode_info',
