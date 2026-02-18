@@ -353,5 +353,6 @@ image-manifest.json
 agent_security_scans/
 
 # Claude
-.claude
+.claude/*
+!.claude/skills/
 .token?
