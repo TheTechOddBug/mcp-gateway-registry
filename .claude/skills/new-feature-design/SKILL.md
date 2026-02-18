@@ -1,9 +1,9 @@
 ---
 name: new-feature-design
-description: Design and document new features with GitHub issue, low-level design (LLD), and expert review. Creates structured documentation in .scratchpad/{feature-name}/ with issue spec, technical design with diagrams and pseudo-code, and multi-persona expert review. Supports starting from a user description OR an existing GitHub issue URL.
+description: Design and document new features with GitHub issue, low-level design (LLD), and expert review. Creates structured documentation in .scratchpad/ with issue spec, technical design with diagrams and pseudo-code, and multi-persona expert review. Supports starting from a user description OR an existing GitHub issue URL. Folder naming: issue-{number}/ for existing issues, {feature-name}/ for new features.
 metadata:
   author: mcp-gateway-registry
-  version: "1.3"
+  version: "1.4"
 ---
 
 # New Feature Design Skill
@@ -39,7 +39,7 @@ When the user invokes this skill:
 1. **Fetch GitHub Issue** - Retrieve issue content using `gh` CLI
 2. **Analyze Issue Content** - Extract requirements, design elements, and context
 3. **Quick Codebase Review** - Explore the codebase to understand structure
-4. **Create Design Folder** - Create `.scratchpad/{feature-name}/` directory
+4. **Create Design Folder** - Create `.scratchpad/issue-{number}/` directory (e.g., `issue-500` for GitHub issue #500)
 5. **Summarize Existing Issue** - Create `github-issue.md` summarizing the existing issue
 6. **Clarify Requirements** - Ask user about any gaps or ambiguities found
 7. **Deep Codebase Analysis** - Thoroughly explore relevant code
@@ -221,11 +221,30 @@ This quick review should take 5-10 minutes and helps you ask better clarifying q
 
 ## Step 3: Create Design Folder
 
+### Folder Naming Convention
+
+**IMPORTANT:** Use different naming conventions based on the input mode:
+
+| Input Mode | Folder Name | Example |
+|------------|-------------|---------|
+| **GitHub Issue URL Mode** | `issue-{number}/` | `issue-500/` for GitHub issue #500 |
+| **User Description Mode** | `{feature-name}/` | `rate-limiting/` for a rate limiting feature |
+
+This convention makes it easy to:
+- Trace design documents back to their source GitHub issue
+- Avoid duplicate work on the same issue
+- Organize designs consistently
+
+### Folder Structure
+
 Create the folder structure:
 
 ```
-.scratchpad/{feature-name}/
-├── github-issue.md    # GitHub issue specification
+.scratchpad/issue-{number}/     # For GitHub Issue URL Mode
+# OR
+.scratchpad/{feature-name}/     # For User Description Mode
+
+├── github-issue.md    # GitHub issue specification or summary
 ├── lld.md             # Low-level design document
 └── review.md          # Expert review document
 ```
@@ -1169,7 +1188,7 @@ User: "https://github.com/agentic-community/mcp-gateway-registry/issues/456"
    - Found: Problem statement, some acceptance criteria
    - Missing: Specific sync frequency, conflict resolution strategy
 3. Quick codebase review to understand registry architecture
-4. Create `.scratchpad/federated-registry-sync/` (name derived from issue)
+4. Create `.scratchpad/issue-456/` (folder named after the GitHub issue number)
 5. Ask user only about gaps:
    - "The issue mentions syncing but doesn't specify frequency. What sync interval should we design for?"
    - "The issue discusses conflicts but doesn't specify resolution. Should we use last-write-wins or require manual resolution?"
