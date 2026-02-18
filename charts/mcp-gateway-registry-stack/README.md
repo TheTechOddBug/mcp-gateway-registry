@@ -7,7 +7,7 @@ This collection of charts deploys everything needed to install the MCP Gateway R
 ### Amazon EKS Cluster
 
 For production deployments, we recommend using the [AWS AI/ML on Amazon EKS](https://github.com/awslabs/ai-on-eks)
-blueprints to provision a production-ready EKS cluster:
+blueprints to provision an EKS cluster:
 
 ```bash
 # Clone AI on EKS repository
@@ -28,7 +28,7 @@ The ai-on-eks blueprints provide:
 - EKS-optimized configurations
 - Security best practices
 - Observability with Prometheus/Grafana
-- Proven, battle-tested infrastructure
+- Well-documented infrastructure patterns
 
 ### Additional Requirements
 
@@ -309,7 +309,7 @@ Ensure that:
 
 See the [Entra ID documentation](../../docs/entra.md) for complete setup instructions.
 
-## Scaling and High Availability
+## Scaling and Redundancy
 
 ### Replica Configuration
 
@@ -323,7 +323,7 @@ registry:
   replicaCount: 2
 ```
 
-For production environments, we recommend running at least 2 replicas of each service to ensure high availability.
+For production environments, we recommend running at least 2 replicas of each service for redundancy.
 
 ### Topology Spread Constraints
 

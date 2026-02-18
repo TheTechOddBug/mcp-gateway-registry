@@ -146,6 +146,11 @@ mongodb-configure:
 registry:
   app:
     replicas: 2 # set to > 1 replica for high availability
+    # Deployment mode: with-gateway (nginx integration) or registry-only (catalog only)
+    deploymentMode: with-gateway
+
+    # Registry mode: full, skills-only, mcp-servers-only, agents-only
+    registryMode: full
   ingress:
     enabled: true
     ingressClassName: alb

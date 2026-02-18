@@ -1,6 +1,6 @@
 # Authentication and Authorization
 
-The MCP Gateway Registry provides enterprise-ready authentication and authorization using industry-standard OAuth 2.0 flows with fine-grained access control.
+The MCP Gateway Registry provides authentication and authorization using industry-standard OAuth 2.0 flows with fine-grained access control.
 
 ## Overview
 

@@ -562,7 +562,7 @@ graph TB
 
 ### Key Benefits of EKS Deployment
 
-- **High Availability**: Multi-AZ pod distribution
+- **Multi-AZ Support**: Pod distribution across availability zones
 - **Auto Scaling**: Horizontal pod autoscaling based on metrics
 - **Service Mesh**: Istio integration for advanced traffic management
 - **Observability**: Native integration with CloudWatch and Prometheus
@@ -649,5 +649,5 @@ For more troubleshooting help, see [Troubleshooting Guide](troubleshooting.md).
 
 - [Authentication Setup](auth.md) - Configure identity providers
 - [AI Assistant Integration](ai-coding-assistants-setup.md) - Setup development tools
-- [Production Deployment](production-deployment.md) - High availability configuration
+- [AWS ECS Deployment](../terraform/aws-ecs/README.md) - Multi-instance configuration
 - [API Reference](registry_api.md) - Programmatic management

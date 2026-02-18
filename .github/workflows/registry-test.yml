@@ -62,17 +62,9 @@ jobs:
       run: |
         uv run python scripts/test.py check
 
-    - name: Run unit tests
+    - name: Run all tests with coverage
       run: |
-        uv run python scripts/test.py unit
-
-    - name: Run integration tests
-      run: |
-        uv run python scripts/test.py integration
-
-    - name: Generate coverage report
-      run: |
-        uv run python scripts/test.py coverage
+        uv run python scripts/test.py coverage -n auto
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5

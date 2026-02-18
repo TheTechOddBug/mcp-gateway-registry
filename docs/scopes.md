@@ -13,8 +13,9 @@ This document provides comprehensive documentation for the fine-grained access c
 5. [Cognito Integration](#cognito-integration)
 6. [Scope Validation Logic](#scope-validation-logic)
 7. [Configuration Examples](#configuration-examples)
-8. [Security Considerations](#security-considerations)
-9. [Troubleshooting](#troubleshooting)
+8. [Virtual MCP Server Access Control](#virtual-mcp-server-access-control)
+9. [Security Considerations](#security-considerations)
+10. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -363,6 +364,89 @@ UI-Scopes:
     toggle_service: [all]
     modify_service: [all]
 ```
+
+## Virtual MCP Server Access Control
+
+Virtual MCP Servers use the same access control model as regular MCP servers. The key difference is that you reference the virtual server by its path (e.g., `/virtual/scoped-tools`) instead of a backend server name.
+
+### How It Works
+
+Virtual servers are treated identically to regular MCP servers in scope definitions:
+
+1. **Server Identification**: Use the virtual server path as the `server` value
+2. **Method Control**: Same MCP methods apply (`initialize`, `tools/list`, `tools/call`, etc.)
+3. **Tool Control**: You can restrict access to specific tools exposed by the virtual server
+
+### Example: Virtual Server Scope Configuration
+
+```json
+{
+  "scope_name": "virtual-scoped-tools-users",
+  "description": "Users with access to the scoped virtual server",
+  "server_access": [
+    {
+      "server": "/virtual/scoped-tools",
+      "methods": ["initialize", "notifications/initialized", "ping", "tools/list", "tools/call"],
+      "tools": ["*"]
+    },
+    {
+      "server": "api",
+      "methods": ["GET", "POST", "servers", "virtual-servers", "search"],
+      "tools": []
+    }
+  ],
+  "group_mappings": ["virtual-scoped-tools-users"],
+  "custom_scopes": ["virtual-scoped-tools/access"],
+  "create_in_idp": true
+}
+```
+
+See [virtual-server-scoped-users.json](../cli/examples/virtual-server-scoped-users.json) for the complete example.
+
+### Key Points
+
+| Aspect | Regular MCP Server | Virtual MCP Server |
+|--------|-------------------|-------------------|
+| Server identifier | Server name (e.g., `fininfo`) | Virtual path (e.g., `/virtual/scoped-tools`) |
+| Methods | Standard MCP methods | Same standard MCP methods |
+| Tools | Backend server tools | Aggregated tools (possibly aliased) |
+| Scope configuration | Identical | Identical |
+
+### Virtual Server-Level Scopes
+
+Virtual servers also support their own `required_scopes` field, which provides an additional layer of access control:
+
+```json
+{
+  "path": "/virtual/scoped-tools",
+  "required_scopes": ["virtual-scoped-tools/access"],
+  "tool_scope_overrides": [
+    {
+      "tool_alias": "sensitive-tool",
+      "required_scopes": ["virtual-scoped-tools/admin"]
+    }
+  ]
+}
+```
+
+This means access control happens at two levels:
+1. **Gateway level**: Defined in `scopes.yml` or scope configuration JSON
+2. **Virtual server level**: Defined in the virtual server's `required_scopes`
+
+Both must be satisfied for access to be granted.
+
+### Testing Virtual Server Access Control
+
+An E2E test script is provided for testing scope-based access control with virtual servers:
+
+```bash
+./tests/integration/test_virtual_server_scopes_e2e.sh \
+    --registry-url http://localhost \
+    --token-file .token \
+    --no-cleanup
+```
+
+See [Virtual Server Operations Guide](virtual-server-operations.md#scope-based-access-control) for more details.
 
 ## Security Considerations
 

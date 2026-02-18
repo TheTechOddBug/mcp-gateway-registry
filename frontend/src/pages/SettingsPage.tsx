@@ -8,10 +8,12 @@ import {
   ArrowLeftIcon,
   ClipboardDocumentListIcon,
   CogIcon,
+  ServerStackIcon,
 } from '@heroicons/react/24/outline';
 import FederationPeers from '../components/FederationPeers';
 import FederationPeerForm from '../components/FederationPeerForm';
 import ConfigPanel from '../components/ConfigPanel';
+import VirtualServerList from '../components/VirtualServerList';
 import AuditLogsPage from './AuditLogsPage';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -72,6 +74,14 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     ],
   },
   {
+    id: 'virtual-mcp',
+    label: 'Virtual MCP',
+    icon: <ServerStackIcon className="h-5 w-5" />,
+    items: [
+      { id: 'servers', label: 'Virtual Servers', path: '/settings/virtual-mcp/servers' },
+    ],
+  },
+  {
     id: 'iam',
     label: 'IAM',
     icon: <UsersIcon className="h-5 w-5" />,
@@ -110,10 +120,19 @@ const SettingsPage: React.FC = () => {
     (category) => !category.adminOnly || user?.is_admin
   );
 
-  // Track which categories are expanded
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['audit']) // Audit expanded by default
-  );
+  // Track which categories are expanded - auto-expand based on current path
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => {
+    const initial = new Set(['audit']);
+    // Auto-expand the category matching the current route
+    for (const category of SETTINGS_CATEGORIES) {
+      for (const item of category.items) {
+        if (location.pathname.startsWith(item.path) || location.pathname.startsWith(`/settings/${category.id}`)) {
+          initial.add(category.id);
+        }
+      }
+    }
+    return initial;
+  });
 
   // Toast notification state
   const [toast, setToast] = useState<ToastState>({
@@ -200,6 +219,11 @@ const SettingsPage: React.FC = () => {
     const editMatch = path.match(/^\/settings\/federation\/peers\/([^/]+)\/edit$/);
     if (editMatch) {
       return <FederationPeerForm peerId={editMatch[1]} onShowToast={showToast} />;
+    }
+
+    // Virtual MCP > Servers
+    if (path === '/settings/virtual-mcp/servers' || path === '/settings/virtual-mcp') {
+      return <VirtualServerList onShowToast={showToast} />;
     }
 
     // System Config > Configuration

@@ -13,7 +13,7 @@ In enterprise scenarios, users often need to provide programmatic access to MCP 
 
 ## A Solution with Integrated Token Vending
 
-The JWT Token Vending Service provides an enterprise-ready solution that integrates directly with the existing MCP Gateway authentication infrastructure, allowing users to generate scoped JWT tokens through a familiar web interface.
+The JWT Token Vending Service integrates directly with the existing MCP Gateway authentication infrastructure, allowing users to generate scoped JWT tokens through a familiar web interface.
 
 Here is an architecture diagram showing how the token vending service integrates with the existing system:
 
@@ -405,7 +405,7 @@ The token generation interface provides:
 - **Usage Instructions**: Clear examples of how to use the generated token
 - **Security Warnings**: Prominent warnings about token storage and sharing
 
-By implementing the JWT Token Vending Service, organizations can provide their users with a secure, user-friendly way to generate programmatic access tokens while maintaining enterprise-grade security controls and comprehensive audit capabilities. The service seamlessly integrates with existing MCP Gateway infrastructure and provides a foundation for advanced token management features.
+By implementing the JWT Token Vending Service, organizations can provide their users with a secure, user-friendly way to generate programmatic access tokens while maintaining security controls and comprehensive audit capabilities. The service seamlessly integrates with existing MCP Gateway infrastructure and provides a foundation for advanced token management features.
 
 ## Integration with Token Refresh Service
 

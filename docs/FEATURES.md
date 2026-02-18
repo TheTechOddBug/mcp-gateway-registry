@@ -64,7 +64,7 @@ This document provides a comprehensive overview of the MCP Gateway & Registry so
 - **AWS ECS Production Deployment**: Multi-AZ Fargate deployment with ALB, auto-scaling, CloudWatch, and Terraform
 - **Flexible Deployment Modes**: CloudFront Only, Custom Domain with Route53/ACM, or CloudFront + Custom Domain
 - **Reverse Proxy Architecture**: Nginx-based ingress with SSL termination
-- **DocumentDB & MongoDB CE Storage**: Production-grade distributed storage with HNSW vector search
+- **DocumentDB & MongoDB CE Storage**: Distributed storage with HNSW vector search
 - **Real-Time Metrics & Observability**: Grafana dashboards with SQLite and OpenTelemetry integration
 - **Configuration Management**: Environment-based configuration with validation
 
@@ -96,6 +96,6 @@ This document provides a comprehensive overview of the MCP Gateway & Registry so
 - **Zero Vendor Lock-in**: Open architecture supporting any MCP-compliant server
 - **Unified Agent & Server Registry**: Single control plane for both MCP servers and AI agents
 - **Minimal Configuration**: Automatic tool discovery reduces setup complexity
-- **Enterprise Security**: Production-grade authentication and authorization with multiple IdP support
+- **Enterprise Security**: Authentication and authorization with multiple IdP support
 - **Developer Friendly**: Clear APIs, CLI tools, and comprehensive documentation
 - **Cost Effective**: Reduces integration overhead and maintenance complexity

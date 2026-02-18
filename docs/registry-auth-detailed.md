@@ -27,7 +27,7 @@ The MCP Gateway Registry implements a sophisticated dual-authentication system d
 
 - 🔐 **Dual Authentication**: Support for both traditional and OAuth2 flows
 - 🎯 **RBAC System**: Fine-grained role-based access control
-- 🏢 **Enterprise Ready**: Integration with Cognito and SAML providers
+- 🏢 **IdP Integration**: Integration with Cognito and SAML providers
 - 🔒 **Secure Sessions**: Encrypted, signed session cookies
 - 🎛️ **Dynamic UI**: Permission-based interface rendering
 - 📊 **Audit Logging**: Comprehensive authentication event tracking

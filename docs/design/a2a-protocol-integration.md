@@ -1121,4 +1121,4 @@ Now the agent is discoverable by other agents and will appear in semantic search
 
 **FAISS Indexing**: Agents are automatically indexed for semantic search alongside MCP servers.
 
-This design enables autonomous agent ecosystems where agents discover and coordinate with each other while maintaining enterprise-grade security and access control.
+This design enables autonomous agent ecosystems where agents discover and coordinate with each other while maintaining security and access control features.

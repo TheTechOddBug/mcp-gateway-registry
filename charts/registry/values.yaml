@@ -27,10 +27,10 @@ app:
   registryId: # Unique identifier for this registry instance (optional)
 
   # Deployment mode: with-gateway (nginx integration) or registry-only (catalog only)
-  deployment_mode: with-gateway
+  deploymentMode: with-gateway
 
   # Registry mode: full, skills-only, mcp-servers-only, agents-only
-  registry_mode: full
+  registryMode: full
 
 # Service configuration
 service:

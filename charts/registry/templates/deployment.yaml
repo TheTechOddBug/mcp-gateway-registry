@@ -64,9 +64,9 @@ spec:
             {{- end }}
           env:
             - name: DEPLOYMENT_MODE
-              value: {{ .Values.app.deployment_mode | default "with-gateway" | quote }}
+              value: {{ .Values.app.deploymentMode | default "with-gateway" | quote }}
             - name: REGISTRY_MODE
-              value: {{ .Values.app.registry_mode | default "full" | quote }}
+              value: {{ .Values.app.registryMode | default "full" | quote }}
       volumes:
         - name: script
           configMap:

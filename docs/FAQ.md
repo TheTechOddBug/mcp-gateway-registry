@@ -185,7 +185,7 @@ except AuthenticationError as e:
 **Recommended for Production**:
 - **EC2 Instance**: `t3.2xlarge` (8 vCPU, 32GB RAM)
 - **Storage**: 50GB+ SSD storage
-- **Load Balancer**: Application Load Balancer for high availability
+- **Load Balancer**: Application Load Balancer for load distribution and redundancy
 - **SSL Certificate**: Valid SSL certificate for HTTPS
 
 ### Q9: How do I set up Amazon Cognito for authentication?

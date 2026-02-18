@@ -8,8 +8,16 @@ import { useRegistryConfig } from '../hooks/useRegistryConfig';
 import ServerCard from '../components/ServerCard';
 import AgentCard from '../components/AgentCard';
 import SkillCard from '../components/SkillCard';
+import VirtualServerCard from '../components/VirtualServerCard';
 import SemanticSearchResults from '../components/SemanticSearchResults';
 import { useSemanticSearch } from '../hooks/useSemanticSearch';
+import { useVirtualServers, useVirtualServer } from '../hooks/useVirtualServers';
+import {
+  VirtualServerInfo,
+  CreateVirtualServerRequest,
+  UpdateVirtualServerRequest,
+} from '../types/virtualServer';
+import VirtualServerForm from '../components/VirtualServerForm';
 import axios from 'axios';
 
 
@@ -122,6 +130,20 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const navigate = useNavigate();
   const { servers, agents: agentsFromStats, loading, error, refreshData, setServers, setAgents } = useServerStats();
   const { skills, setSkills, loading: skillsLoading, error: skillsError, refreshData: refreshSkills } = useSkills();
+  const {
+    virtualServers,
+    loading: virtualServersLoading,
+    error: virtualServersError,
+    toggleVirtualServer,
+    deleteVirtualServer,
+    updateVirtualServer,
+    refreshData: refreshVirtualServers,
+  } = useVirtualServers();
+
+  // Virtual server edit modal state
+  const [editingVirtualServerPath, setEditingVirtualServerPath] = useState<string | undefined>(undefined);
+  const [showVirtualServerForm, setShowVirtualServerForm] = useState(false);
+  const { virtualServer: editingVirtualServer, loading: editingVirtualServerLoading } = useVirtualServer(editingVirtualServerPath);
   const { user } = useAuth();
   const { config: registryConfig } = useRegistryConfig();
   const [searchTerm, setSearchTerm] = useState('');
@@ -161,7 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const [agentApiToken, setAgentApiToken] = useState<string | null>(null);
 
   // View filter state
-  const [viewFilter, setViewFilter] = useState<'all' | 'servers' | 'agents' | 'skills' | 'external'>('all');
+  const [viewFilter, setViewFilter] = useState<'all' | 'servers' | 'agents' | 'skills' | 'virtual' | 'external'>('all');
 
   // Collapsible state for registry groups (tracks which groups are expanded)
   // Key is registry name: 'local' or peer registry ID like 'peer-registry-lob-1'
@@ -420,6 +442,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const semanticTools = semanticResults?.tools ?? [];
   const semanticAgents = semanticResults?.agents ?? [];
   const semanticSkills = semanticResults?.skills ?? [];
+  const semanticVirtualServers = semanticResults?.virtual_servers ?? [];
   const semanticDisplayQuery = semanticResults?.query || committedQuery || searchTerm;
   const semanticSectionVisible = semanticEnabled;
   const shouldShowFallbackGrid =
@@ -429,7 +452,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         semanticServers.length === 0 &&
         semanticTools.length === 0 &&
         semanticAgents.length === 0 &&
-        semanticSkills.length === 0));
+        semanticSkills.length === 0 &&
+        semanticVirtualServers.length === 0));
 
   // Filter servers based on activeFilter and searchTerm
   const filteredServers = useMemo(() => {
@@ -533,6 +557,95 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
 
     return filtered;
   }, [skills, activeFilter, searchTerm]);
+
+  // Filter virtual servers based on activeFilter and searchTerm
+  const filteredVirtualServers = useMemo(() => {
+    let filtered = virtualServers;
+
+    // Apply filter
+    if (activeFilter === 'enabled') filtered = filtered.filter(s => s.is_enabled);
+    else if (activeFilter === 'disabled') filtered = filtered.filter(s => !s.is_enabled);
+
+    // Apply search
+    if (searchTerm) {
+      const query = searchTerm.toLowerCase();
+      filtered = filtered.filter(vs =>
+        vs.server_name.toLowerCase().includes(query) ||
+        (vs.description || '').toLowerCase().includes(query) ||
+        vs.path.toLowerCase().includes(query) ||
+        (vs.tags || []).some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+
+    return filtered;
+  }, [virtualServers, activeFilter, searchTerm]);
+
+  // Virtual server action handlers
+  const handleToggleVirtualServer = useCallback(async (path: string, enabled: boolean) => {
+    try {
+      await toggleVirtualServer(path, enabled);
+      showToast(`Virtual server ${enabled ? 'enabled' : 'disabled'} successfully`, 'success');
+    } catch (err) {
+      console.error('Failed to toggle virtual server:', err);
+      showToast('Failed to toggle virtual server', 'error');
+    }
+  }, [toggleVirtualServer]);
+
+  // State for virtual server delete confirmation on Dashboard
+  const [deleteVirtualServerTarget, setDeleteVirtualServerTarget] = useState<VirtualServerInfo | null>(null);
+  const [deleteVirtualServerTypedName, setDeleteVirtualServerTypedName] = useState('');
+  const [deletingVirtualServer, setDeletingVirtualServer] = useState(false);
+
+  const handleDeleteVirtualServer = useCallback((path: string) => {
+    const target = virtualServers.find((vs) => vs.path === path);
+    if (target) {
+      setDeleteVirtualServerTarget(target);
+      setDeleteVirtualServerTypedName('');
+    }
+  }, [virtualServers]);
+
+  const confirmDeleteVirtualServer = useCallback(async () => {
+    if (!deleteVirtualServerTarget || deleteVirtualServerTypedName !== deleteVirtualServerTarget.server_name) return;
+
+    setDeletingVirtualServer(true);
+    try {
+      await deleteVirtualServer(deleteVirtualServerTarget.path);
+      showToast('Virtual server deleted successfully', 'success');
+      setDeleteVirtualServerTarget(null);
+      setDeleteVirtualServerTypedName('');
+    } catch (err) {
+      console.error('Failed to delete virtual server:', err);
+      showToast('Failed to delete virtual server', 'error');
+    } finally {
+      setDeletingVirtualServer(false);
+    }
+  }, [deleteVirtualServerTarget, deleteVirtualServerTypedName, deleteVirtualServer]);
+
+  const handleEditVirtualServer = useCallback((vs: VirtualServerInfo) => {
+    setEditingVirtualServerPath(vs.path);
+    setShowVirtualServerForm(true);
+  }, []);
+
+  const handleSaveVirtualServer = useCallback(async (
+    data: CreateVirtualServerRequest | UpdateVirtualServerRequest
+  ) => {
+    if (!editingVirtualServerPath) return;
+    try {
+      await updateVirtualServer(editingVirtualServerPath, data as UpdateVirtualServerRequest);
+      showToast('Virtual server updated successfully', 'success');
+      setShowVirtualServerForm(false);
+      setEditingVirtualServerPath(undefined);
+      refreshVirtualServers();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      showToast(`Failed to save virtual server: ${message}`, 'error');
+    }
+  }, [editingVirtualServerPath, updateVirtualServer, refreshVirtualServers]);
+
+  const handleCancelVirtualServerEdit = useCallback(() => {
+    setShowVirtualServerForm(false);
+    setEditingVirtualServerPath(undefined);
+  }, []);
 
   // Debug logging for filtering
   console.log('Dashboard filtering debug:');
@@ -657,8 +770,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
     setEditingAgent(null);
   };
 
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type: type === 'info' ? 'success' : type });
   }, []);
 
   const hideToast = useCallback(() => {
@@ -1281,6 +1394,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                               authToken={agentApiToken}
                             />
                           ))}
+                          {/* Virtual MCP Servers in Local Registry */}
+                          {filteredVirtualServers.map((vs) => (
+                            <VirtualServerCard
+                              key={vs.path}
+                              virtualServer={vs}
+                              canModify={user?.can_modify_servers || user?.is_admin || false}
+                              onToggle={handleToggleVirtualServer}
+                              onEdit={handleEditVirtualServer}
+                              onDelete={handleDeleteVirtualServer}
+                              onShowToast={showToast}
+                              authToken={agentApiToken}
+                            />
+                          ))}
                         </div>
                       </div>
                     );
@@ -1315,7 +1441,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                             | {registryId === 'local' ? localRegistryUrl : (peerRegistryEndpoints[registryId] || 'Loading...')}
                           </span>
                           <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
-                            {filteredRegistryServers.length} server{filteredRegistryServers.length !== 1 ? 's' : ''}
+                            {registryId === 'local'
+                              ? `${filteredRegistryServers.length + filteredVirtualServers.length} server${(filteredRegistryServers.length + filteredVirtualServers.length) !== 1 ? 's' : ''}`
+                              : `${filteredRegistryServers.length} server${filteredRegistryServers.length !== 1 ? 's' : ''}`
+                            }
                           </span>
                           {/* Resync button for federated registries */}
                           {registryId !== 'local' && (
@@ -1355,6 +1484,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                                 onRefreshSuccess={refreshData}
                                 onShowToast={showToast}
                                 onServerUpdate={handleServerUpdate}
+                                authToken={agentApiToken}
+                              />
+                            ))}
+                            {/* Virtual MCP Servers in Local Registry (collapsible view) */}
+                            {registryId === 'local' && filteredVirtualServers.map((vs) => (
+                              <VirtualServerCard
+                                key={vs.path}
+                                virtualServer={vs}
+                                canModify={user?.can_modify_servers || user?.is_admin || false}
+                                onToggle={handleToggleVirtualServer}
+                                onEdit={handleEditVirtualServer}
+                                onDelete={handleDeleteVirtualServer}
+                                onShowToast={showToast}
                                 authToken={agentApiToken}
                               />
                             ))}
@@ -1677,6 +1819,68 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
           </div>
         )}
 
+      {/* Virtual MCP Servers Section */}
+      {(viewFilter === 'all' || viewFilter === 'virtual') &&
+        (filteredVirtualServers.length > 0 || viewFilter === 'virtual') && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Virtual MCP Servers
+              </h2>
+              {(user?.can_modify_servers || user?.is_admin) && (
+                <button
+                  onClick={() => navigate('/settings/virtual-mcp/servers')}
+                  className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+                >
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  Add Virtual Server
+                </button>
+              )}
+            </div>
+
+            {virtualServersError ? (
+              <div className="text-center py-12 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                <div className="text-red-500 text-lg mb-2">Failed to load virtual servers</div>
+                <p className="text-red-600 dark:text-red-400 text-sm">{virtualServersError}</p>
+              </div>
+            ) : virtualServersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+              </div>
+            ) : filteredVirtualServers.length === 0 ? (
+              <div className="text-center py-12 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-800">
+                <div className="text-gray-400 text-lg mb-2">No virtual servers found</div>
+                <p className="text-gray-500 dark:text-gray-300 text-sm">
+                  {searchTerm || activeFilter !== 'all'
+                    ? 'Try adjusting your search or filter'
+                    : 'No virtual servers are configured yet'}
+                </p>
+              </div>
+            ) : (
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+                  gap: 'clamp(1.5rem, 3vw, 2.5rem)'
+                }}
+              >
+                {filteredVirtualServers.map((vs) => (
+                  <VirtualServerCard
+                    key={vs.path}
+                    virtualServer={vs}
+                    canModify={user?.can_modify_servers || user?.is_admin || false}
+                    onToggle={handleToggleVirtualServer}
+                    onEdit={handleEditVirtualServer}
+                    onDelete={handleDeleteVirtualServer}
+                    onShowToast={showToast}
+                    authToken={agentApiToken}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       {/* External Registries Section */}
       {registryConfig?.features.federation !== false && viewFilter === 'external' && (
         <div className="mb-8">
@@ -1771,6 +1975,20 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         </div>
       )}
 
+      {/* Empty state when all are filtered out */}
+      {((viewFilter === 'all' && filteredServers.length === 0 && filteredAgents.length === 0 && filteredSkills.length === 0 && filteredVirtualServers.length === 0) ||
+        (viewFilter === 'servers' && filteredServers.length === 0) ||
+        (viewFilter === 'agents' && filteredAgents.length === 0) ||
+        (viewFilter === 'skills' && filteredSkills.length === 0) ||
+        (viewFilter === 'virtual' && filteredVirtualServers.length === 0)) &&
+        (searchTerm || activeFilter !== 'all') && (
+          <div className="text-center py-16">
+            <div className="text-gray-400 text-xl mb-4">No items found</div>
+            <p className="text-gray-500 dark:text-gray-300 text-base max-w-md mx-auto">
+              Press Enter in the search bar to search semantically
+            </p>
+          </div>
+        )}
     </>
   );
 
@@ -1817,7 +2035,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
           {/* View Filter Tabs - conditionally show based on registry mode */}
           {/* Calculate if multiple features are enabled to determine if "All" tab is needed */}
           <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-            {/* Only show "All" tab if more than one feature is enabled */}
+{/* Only show "All" tab if more than one feature is enabled */}
             {[
               registryConfig?.features.mcp_servers !== false,
               registryConfig?.features.agents !== false,
@@ -1844,9 +2062,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
               >
-                MCP Servers Only
+                MCP Servers
               </button>
             )}
+            <button
+              onClick={() => handleChangeViewFilter('virtual')}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                viewFilter === 'virtual'
+                  ? 'border-teal-500 text-teal-600 dark:text-teal-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Virtual MCP Servers
+            </button>
             {registryConfig?.features.agents !== false && (
               <button
                 onClick={() => handleChangeViewFilter('agents')}
@@ -1856,7 +2084,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                     : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                 }`}
               >
-                A2A Agents Only
+                A2A Agents
               </button>
             )}
             {registryConfig?.features.skills !== false && (
@@ -1981,6 +2209,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                 tools={semanticTools}
                 agents={semanticAgents}
                 skills={semanticSkills}
+                virtualServers={semanticVirtualServers}
               />
 
               {shouldShowFallbackGrid && (
@@ -2678,6 +2907,105 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
           </div>
         </div>
       )}
+
+      {/* Virtual Server Delete Confirmation Modal */}
+      {deleteVirtualServerTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete virtual server confirmation"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              Delete Virtual Server
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              This action is irreversible. The virtual server and all its tool
+              mappings will be permanently removed.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Type <strong>{deleteVirtualServerTarget.server_name}</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              value={deleteVirtualServerTypedName}
+              onChange={(e) => setDeleteVirtualServerTypedName(e.target.value)}
+              placeholder={deleteVirtualServerTarget.server_name}
+              disabled={deletingVirtualServer}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                         bg-white dark:bg-gray-900 text-gray-900 dark:text-white mb-4"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setDeleteVirtualServerTarget(null);
+                  setDeleteVirtualServerTypedName('');
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setDeleteVirtualServerTarget(null);
+                  setDeleteVirtualServerTypedName('');
+                }}
+                disabled={deletingVirtualServer}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200
+                           rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteVirtualServer}
+                disabled={deleteVirtualServerTypedName !== deleteVirtualServerTarget.server_name || deletingVirtualServer}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700
+                           disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                {deletingVirtualServer && (
+                  <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Virtual Server Edit Modal */}
+      {showVirtualServerForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit virtual server"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-auto">
+            {editingVirtualServerLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                <span className="ml-3 text-gray-500 dark:text-gray-400">Loading virtual server...</span>
+              </div>
+            ) : editingVirtualServer ? (
+              <VirtualServerForm
+                virtualServer={editingVirtualServer}
+                onSave={handleSaveVirtualServer}
+                onCancel={handleCancelVirtualServerEdit}
+              />
+            ) : (
+              <div className="p-6 text-center">
+                <p className="text-gray-500 dark:text-gray-400">Failed to load virtual server</p>
+                <button
+                  onClick={handleCancelVirtualServerEdit}
+                  className="mt-4 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </>
   );
 };

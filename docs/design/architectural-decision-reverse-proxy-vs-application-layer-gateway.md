@@ -87,7 +87,7 @@ AI Agent/Coding Assistant
 
 | Aspect | Reverse Proxy (Current) | Tools Gateway | Preferable Approach |
 |--------|-------------------------|---------------|-------------------|
-| Authentication | Nginx auth_request pattern = proven, battle-tested | Gateway must implement auth validation | Equivalent |
+| Authentication | Nginx auth_request pattern = proven, well-documented | Gateway must implement auth validation | Equivalent |
 | Authorization | Fine-grained scope validation per server/tool before routing | Can implement same fine-grained scopes | Equivalent |
 | Audit Trail | Complete Nginx access logs + auth server logs + IdP logs | Gateway logs all tool calls | Equivalent |
 | Attack Surface | Direct server access blocked, only authenticated routes exposed | Single endpoint, easier to monitor but single point of failure | Equivalent |
@@ -157,7 +157,7 @@ A tools gateway requires:
 
 Both architectures have merits:
 
-- **Reverse Proxy**: Better performance, proven scalability, protocol independence, battle-tested Nginx foundation, allows Python implementation due to Nginx handling message routing
+- **Reverse Proxy**: Better performance, proven scalability, protocol independence, established Nginx foundation, allows Python implementation due to Nginx handling message routing
 - **Tools Gateway**: Better developer experience, easier enterprise adoption, simpler operations, requires Go/Rust implementation for enterprise performance requirements
 
 The choice depends on organizational priorities:
@@ -168,4 +168,4 @@ The choice depends on organizational priorities:
 - **Developer experience-first organizations** (internal tooling, enterprise IT): Consider tools gateway but must invest in Go/Rust development expertise
 - **Hybrid organizations**: Implement both patterns and let teams choose
 
-The current implementation is production-ready and protocol-independent. The reverse proxy approach provides more architectural flexibility for future protocol support while allowing the team to continue developing in Python.
+The current implementation is suitable for deployment and protocol-independent. The reverse proxy approach provides more architectural flexibility for future protocol support while allowing the team to continue developing in Python.

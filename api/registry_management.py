@@ -138,6 +138,34 @@ Federation Management:
     # Delete federation configuration
     uv run python registry_management.py federation-delete --config-id default --force
 
+Virtual MCP Server Management:
+    # Create a virtual server from JSON config
+    uv run python registry_management.py vs-create --config /path/to/virtual-server.json
+
+    # List all virtual servers
+    uv run python registry_management.py vs-list
+
+    # List only enabled virtual servers
+    uv run python registry_management.py vs-list --enabled-only
+
+    # Get virtual server details
+    uv run python registry_management.py vs-get --path /virtual/dev-tools
+
+    # Update a virtual server from JSON config
+    uv run python registry_management.py vs-update --path /virtual/dev-tools --config updated-config.json
+
+    # Enable/disable a virtual server
+    uv run python registry_management.py vs-toggle --path /virtual/dev-tools --enabled true
+
+    # Delete a virtual server
+    uv run python registry_management.py vs-delete --path /virtual/dev-tools --force
+
+    # Rate a virtual server (1-5 stars)
+    uv run python registry_management.py vs-rate --path /virtual/dev-tools --rating 5
+
+    # Get virtual server rating
+    uv run python registry_management.py vs-rating --path /virtual/dev-tools
+
 Global Options (can be set via environment variables or command-line arguments):
     --registry-url URL       Registry base URL (overrides REGISTRY_URL env var)
     --aws-region REGION      AWS region (overrides AWS_REGION env var)
@@ -238,6 +266,13 @@ from registry_client import (
     SkillSearchResponse,
     SkillToggleResponse,
     SkillRatingResponse,
+    ToolMapping,
+    ToolScopeOverride,
+    VirtualServerCreateRequest,
+    VirtualServerConfig,
+    VirtualServerListResponse,
+    VirtualServerToggleResponse,
+    VirtualServerDeleteResponse,
 )
 
 # Configure logging
@@ -1210,7 +1245,7 @@ def cmd_rescan(args: argparse.Namespace) -> int:
 
 def cmd_server_search(args: argparse.Namespace) -> int:
     """
-    Perform semantic search for servers.
+    Perform semantic search across all entity types.
 
     Args:
         args: Command arguments
@@ -1220,7 +1255,7 @@ def cmd_server_search(args: argparse.Namespace) -> int:
     """
     try:
         client = _create_client(args)
-        response = client.semantic_search_servers(
+        response = client.semantic_search(
             query=args.query,
             max_results=args.max_results
         )
@@ -1230,18 +1265,89 @@ def cmd_server_search(args: argparse.Namespace) -> int:
             print(json.dumps(response.model_dump(), indent=2, default=str))
             return 0
 
-        if not response.servers:
-            logger.info("No servers found matching the query")
+        total_results = (
+            len(response.servers) +
+            len(response.tools) +
+            len(response.agents) +
+            len(response.skills) +
+            len(response.virtual_servers)
+        )
+
+        if total_results == 0:
+            logger.info("No results found matching the query")
             return 0
 
-        logger.info(f"Found {len(response.servers)} matching servers:\n")
-        for server in response.servers:
-            print(f"{server.server_name} ({server.path})")
-            print(f"  Relevance: {server.relevance_score:.2%}")
-            if server.tags:
-                print(f"  Tags: {', '.join(server.tags)}")
-            print(f"  {server.description[:100]}...")
-            print()
+        logger.info(f"Search mode: {response.search_mode}")
+
+        # Display MCP Servers
+        if response.servers:
+            print(f"\n--- MCP Servers ({len(response.servers)}) ---")
+            for server in response.servers:
+                print(f"  {server.server_name} ({server.path})")
+                print(f"    Relevance: {server.relevance_score:.2%}")
+                if server.tags:
+                    print(f"    Tags: {', '.join(server.tags[:5])}")
+                if server.description:
+                    desc = server.description[:100] + "..." if len(server.description) > 100 else server.description
+                    print(f"    {desc}")
+                print()
+
+        # Display Tools
+        if response.tools:
+            print(f"\n--- Tools ({len(response.tools)}) ---")
+            for tool in response.tools:
+                print(f"  {tool.tool_name} (from {tool.server_path})")
+                print(f"    Relevance: {tool.relevance_score:.2%}")
+                if tool.description:
+                    desc = tool.description[:100] + "..." if len(tool.description) > 100 else tool.description
+                    print(f"    {desc}")
+                print()
+
+        # Display A2A Agents
+        if response.agents:
+            print(f"\n--- A2A Agents ({len(response.agents)}) ---")
+            for agent in response.agents:
+                print(f"  {agent.agent_name} ({agent.path})")
+                print(f"    Relevance: {agent.relevance_score:.2%}")
+                if agent.tags:
+                    print(f"    Tags: {', '.join(agent.tags[:5])}")
+                if agent.skills:
+                    print(f"    Skills: {', '.join(agent.skills[:5])}")
+                if agent.description:
+                    desc = agent.description[:100] + "..." if len(agent.description) > 100 else agent.description
+                    print(f"    {desc}")
+                print()
+
+        # Display Skills
+        if response.skills:
+            print(f"\n--- Skills ({len(response.skills)}) ---")
+            for skill in response.skills:
+                print(f"  {skill.skill_name} ({skill.path})")
+                print(f"    Relevance: {skill.relevance_score:.2%}")
+                if skill.author:
+                    print(f"    Author: {skill.author}")
+                if skill.tags:
+                    print(f"    Tags: {', '.join(skill.tags[:5])}")
+                if skill.description:
+                    desc = skill.description[:100] + "..." if len(skill.description) > 100 else skill.description
+                    print(f"    {desc}")
+                print()
+
+        # Display Virtual MCP Servers
+        if response.virtual_servers:
+            print(f"\n--- Virtual MCP Servers ({len(response.virtual_servers)}) ---")
+            for vs in response.virtual_servers:
+                print(f"  {vs.server_name} ({vs.path})")
+                print(f"    Relevance: {vs.relevance_score:.2%}")
+                print(f"    Tools: {vs.num_tools}, Backends: {vs.backend_count}")
+                if vs.backend_paths:
+                    print(f"    Backend paths: {', '.join(vs.backend_paths)}")
+                if vs.tags:
+                    print(f"    Tags: {', '.join(vs.tags[:5])}")
+                if vs.description:
+                    desc = vs.description[:100] + "..." if len(vs.description) > 100 else vs.description
+                    print(f"    {desc}")
+                print()
 
         return 0
 
@@ -3333,6 +3439,365 @@ def cmd_peer_shared_resources(args: argparse.Namespace) -> int:
         return 1
 
 
+# ==========================================
+# Virtual MCP Server Command Handlers
+# ==========================================
+
+
+def cmd_vs_create(args: argparse.Namespace) -> int:
+    """
+    Create a virtual MCP server from JSON config.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+
+        # Load config from file
+        with open(args.config, 'r') as f:
+            config_data = json.load(f)
+
+        # Build tool mappings
+        tool_mappings = []
+        for mapping in config_data.get("tool_mappings", []):
+            tool_mappings.append(ToolMapping(
+                tool_name=mapping["tool_name"],
+                alias=mapping.get("alias"),
+                backend_server_path=mapping["backend_server_path"],
+                backend_version=mapping.get("backend_version"),
+                description_override=mapping.get("description_override"),
+            ))
+
+        # Build tool scope overrides
+        tool_scope_overrides = []
+        for override in config_data.get("tool_scope_overrides", []):
+            tool_scope_overrides.append(ToolScopeOverride(
+                tool_alias=override["tool_alias"],
+                required_scopes=override.get("required_scopes", []),
+            ))
+
+        request = VirtualServerCreateRequest(
+            path=config_data["path"],
+            server_name=config_data["server_name"],
+            description=config_data.get("description"),
+            tool_mappings=tool_mappings,
+            required_scopes=config_data.get("required_scopes", []),
+            tool_scope_overrides=tool_scope_overrides,
+            tags=config_data.get("tags", []),
+            supported_transports=config_data.get(
+                "supported_transports",
+                ["streamable-http"]
+            ),
+            is_enabled=config_data.get("is_enabled", True),
+        )
+
+        result = client.create_virtual_server(request)
+
+        logger.info(f"Virtual server created: {result.path}")
+        print(json.dumps({
+            "message": "Virtual server created successfully",
+            "virtual_server": {
+                "path": result.path,
+                "server_name": result.server_name,
+                "description": result.description,
+                "is_enabled": result.is_enabled,
+                "tool_count": len(result.tool_mappings),
+            }
+        }, indent=2))
+        return 0
+
+    except FileNotFoundError:
+        logger.error(f"Config file not found: {args.config}")
+        return 1
+    except KeyError as e:
+        logger.error(f"Missing required field in config: {e}")
+        return 1
+    except Exception as e:
+        logger.error(f"Create virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_list(args: argparse.Namespace) -> int:
+    """
+    List virtual MCP servers.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.list_virtual_servers(
+            enabled_only=args.enabled_only if hasattr(args, 'enabled_only') else False,
+            tag=args.tag if hasattr(args, 'tag') else None,
+        )
+
+        if args.json:
+            print(json.dumps(response.model_dump(), indent=2, default=str))
+            return 0
+
+        print(f"\nVirtual MCP Servers ({response.total} total):")
+        print("-" * 80)
+
+        for vs in response.virtual_servers:
+            status = "enabled" if vs.is_enabled else "disabled"
+            tool_count = len(vs.tool_mappings)
+            print(f"  {vs.path}")
+            print(f"    Name: {vs.server_name}")
+            print(f"    Status: {status}")
+            print(f"    Tools: {tool_count}")
+            if vs.description:
+                print(f"    Description: {vs.description[:60]}...")
+            if vs.tags:
+                print(f"    Tags: {', '.join(vs.tags)}")
+            print()
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"List virtual servers failed: {e}")
+        return 1
+
+
+def cmd_vs_get(args: argparse.Namespace) -> int:
+    """
+    Get virtual MCP server details.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        result = client.get_virtual_server(args.path)
+
+        if args.json:
+            print(json.dumps(result.model_dump(), indent=2, default=str))
+            return 0
+
+        print(f"\nVirtual MCP Server: {result.path}")
+        print("-" * 60)
+        print(f"  Name: {result.server_name}")
+        print(f"  Status: {'enabled' if result.is_enabled else 'disabled'}")
+        print(f"  Description: {result.description or 'N/A'}")
+        print(f"  Rating: {result.num_stars} stars")
+        print(f"  Tags: {', '.join(result.tags) if result.tags else 'None'}")
+        print(f"  Transports: {', '.join(result.supported_transports)}")
+        print(f"  Required Scopes: {', '.join(result.required_scopes) if result.required_scopes else 'None'}")
+
+        print(f"\n  Tool Mappings ({len(result.tool_mappings)}):")
+        for mapping in result.tool_mappings:
+            alias_info = f" -> {mapping.alias}" if mapping.alias else ""
+            version_info = f" @{mapping.backend_version}" if mapping.backend_version else ""
+            print(f"    - {mapping.tool_name}{alias_info}")
+            print(f"      Backend: {mapping.backend_server_path}{version_info}")
+
+        if result.tool_scope_overrides:
+            print(f"\n  Tool Scope Overrides:")
+            for override in result.tool_scope_overrides:
+                print(f"    - {override.tool_alias}: {', '.join(override.required_scopes)}")
+
+        print(f"\n  Created: {result.created_at or 'N/A'}")
+        print(f"  Updated: {result.updated_at or 'N/A'}")
+        print(f"  Created By: {result.created_by or 'N/A'}")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Get virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_update(args: argparse.Namespace) -> int:
+    """
+    Update a virtual MCP server from JSON config.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+
+        # Load config from file
+        with open(args.config, 'r') as f:
+            config_data = json.load(f)
+
+        # Build tool mappings
+        tool_mappings = []
+        for mapping in config_data.get("tool_mappings", []):
+            tool_mappings.append(ToolMapping(
+                tool_name=mapping["tool_name"],
+                alias=mapping.get("alias"),
+                backend_server_path=mapping["backend_server_path"],
+                backend_version=mapping.get("backend_version"),
+                description_override=mapping.get("description_override"),
+            ))
+
+        # Build tool scope overrides
+        tool_scope_overrides = []
+        for override in config_data.get("tool_scope_overrides", []):
+            tool_scope_overrides.append(ToolScopeOverride(
+                tool_alias=override["tool_alias"],
+                required_scopes=override.get("required_scopes", []),
+            ))
+
+        request = VirtualServerCreateRequest(
+            path=config_data["path"],
+            server_name=config_data["server_name"],
+            description=config_data.get("description"),
+            tool_mappings=tool_mappings,
+            required_scopes=config_data.get("required_scopes", []),
+            tool_scope_overrides=tool_scope_overrides,
+            tags=config_data.get("tags", []),
+            supported_transports=config_data.get(
+                "supported_transports",
+                ["streamable-http"]
+            ),
+            is_enabled=config_data.get("is_enabled", True),
+        )
+
+        result = client.update_virtual_server(args.path, request)
+
+        logger.info(f"Virtual server updated: {result.path}")
+        print(json.dumps({
+            "message": "Virtual server updated successfully",
+            "virtual_server": {
+                "path": result.path,
+                "server_name": result.server_name,
+                "is_enabled": result.is_enabled,
+            }
+        }, indent=2))
+        return 0
+
+    except FileNotFoundError:
+        logger.error(f"Config file not found: {args.config}")
+        return 1
+    except Exception as e:
+        logger.error(f"Update virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_delete(args: argparse.Namespace) -> int:
+    """
+    Delete a virtual MCP server.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        if not args.force:
+            confirm = input(f"Delete virtual server '{args.path}'? [y/N]: ")
+            if confirm.lower() != 'y':
+                print("Cancelled")
+                return 0
+
+        client = _create_client(args)
+        result = client.delete_virtual_server(args.path)
+
+        logger.info(f"Virtual server deleted: {args.path}")
+        print(json.dumps({
+            "message": result.message,
+            "path": result.path,
+        }, indent=2))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Delete virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_toggle(args: argparse.Namespace) -> int:
+    """
+    Enable or disable a virtual MCP server.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        enable = args.enabled.lower() == 'true'
+        result = client.toggle_virtual_server(args.path, enable)
+
+        action = "enabled" if result.is_enabled else "disabled"
+        logger.info(f"Virtual server {action}: {args.path}")
+        print(json.dumps({
+            "message": result.message,
+            "path": result.path,
+            "is_enabled": result.is_enabled,
+        }, indent=2))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Toggle virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_rate(args: argparse.Namespace) -> int:
+    """
+    Rate a virtual MCP server.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        if not 1 <= args.rating <= 5:
+            logger.error("Rating must be between 1 and 5")
+            return 1
+
+        client = _create_client(args)
+        result = client.rate_virtual_server(args.path, args.rating)
+
+        logger.info(f"Virtual server rated: {args.path}")
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Rate virtual server failed: {e}")
+        return 1
+
+
+def cmd_vs_rating(args: argparse.Namespace) -> int:
+    """
+    Get rating information for a virtual MCP server.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        result = client.get_virtual_server_rating(args.path)
+
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Get virtual server rating failed: {e}")
+        return 1
+
+
 def main() -> int:
     """
     Main entry point for the CLI.
@@ -3622,22 +4087,25 @@ Examples:
     )
 
     # Server search command
-    server_search_parser = subparsers.add_parser("server-search", help="Semantic search for servers")
+    server_search_parser = subparsers.add_parser(
+        "server-search",
+        help="Semantic search across all entity types (servers, tools, agents, skills, virtual servers)"
+    )
     server_search_parser.add_argument(
         "--query",
         required=True,
-        help="Natural language search query"
+        help="Natural language search query (e.g., 'coding assistants')"
     )
     server_search_parser.add_argument(
         "--max-results",
         type=int,
         default=10,
-        help="Maximum number of results (default: 10)"
+        help="Maximum number of results per entity type (default: 10)"
     )
     server_search_parser.add_argument(
         "--json",
         action="store_true",
-        help="Output raw JSON"
+        help="Output raw JSON with all entity types"
     )
 
     # Server Version Management Commands
@@ -4505,6 +4973,135 @@ Examples:
         help="Output raw JSON instead of formatted text"
     )
 
+    # ==========================================
+    # Virtual MCP Server Commands
+    # ==========================================
+
+    # Create virtual server command
+    vs_create_parser = subparsers.add_parser(
+        "vs-create",
+        help="Create a virtual MCP server from JSON config"
+    )
+    vs_create_parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to virtual server configuration JSON file"
+    )
+
+    # List virtual servers command
+    vs_list_parser = subparsers.add_parser(
+        "vs-list",
+        help="List all virtual MCP servers"
+    )
+    vs_list_parser.add_argument(
+        "--enabled-only",
+        action="store_true",
+        help="Show only enabled virtual servers"
+    )
+    vs_list_parser.add_argument(
+        "--tag",
+        help="Filter by tag"
+    )
+    vs_list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw JSON instead of formatted text"
+    )
+
+    # Get virtual server command
+    vs_get_parser = subparsers.add_parser(
+        "vs-get",
+        help="Get virtual MCP server details"
+    )
+    vs_get_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path (e.g., /virtual/dev-tools)"
+    )
+    vs_get_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output raw JSON instead of formatted text"
+    )
+
+    # Update virtual server command
+    vs_update_parser = subparsers.add_parser(
+        "vs-update",
+        help="Update a virtual MCP server from JSON config"
+    )
+    vs_update_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path to update"
+    )
+    vs_update_parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to updated configuration JSON file"
+    )
+
+    # Delete virtual server command
+    vs_delete_parser = subparsers.add_parser(
+        "vs-delete",
+        help="Delete a virtual MCP server"
+    )
+    vs_delete_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path to delete"
+    )
+    vs_delete_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt"
+    )
+
+    # Toggle virtual server command
+    vs_toggle_parser = subparsers.add_parser(
+        "vs-toggle",
+        help="Enable or disable a virtual MCP server"
+    )
+    vs_toggle_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path"
+    )
+    vs_toggle_parser.add_argument(
+        "--enabled",
+        required=True,
+        choices=["true", "false"],
+        help="Enable (true) or disable (false)"
+    )
+
+    # Rate virtual server command
+    vs_rate_parser = subparsers.add_parser(
+        "vs-rate",
+        help="Rate a virtual MCP server (1-5 stars)"
+    )
+    vs_rate_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path"
+    )
+    vs_rate_parser.add_argument(
+        "--rating",
+        required=True,
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        help="Rating (1-5 stars)"
+    )
+
+    # Get virtual server rating command
+    vs_rating_parser = subparsers.add_parser(
+        "vs-rating",
+        help="Get rating information for a virtual MCP server"
+    )
+    vs_rating_parser.add_argument(
+        "--path",
+        required=True,
+        help="Virtual server path"
+    )
+
     args = parser.parse_args()
 
     # Enable debug logging if requested
@@ -4592,6 +5189,15 @@ Examples:
         "peer-disable": cmd_peer_disable,
         "peer-connections": cmd_peer_connections,
         "peer-shared-resources": cmd_peer_shared_resources,
+        # Virtual server commands
+        "vs-create": cmd_vs_create,
+        "vs-list": cmd_vs_list,
+        "vs-get": cmd_vs_get,
+        "vs-update": cmd_vs_update,
+        "vs-delete": cmd_vs_delete,
+        "vs-toggle": cmd_vs_toggle,
+        "vs-rate": cmd_vs_rate,
+        "vs-rating": cmd_vs_rating,
     }
 
     handler = command_handlers.get(args.command)
