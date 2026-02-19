@@ -366,6 +366,8 @@ def user_can_modify_servers(user_groups: list[str], user_scopes: list[str]) -> b
     # Admin users can always modify (check both groups and scopes)
     if "mcp-registry-admin" in user_groups or "mcp-registry-admin" in user_scopes:
         return True
+    if "registry-admins" in user_groups or "registry-admins" in user_scopes:
+        return True
 
     # Users with unrestricted execute access can modify
     if "mcp-servers-unrestricted/execute" in user_scopes:
