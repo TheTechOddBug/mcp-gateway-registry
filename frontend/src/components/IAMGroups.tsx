@@ -278,19 +278,30 @@ function _buildScopeJson(
     if (items.length > 0) perms[key] = items;
   }
 
-  // Auto-populate list_service and health_check_service from selected servers
+  // Auto-populate list_service/health_check_service for MCP servers
+  // and list_virtual_server for virtual servers
   // This ensures users can see the servers in the UI without manual configuration
   const serverPaths = serverAccess
     .filter((e) => e.server.trim())
     .map((e) => e.server.trim());
-  if (serverPaths.length > 0) {
+
+  // Separate virtual servers from regular MCP servers
+  const virtualServerPaths = serverPaths.filter((p) => p.startsWith('/virtual/'));
+  const mcpServerPaths = serverPaths.filter((p) => !p.startsWith('/virtual/'));
+
+  if (mcpServerPaths.length > 0) {
     // Only auto-populate if not already manually configured
     if (!perms['list_service']) {
-      perms['list_service'] = serverPaths;
+      perms['list_service'] = mcpServerPaths;
     }
     if (!perms['health_check_service']) {
-      perms['health_check_service'] = serverPaths;
+      perms['health_check_service'] = mcpServerPaths;
     }
+  }
+
+  // Always sync list_virtual_server with selected virtual servers
+  if (virtualServerPaths.length > 0) {
+    perms['list_virtual_server'] = virtualServerPaths;
   }
 
   // Always sync list_agents and get_agent with selected agents
@@ -495,17 +506,31 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
         if (items.length > 0) perms[key] = items;
       }
 
-      // Auto-populate list_service and health_check_service from selected servers
+      // Auto-populate list_service/health_check_service for MCP servers
+      // and list_virtual_server for virtual servers
       const serverPaths = serverAccess
         .filter((e) => e.server.trim())
         .map((e) => e.server.trim());
-      if (serverPaths.length > 0) {
+
+      // Separate virtual servers from regular MCP servers
+      const virtualServerPaths = serverPaths.filter((p) => p.startsWith('/virtual/'));
+      const mcpServerPaths = serverPaths.filter((p) => !p.startsWith('/virtual/'));
+
+      if (mcpServerPaths.length > 0) {
         if (!perms['list_service']) {
-          perms['list_service'] = serverPaths;
+          perms['list_service'] = mcpServerPaths;
         }
         if (!perms['health_check_service']) {
-          perms['health_check_service'] = serverPaths;
+          perms['health_check_service'] = mcpServerPaths;
         }
+      }
+
+      // Always sync list_virtual_server with selected virtual servers
+      if (virtualServerPaths.length > 0) {
+        perms['list_virtual_server'] = virtualServerPaths;
+      } else {
+        // Remove virtual server permission if none selected
+        delete perms['list_virtual_server'];
       }
 
       // Always sync list_agents and get_agent with selected agents
