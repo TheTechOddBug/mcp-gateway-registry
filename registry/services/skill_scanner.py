@@ -184,14 +184,23 @@ class SkillScannerService:
                 "skill-scanner",
                 "scan",
                 target,
-                "--analyzers",
-                analyzers,
                 "--format",
                 "json",
             ]
 
-            # Set environment variables for API keys
+            # Add optional analyzer flags based on config
             config = self.get_scan_config()
+            analyzer_list = [a.strip() for a in analyzers.split(",")]
+            if "behavioral" in analyzer_list:
+                cmd.append("--use-behavioral")
+            if "llm" in analyzer_list:
+                cmd.append("--use-llm")
+            if "virustotal" in analyzer_list:
+                cmd.append("--use-virustotal")
+            if "ai-defense" in analyzer_list:
+                cmd.append("--use-aidefense")
+
+            # Set environment variables for API keys
             env = os.environ.copy()
             if config.llm_api_key:
                 env["LLM_API_KEY"] = config.llm_api_key
