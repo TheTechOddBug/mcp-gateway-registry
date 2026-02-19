@@ -201,6 +201,9 @@ ENTRA_CLIENT_SECRET=your-secret-value-here
 ENTRA_ENABLED=true
 
 # Azure AD Group Object IDs (from Azure Portal → Groups → Overview)
+# IMPORTANT: ENTRA_GROUP_ADMIN_ID is required for admin access to persist across restarts.
+# This group ID is added to the registry-admins scope in MongoDB during initialization.
+# Users in this Entra group will have full admin access to the MCP Gateway.
 ENTRA_GROUP_ADMIN_ID=16c7e67e-e8ae-498c-ba2e-0593c0159e43
 ENTRA_GROUP_USERS_ID=62c07ac1-03d0-4924-90c7-a0255f23bd1d
 ```

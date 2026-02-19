@@ -157,6 +157,52 @@ async def _find_group_id_by_name(
     return None
 
 
+async def _find_user_id(
+    client: httpx.AsyncClient, token: str, username_or_email: str
+) -> str | None:
+    """Find a user's object ID by userPrincipalName or email.
+
+    Args:
+        client: HTTP client
+        token: Admin token
+        username_or_email: User principal name or email address
+
+    Returns:
+        User's object ID if found, None otherwise
+    """
+    # Try to find by userPrincipalName first
+    response = await client.get(
+        f"{GRAPH_BASE_URL}/users",
+        headers=_auth_headers(token),
+        params={
+            "$filter": f"userPrincipalName eq '{username_or_email}'",
+            "$select": "id",
+        },
+    )
+    if response.status_code == 200:
+        data = response.json()
+        users = data.get("value", [])
+        if users:
+            return users[0].get("id")
+
+    # Try by mail if not found by UPN
+    response = await client.get(
+        f"{GRAPH_BASE_URL}/users",
+        headers=_auth_headers(token),
+        params={
+            "$filter": f"mail eq '{username_or_email}'",
+            "$select": "id",
+        },
+    )
+    if response.status_code == 200:
+        data = response.json()
+        users = data.get("value", [])
+        if users:
+            return users[0].get("id")
+
+    return None
+
+
 async def _get_user_groups(client: httpx.AsyncClient, token: str, user_id: str) -> list[str]:
     """Fetch group names for a user in Entra ID."""
     try:
@@ -202,6 +248,27 @@ async def _add_user_to_group_by_name(
     if response.status_code not in (204, 400):
         raise EntraAdminError(
             f"Failed to add user to group '{group_name}' (HTTP {response.status_code})"
+        )
+
+
+async def _remove_user_from_group_by_name(
+    client: httpx.AsyncClient, token: str, user_id: str, group_name: str
+) -> None:
+    """Remove a user from a group by group display name."""
+    group_id = await _find_group_id_by_name(client, token, group_name)
+    if not group_id:
+        logger.warning(f"Group '{group_name}' not found, skipping removal")
+        return
+
+    response = await client.delete(
+        f"{GRAPH_BASE_URL}/groups/{group_id}/members/{user_id}/$ref",
+        headers=_auth_headers(token),
+    )
+
+    # 204 = success, 404 = user not in group (also acceptable)
+    if response.status_code not in (204, 404):
+        raise EntraAdminError(
+            f"Failed to remove user from group '{group_name}' (HTTP {response.status_code})"
         )
 
 
@@ -566,6 +633,72 @@ async def delete_entra_group(group_name_or_id: str) -> bool:
         return True
 
 
+async def update_entra_group(
+    group_name_or_id: str,
+    description: str,
+) -> dict[str, Any]:
+    """
+    Update a group's description in Entra ID.
+
+    Args:
+        group_name_or_id: Group display name or object ID
+        description: New description for the group
+
+    Returns:
+        Dictionary with updated group info (id, name, description)
+
+    Raises:
+        EntraAdminError: If group not found or update fails
+    """
+    admin_token = await _get_entra_admin_token()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # If it looks like a name (not a GUID), find the group ID first
+        group_id = group_name_or_id
+        group_display_name = group_name_or_id
+
+        if not _is_guid(group_name_or_id):
+            found_id = await _find_group_id_by_name(client, admin_token, group_name_or_id)
+            if not found_id:
+                raise EntraAdminError(f"Group '{group_name_or_id}' not found")
+            group_id = found_id
+        else:
+            # If GUID provided, fetch the display name
+            get_response = await client.get(
+                f"{GRAPH_BASE_URL}/groups/{group_id}",
+                headers=_auth_headers(admin_token),
+                params={"$select": "displayName"},
+            )
+            if get_response.status_code == 404:
+                raise EntraAdminError(f"Group '{group_name_or_id}' not found")
+            get_response.raise_for_status()
+            group_data = get_response.json()
+            group_display_name = group_data.get("displayName", group_name_or_id)
+
+        # Update group description via PATCH request
+        update_payload = {"description": description}
+
+        response = await client.patch(
+            f"{GRAPH_BASE_URL}/groups/{group_id}",
+            headers=_auth_headers(admin_token),
+            json=update_payload,
+        )
+
+        if response.status_code == 404:
+            raise EntraAdminError(f"Group '{group_name_or_id}' not found")
+
+        if response.status_code != 204:
+            raise EntraAdminError(f"Failed to update group (HTTP {response.status_code})")
+
+        logger.info(f"Updated Entra ID group: {group_display_name}")
+
+        return {
+            "id": group_id,
+            "name": group_display_name,
+            "description": description,
+        }
+
+
 # ==================== SERVICE PRINCIPAL (M2M) MANAGEMENT ====================
 
 
@@ -725,4 +858,83 @@ async def create_service_principal_client(
             "service_principal_id": sp_object_id,
             "client_secret": client_secret,
             "groups": group_names,
+        }
+
+
+async def update_entra_user_groups(
+    username_or_id: str,
+    groups: list[str],
+) -> dict[str, Any]:
+    """
+    Update group memberships for an Entra ID user or service principal.
+
+    Calculates the diff between current and desired groups, then adds/removes
+    groups as needed.
+
+    Args:
+        username_or_id: User principal name, email, or object ID
+        groups: List of group names the user should belong to
+
+    Returns:
+        Dict with username and updated groups list
+
+    Raises:
+        EntraAdminError: If user not found or group operations fail
+    """
+    admin_token = await _get_entra_admin_token()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Try to find as a regular user first
+        user_id = await _find_user_id(client, admin_token, username_or_id)
+        is_service_principal = False
+
+        if not user_id:
+            # Try to find as a service principal by display name
+            sp_response = await client.get(
+                f"{GRAPH_BASE_URL}/servicePrincipals",
+                headers=_auth_headers(admin_token),
+                params={"$filter": f"displayName eq '{username_or_id}'"},
+            )
+            if sp_response.status_code == 200:
+                sp_data = sp_response.json()
+                sp_list = sp_data.get("value", [])
+                if sp_list:
+                    user_id = sp_list[0].get("id")
+                    is_service_principal = True
+
+        if not user_id:
+            raise EntraAdminError(f"User or service principal '{username_or_id}' not found")
+
+        # Get current groups
+        current_groups_data = await _get_user_groups(client, admin_token, user_id)
+        current_groups = set(current_groups_data)
+        desired_groups = set(groups)
+
+        # Calculate diff
+        groups_to_add = desired_groups - current_groups
+        groups_to_remove = current_groups - desired_groups
+
+        # Apply changes
+        for group_name in groups_to_add:
+            if is_service_principal:
+                await _add_service_principal_to_group(client, admin_token, user_id, group_name)
+            else:
+                await _add_user_to_group_by_name(client, admin_token, user_id, group_name)
+
+        for group_name in groups_to_remove:
+            await _remove_user_from_group_by_name(client, admin_token, user_id, group_name)
+
+        logger.info(
+            "Updated groups for %s '%s': added=%s, removed=%s",
+            "service principal" if is_service_principal else "user",
+            username_or_id,
+            list(groups_to_add),
+            list(groups_to_remove),
+        )
+
+        return {
+            "username": username_or_id,
+            "groups": list(desired_groups),
+            "added": list(groups_to_add),
+            "removed": list(groups_to_remove),
         }

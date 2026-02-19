@@ -175,6 +175,8 @@ async def read_root(
 
     # Filter services based on UI permissions
     accessible_services = user_context.get("accessible_services", [])
+    # Normalize accessible_services by stripping slashes for comparison
+    normalized_accessible_services = [s.strip("/") for s in accessible_services]
     logger.info(
         f"DEBUG: User {user_context['username']} accessible_services: {accessible_services}"
     )
@@ -188,11 +190,13 @@ async def read_root(
     for path in sorted_server_paths:
         server_info = all_servers[path]
         server_name = server_info["server_name"]
+        # Extract technical name from path (remove leading and trailing slashes)
+        technical_name = path.strip("/")
 
-        # Check if user can list this service
-        if "all" not in accessible_services and server_name not in accessible_services:
+        # Check if user can list this service using technical name
+        if "all" not in accessible_services and technical_name not in normalized_accessible_services:
             logger.debug(
-                f"Filtering out service '{server_name}' - user doesn't have list_service permission"
+                f"Filtering out service '{server_name}' (path={path}) - user doesn't have list_service permission"
             )
             continue
 
@@ -293,6 +297,8 @@ async def get_servers_json(
 
     # Filter services based on UI permissions (same logic as root route)
     accessible_services = user_context.get("accessible_services", [])
+    # Normalize accessible_services by stripping slashes for comparison
+    normalized_accessible_services = [s.strip("/") for s in accessible_services]
 
     for path in sorted_server_paths:
         server_info = all_servers[path]
@@ -303,7 +309,7 @@ async def get_servers_json(
         # Check if user can list this service using technical name
         if (
             "all" not in accessible_services
-            and technical_name not in accessible_services
+            and technical_name not in normalized_accessible_services
         ):
             continue
 

@@ -231,6 +231,16 @@ async def _load_default_scopes(
 
             logger.info(f"Loading scope from {scope_filename}")
 
+            # For registry-admins scope, add Entra admin group ID from env if configured
+            if scope_data["_id"] == "registry-admins":
+                entra_admin_group_id = os.getenv("ENTRA_GROUP_ADMIN_ID", "").strip()
+                if entra_admin_group_id:
+                    group_mappings = scope_data.get("group_mappings", [])
+                    if entra_admin_group_id not in group_mappings:
+                        group_mappings.append(entra_admin_group_id)
+                        scope_data["group_mappings"] = group_mappings
+                        logger.info(f"  Added Entra admin group ID: {entra_admin_group_id}")
+
             # Upsert the scope document
             result = await collection.update_one(
                 {"_id": scope_data["_id"]},

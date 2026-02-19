@@ -14,11 +14,19 @@ const getBaseURL = () => {
 // Configure axios to include credentials (cookies) with all requests
 axios.defaults.withCredentials = true;
 
+// UIPermissions keys match exactly what scopes.yml defines.
+// These control server/agent access
 interface UIPermissions {
   list_service?: string[];
+  register_service?: string[];
   health_check_service?: string[];
   toggle_service?: string[];
+  modify_service?: string[];
   list_agents?: string[];
+  get_agent?: string[];
+  publish_agent?: string[];
+  modify_agent?: string[];
+  delete_agent?: string[];
   [key: string]: string[] | undefined;
 }
 

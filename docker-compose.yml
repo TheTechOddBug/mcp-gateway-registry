@@ -45,6 +45,7 @@ services:
       - DOCUMENTDB_USERNAME=${DOCUMENTDB_USERNAME:-}
       - DOCUMENTDB_PASSWORD=${DOCUMENTDB_PASSWORD:-}
       - DOCUMENTDB_NAMESPACE=${DOCUMENTDB_NAMESPACE:-default}
+      - ENTRA_GROUP_ADMIN_ID=${ENTRA_GROUP_ADMIN_ID:-}
     volumes:
       - ./scripts/init-mongodb-ce.py:/app/scripts/init-mongodb-ce.py:ro
       - ./scripts/registry-admins.json:/app/scripts/registry-admins.json:ro

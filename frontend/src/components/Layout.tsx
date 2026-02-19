@@ -6,15 +6,11 @@ import {
   UserIcon, 
   ChevronDownIcon,
   ArrowRightOnRectangleIcon,
-  KeyIcon,
   Cog6ToothIcon,
-  SunIcon,
-  MoonIcon
 } from '@heroicons/react/24/outline';
 import Sidebar from './Sidebar';
 import { useServerStats } from '../hooks/useServerStats';
 import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
 import logo from '../assets/logo.png';
 
 interface LayoutProps {
@@ -25,7 +21,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [version, setVersion] = useState<string | null>(null);
   const { user, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const { stats, activeFilter, setActiveFilter } = useServerStats();
 
   useEffect(() => {
@@ -123,18 +118,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </Link>
               )}
 
-              {/* Theme toggle */}
-              <button
-                onClick={toggleTheme}
-                className="p-2 text-gray-400 hover:text-gray-500 dark:text-gray-300 dark:hover:text-gray-100 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                {theme === 'dark' ? (
-                  <SunIcon className="h-5 w-5" />
-                ) : (
-                  <MoonIcon className="h-5 w-5" />
-                )}
-              </button>
-
               {/* User dropdown */}
               <Menu as="div" className="relative">
                 <div>
@@ -159,22 +142,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   leaveTo="transform opacity-0 scale-95"
                 >
                   <Menu.Items className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white dark:bg-gray-800 py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    <Menu.Item>
-                      {({ active }) => (
-                        <Link
-                          to="/settings"
-                          className={`${
-                            active ? 'bg-gray-100 dark:bg-gray-800' : ''
-                          } flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-100`}
-                        >
-                          <Cog6ToothIcon className="mr-3 h-4 w-4" />
-                          Settings
-                        </Link>
-                      )}
-                    </Menu.Item>
-
-                    <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
-                    
                     <Menu.Item>
                       {({ active }) => (
                         <button

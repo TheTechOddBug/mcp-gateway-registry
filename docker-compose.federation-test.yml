@@ -47,6 +47,7 @@ services:
       - DOCUMENTDB_HOST=mongodb
       - DOCUMENTDB_PORT=27017
       - DOCUMENTDB_DATABASE=mcp_registry
+      - ENTRA_GROUP_ADMIN_ID=${ENTRA_GROUP_ADMIN_ID:-}
     volumes:
       - ./scripts/init-mongodb-ce.py:/app/scripts/init-mongodb-ce.py:ro
       - ./scripts/registry-admins.json:/app/scripts/registry-admins.json:ro

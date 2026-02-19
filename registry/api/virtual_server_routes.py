@@ -136,14 +136,31 @@ async def list_virtual_servers(
 ) -> dict:
     """List all virtual servers with summary information."""
     service = get_virtual_server_service()
-    servers = await service.list_virtual_servers()
+    all_servers = await service.list_virtual_servers()
+
+    # Filter based on list_virtual_server permission
+    ui_permissions = user_context.get("ui_permissions", {})
+    list_virtual_perms = ui_permissions.get("list_virtual_server", [])
+
+    # Admin users or users with "all" permission see everything
+    if user_context.get("is_admin") or "all" in list_virtual_perms:
+        filtered_servers = all_servers
+    else:
+        # Filter to only virtual servers the user has explicit permission for
+        # Permission values are virtual server paths like "/virtual/my-server"
+        normalized_perms = [p.strip("/") for p in list_virtual_perms]
+        filtered_servers = [
+            s for s in all_servers
+            if s.path.strip("/") in normalized_perms
+        ]
+
     logger.info(
-        f"Returning {len(servers)} virtual servers for user "
-        f"{user_context.get('username', 'unknown')}"
+        f"Returning {len(filtered_servers)} virtual servers for user "
+        f"{user_context.get('username', 'unknown')} (filtered from {len(all_servers)} total)"
     )
     return {
-        "virtual_servers": [s.model_dump(mode="json") for s in servers],
-        "total_count": len(servers),
+        "virtual_servers": [s.model_dump(mode="json") for s in filtered_servers],
+        "total_count": len(filtered_servers),
     }
 
 

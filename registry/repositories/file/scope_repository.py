@@ -6,9 +6,10 @@ Extracts all scopes.yml file I/O logic while maintaining identical behavior.
 
 import logging
 import shutil
-import yaml
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
+
+import yaml
 
 from ..interfaces import ScopeRepositoryBase
 
@@ -19,7 +20,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     """File-based implementation of scope repository."""
 
     def __init__(self):
-        self._scopes_data: Dict[str, Any] = {}
+        self._scopes_data: dict[str, Any] = {}
         self._scopes_file = Path("/app/auth_server/scopes.yml")
         self._alt_scopes_file = Path("/app/auth_server/auth_config/scopes.yml")
 
@@ -39,7 +40,7 @@ class FileScopeRepository(ScopeRepositoryBase):
         logger.info(f"Loading scopes from {scopes_file}...")
 
         try:
-            with open(scopes_file, 'r') as f:
+            with open(scopes_file) as f:
                 self._scopes_data = yaml.safe_load(f)
 
             if not isinstance(self._scopes_data, dict):
@@ -55,7 +56,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     async def _save_scopes(self) -> bool:
         """Save scopes data to file."""
         try:
-            backup_file = self._scopes_file.with_suffix('.backup')
+            backup_file = self._scopes_file.with_suffix(".backup")
 
             shutil.copy2(self._scopes_file, backup_file)
 
@@ -63,13 +64,13 @@ class FileScopeRepository(ScopeRepositoryBase):
                 def ignore_aliases(self, data):
                     return True
 
-            with open(self._scopes_file, 'w') as f:
+            with open(self._scopes_file, "w") as f:
                 yaml.dump(
                     self._scopes_data,
                     f,
                     default_flow_style=False,
                     sort_keys=False,
-                    Dumper=NoAnchorDumper
+                    Dumper=NoAnchorDumper,
                 )
 
             logger.info(f"Successfully updated scopes file at {self._scopes_file}")
@@ -89,7 +90,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     async def get_ui_scopes(
         self,
         group_name: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get UI scopes for a Keycloak group."""
         ui_scopes = self._scopes_data.get("UI-Scopes", {})
         return ui_scopes.get(group_name, {})
@@ -97,7 +98,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     async def get_group_mappings(
         self,
         keycloak_group: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Get scope names mapped to a Keycloak group."""
         group_mappings = self._scopes_data.get("group_mappings", {})
         return group_mappings.get(keycloak_group, [])
@@ -105,7 +106,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     async def get_server_scopes(
         self,
         scope_name: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get server access rules for a scope."""
         return self._scopes_data.get(scope_name, [])
 
@@ -113,18 +114,14 @@ class FileScopeRepository(ScopeRepositoryBase):
         self,
         server_path: str,
         scope_name: str,
-        methods: List[str],
-        tools: Optional[List[str]] = None,
+        methods: list[str],
+        tools: list[str] | None = None,
     ) -> bool:
         """Add scope for a server."""
         try:
-            server_name = server_path.lstrip('/')
+            server_name = server_path.lstrip("/")
 
-            server_entry = {
-                "server": server_name,
-                "methods": methods,
-                "tools": tools
-            }
+            server_entry = {"server": server_name, "methods": methods, "tools": tools}
 
             if scope_name not in self._scopes_data:
                 logger.warning(f"Scope section {scope_name} not found in scopes.yml")
@@ -134,8 +131,7 @@ class FileScopeRepository(ScopeRepositoryBase):
                 logger.warning(f"Scope section {scope_name} is not a list")
                 return False
 
-            existing = [s for s in self._scopes_data[scope_name]
-                       if s.get('server') == server_name]
+            existing = [s for s in self._scopes_data[scope_name] if s.get("server") == server_name]
 
             if existing:
                 idx = self._scopes_data[scope_name].index(existing[0])
@@ -158,7 +154,7 @@ class FileScopeRepository(ScopeRepositoryBase):
     ) -> bool:
         """Remove scope for a server."""
         try:
-            server_name = server_path.lstrip('/')
+            server_name = server_path.lstrip("/")
 
             if scope_name not in self._scopes_data:
                 logger.warning(f"Scope section {scope_name} not found")
@@ -170,8 +166,7 @@ class FileScopeRepository(ScopeRepositoryBase):
 
             original_length = len(self._scopes_data[scope_name])
             self._scopes_data[scope_name] = [
-                s for s in self._scopes_data[scope_name]
-                if s.get('server') != server_name
+                s for s in self._scopes_data[scope_name] if s.get("server") != server_name
             ]
 
             if len(self._scopes_data[scope_name]) < original_length:
@@ -184,7 +179,6 @@ class FileScopeRepository(ScopeRepositoryBase):
         except Exception as e:
             logger.error(f"Failed to remove server scope: {e}", exc_info=True)
             return False
-
 
     async def create_group(
         self,
@@ -211,9 +205,7 @@ class FileScopeRepository(ScopeRepositoryBase):
                 self._scopes_data["UI-Scopes"] = {}
 
             if group_name not in self._scopes_data["UI-Scopes"]:
-                self._scopes_data["UI-Scopes"][group_name] = {
-                    "list_service": []
-                }
+                self._scopes_data["UI-Scopes"][group_name] = {"list_service": []}
                 logger.info(f"Added {group_name} to UI-Scopes with empty list_service")
 
             return await self._save_scopes()
@@ -221,7 +213,6 @@ class FileScopeRepository(ScopeRepositoryBase):
         except Exception as e:
             logger.error(f"Failed to create group {group_name}: {e}", exc_info=True)
             return False
-
 
     async def delete_group(
         self,
@@ -234,7 +225,10 @@ class FileScopeRepository(ScopeRepositoryBase):
                 logger.warning(f"Group {group_name} not found in scopes.yml")
                 return False
 
-            if isinstance(self._scopes_data[group_name], list) and len(self._scopes_data[group_name]) > 0:
+            if (
+                isinstance(self._scopes_data[group_name], list)
+                and len(self._scopes_data[group_name]) > 0
+            ):
                 server_count = len(self._scopes_data[group_name])
                 logger.warning(f"Group {group_name} has {server_count} servers assigned")
 
@@ -258,7 +252,6 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to delete group {group_name}: {e}", exc_info=True)
             return False
 
-
     async def import_group(
         self,
         group_name: str,
@@ -266,6 +259,7 @@ class FileScopeRepository(ScopeRepositoryBase):
         server_access: list = None,
         group_mappings: list = None,
         ui_permissions: dict = None,
+        agent_access: list = None,
     ) -> bool:
         """
         Import a complete group definition.
@@ -276,6 +270,7 @@ class FileScopeRepository(ScopeRepositoryBase):
             server_access: List of server access definitions
             group_mappings: List of group names this group maps to
             ui_permissions: Dictionary of UI permissions
+            agent_access: List of agent paths this group can access
         """
         try:
             # Set defaults
@@ -306,8 +301,7 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to import group {group_name}: {e}", exc_info=True)
             return False
 
-
-    async def get_group(self, group_name: str) -> Dict[str, Any]:
+    async def get_group(self, group_name: str) -> dict[str, Any]:
         """Get full details of a specific group."""
         try:
             if group_name not in self._scopes_data:
@@ -318,7 +312,9 @@ class FileScopeRepository(ScopeRepositoryBase):
             server_access = self._scopes_data.get(group_name, [])
 
             # Get group_mappings
-            group_mappings = self._scopes_data.get("group_mappings", {}).get(group_name, [group_name])
+            group_mappings = self._scopes_data.get("group_mappings", {}).get(
+                group_name, [group_name]
+            )
 
             # Get ui_permissions
             ui_permissions = self._scopes_data.get("UI-Scopes", {}).get(group_name, {})
@@ -331,7 +327,7 @@ class FileScopeRepository(ScopeRepositoryBase):
                 "group_mappings": group_mappings,
                 "ui_permissions": ui_permissions,
                 "created_at": "",
-                "updated_at": ""
+                "updated_at": "",
             }
 
             logger.info(f"Retrieved full group details for {group_name} from scopes.yml")
@@ -341,10 +337,9 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to get group {group_name}: {e}", exc_info=True)
             return None
 
-
     async def list_groups(
         self,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """List all groups with server counts."""
         try:
             groups = {}
@@ -355,13 +350,15 @@ class FileScopeRepository(ScopeRepositoryBase):
 
                 if isinstance(value, list):
                     server_count = len(value)
-                    server_names = [s.get("server", "unknown") for s in value if isinstance(s, dict)]
+                    server_names = [
+                        s.get("server", "unknown") for s in value if isinstance(s, dict)
+                    ]
 
                     groups[key] = {
                         "name": key,
                         "server_count": server_count,
                         "servers": server_names,
-                        "in_mappings": []
+                        "in_mappings": [],
                     }
 
             if "group_mappings" in self._scopes_data:
@@ -372,19 +369,11 @@ class FileScopeRepository(ScopeRepositoryBase):
 
             logger.info(f"Found {len(groups)} groups in scopes.yml")
 
-            return {
-                "total_count": len(groups),
-                "groups": groups
-            }
+            return {"total_count": len(groups), "groups": groups}
 
         except Exception as e:
             logger.error(f"Failed to list groups: {e}", exc_info=True)
-            return {
-                "total_count": 0,
-                "groups": {},
-                "error": str(e)
-            }
-
+            return {"total_count": 0, "groups": {}, "error": str(e)}
 
     async def group_exists(
         self,
@@ -396,7 +385,6 @@ class FileScopeRepository(ScopeRepositoryBase):
         except Exception as e:
             logger.error(f"Error checking if group exists: {e}", exc_info=True)
             return False
-
 
     async def add_server_to_ui_scopes(
         self,
@@ -426,7 +414,6 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to add server to UI scopes: {e}", exc_info=True)
             return False
 
-
     async def remove_server_from_ui_scopes(
         self,
         group_name: str,
@@ -451,13 +438,14 @@ class FileScopeRepository(ScopeRepositoryBase):
                 logger.info(f"Removed {server_name} from UI-Scopes[{group_name}].list_service")
                 return await self._save_scopes()
             else:
-                logger.warning(f"Server {server_name} not found in UI-Scopes[{group_name}].list_service")
+                logger.warning(
+                    f"Server {server_name} not found in UI-Scopes[{group_name}].list_service"
+                )
                 return False
 
         except Exception as e:
             logger.error(f"Failed to remove server from UI scopes: {e}", exc_info=True)
             return False
-
 
     async def add_group_mapping(
         self,
@@ -483,7 +471,6 @@ class FileScopeRepository(ScopeRepositoryBase):
         except Exception as e:
             logger.error(f"Failed to add group mapping: {e}", exc_info=True)
             return False
-
 
     async def remove_group_mapping(
         self,
@@ -512,10 +499,9 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to remove group mapping: {e}", exc_info=True)
             return False
 
-
     async def get_all_group_mappings(
         self,
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         """Get all group mappings."""
         try:
             return self._scopes_data.get("group_mappings", {})
@@ -523,24 +509,18 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to get group mappings: {e}", exc_info=True)
             return {}
 
-
     async def add_server_to_multiple_scopes(
         self,
         server_path: str,
-        scope_names: List[str],
-        methods: List[str],
-        tools: List[str],
+        scope_names: list[str],
+        methods: list[str],
+        tools: list[str],
     ) -> bool:
         """Add server to multiple scopes at once."""
         try:
             success = True
             for scope_name in scope_names:
-                result = await self.add_server_scope(
-                    server_path,
-                    scope_name,
-                    methods,
-                    tools
-                )
+                result = await self.add_server_scope(server_path, scope_name, methods, tools)
                 if not result:
                     logger.warning(f"Failed to add server {server_path} to scope {scope_name}")
                     success = False
@@ -551,20 +531,19 @@ class FileScopeRepository(ScopeRepositoryBase):
             logger.error(f"Failed to add server to multiple scopes: {e}", exc_info=True)
             return False
 
-
     async def remove_server_from_all_scopes(
         self,
         server_path: str,
     ) -> bool:
         """Remove server from all scopes."""
         try:
-            server_name = server_path.lstrip('/')
+            server_name = server_path.lstrip("/")
 
             sections = [
                 "mcp-servers-unrestricted/read",
                 "mcp-servers-unrestricted/execute",
                 "mcp-servers-restricted/read",
-                "mcp-servers-restricted/execute"
+                "mcp-servers-restricted/execute",
             ]
 
             modified = False
@@ -572,8 +551,7 @@ class FileScopeRepository(ScopeRepositoryBase):
                 if section in self._scopes_data:
                     original_length = len(self._scopes_data[section])
                     self._scopes_data[section] = [
-                        s for s in self._scopes_data[section]
-                        if s.get('server') != server_name
+                        s for s in self._scopes_data[section] if s.get("server") != server_name
                     ]
 
                     if len(self._scopes_data[section]) < original_length:
