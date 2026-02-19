@@ -43,8 +43,9 @@ RUN . .venv/bin/activate && \
 COPY pyproject.toml /app/pyproject.toml
 
 # Install all remaining deps from pyproject.toml in one step (no duplicate inline list)
+# SETUPTOOLS_SCM_PRETEND_VERSION works around non-PEP-440 git tags in cisco-ai-skill-scanner
 RUN . .venv/bin/activate && \
-    uv pip install --requirement pyproject.toml
+    SETUPTOOLS_SCM_PRETEND_VERSION=1.0.2 uv pip install --requirement pyproject.toml
 
 # Copy only the application source directories needed (NOT the entire repo)
 COPY registry/ /app/registry/
