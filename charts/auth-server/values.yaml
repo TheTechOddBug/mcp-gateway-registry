@@ -74,3 +74,4 @@ ingress:
   # Path prefix when using path-based routing (default: /auth-server)
   path: /auth-server
 
+nodeSelector: {}

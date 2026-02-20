@@ -60,3 +60,5 @@ ingress:
   routingMode: subdomain
   # Path prefix when using path-based routing (default: /registry)
   path: /registry
+
+nodeSelector: {}
