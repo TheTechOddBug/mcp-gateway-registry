@@ -266,6 +266,8 @@ from registry_client import (
     SkillSearchResponse,
     SkillToggleResponse,
     SkillRatingResponse,
+    SkillSecurityScanResponse,
+    SkillRescanResponse,
     ToolMapping,
     ToolScopeOverride,
     VirtualServerCreateRequest,
@@ -2337,6 +2339,60 @@ def cmd_skill_rating(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.error(f"Get rating failed: {e}")
+        return 1
+
+
+def cmd_skill_security_scan(args: argparse.Namespace) -> int:
+    """
+    Get security scan results for a skill.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.get_skill_security_scan(path=args.path)
+
+        print(json.dumps(response.model_dump(), indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to get security scan results: {e}")
+        return 1
+
+
+def cmd_skill_rescan(args: argparse.Namespace) -> int:
+    """
+    Trigger manual security scan for a skill (admin only).
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.rescan_skill(path=args.path)
+
+        if not args.json_output:
+            safety_status = "SAFE" if response.is_safe else "UNSAFE"
+            logger.info(f"\nSecurity scan completed for skill '{args.path}':")
+            logger.info(f"  Status: {safety_status}")
+            logger.info(f"  Critical: {response.critical_issues}")
+            logger.info(f"  High: {response.high_severity}")
+            logger.info(f"  Medium: {response.medium_severity}")
+            logger.info(f"  Low: {response.low_severity}")
+            logger.info(f"  Analyzers: {', '.join(response.analyzers_used)}")
+
+        print(json.dumps(response.model_dump(), indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to trigger security scan: {e}")
         return 1
 
 
@@ -4483,6 +4539,34 @@ Examples:
         help="Skill path or name"
     )
 
+    # Skill security scan command
+    skill_security_scan_parser = subparsers.add_parser(
+        "skill-security-scan",
+        help="Get security scan results for a skill"
+    )
+    skill_security_scan_parser.add_argument(
+        "--path",
+        required=True,
+        help="Skill path or name"
+    )
+
+    # Skill rescan command
+    skill_rescan_parser = subparsers.add_parser(
+        "skill-rescan",
+        help="Trigger manual security scan for a skill (admin only)"
+    )
+    skill_rescan_parser.add_argument(
+        "--path",
+        required=True,
+        help="Skill path or name"
+    )
+    skill_rescan_parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Output raw JSON only"
+    )
+
     # Anthropic Registry API Commands
 
     # Anthropic list servers command
@@ -5158,6 +5242,8 @@ Examples:
         "skill-search": cmd_skill_search,
         "skill-rate": cmd_skill_rate,
         "skill-rating": cmd_skill_rating,
+        "skill-security-scan": cmd_skill_security_scan,
+        "skill-rescan": cmd_skill_rescan,
         "anthropic-list": cmd_anthropic_list_servers,
         "anthropic-versions": cmd_anthropic_list_versions,
         "anthropic-get": cmd_anthropic_get_server,

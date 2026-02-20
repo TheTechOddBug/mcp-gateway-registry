@@ -185,6 +185,40 @@ class AgentRescanResponse(BaseModel):
     output_file: Optional[str] = Field(None, description="Path to scan output file")
 
 
+class SkillSecurityScanResponse(BaseModel):
+    """Skill security scan results response model."""
+
+    skill_path: str = Field(..., description="Skill path")
+    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    scan_timestamp: str = Field(..., description="Scan timestamp")
+    is_safe: bool = Field(..., description="Whether skill is safe")
+    critical_issues: int = Field(default=0, description="Number of critical issues")
+    high_severity: int = Field(default=0, description="Number of high severity issues")
+    medium_severity: int = Field(default=0, description="Number of medium severity issues")
+    low_severity: int = Field(default=0, description="Number of low severity issues")
+    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    scan_failed: bool = Field(default=False, description="Whether scan failed")
+    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+
+
+class SkillRescanResponse(BaseModel):
+    """Skill rescan response model."""
+
+    skill_path: str = Field(..., description="Skill path")
+    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    scan_timestamp: str = Field(..., description="Scan timestamp")
+    is_safe: bool = Field(..., description="Whether skill is safe")
+    critical_issues: int = Field(default=0, description="Number of critical issues")
+    high_severity: int = Field(default=0, description="Number of high severity issues")
+    medium_severity: int = Field(default=0, description="Number of medium severity issues")
+    low_severity: int = Field(default=0, description="Number of low severity issues")
+    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    scan_failed: bool = Field(default=False, description="Whether scan failed")
+    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+
+
 class GroupListResponse(BaseModel):
     """Group list response model."""
 
@@ -3562,6 +3596,67 @@ class RegistryClient:
         result = response.json()
         logger.info(f"Skill rating: {result.get('num_stars')} stars")
         return SkillRatingResponse(**result)
+
+    def get_skill_security_scan(
+        self,
+        path: str
+    ) -> SkillSecurityScanResponse:
+        """
+        Get security scan results for a skill.
+
+        Returns the latest security scan results including threat analysis,
+        findings by analyzer, and overall safety status.
+
+        Args:
+            path: Skill path or name
+
+        Returns:
+            Security scan results with analysis_results and scan_results
+        """
+        api_path = path.replace("/skills/", "/") if path.startswith("/skills/") else f"/{path}"
+        logger.info(f"Getting security scan results for skill: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/skills{api_path}/security-scan"
+        )
+
+        result = SkillSecurityScanResponse(**response.json())
+        logger.info(f"Retrieved security scan results for skill '{api_path}'")
+        return result
+
+    def rescan_skill(
+        self,
+        path: str
+    ) -> SkillRescanResponse:
+        """
+        Trigger a manual security scan for a skill.
+
+        Initiates a new security scan for the specified skill and returns
+        the scan results. Requires admin privileges.
+
+        Args:
+            path: Skill path or name
+
+        Returns:
+            Newly generated security scan results
+        """
+        api_path = path.replace("/skills/", "/") if path.startswith("/skills/") else f"/{path}"
+        logger.info(f"Triggering security scan for skill: {api_path}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/skills{api_path}/rescan"
+        )
+
+        result = SkillRescanResponse(**response.json())
+        safety_status = "SAFE" if result.is_safe else "UNSAFE"
+        logger.info(
+            f"Security scan completed for skill '{api_path}': {safety_status} "
+            f"(C:{result.critical_issues} H:{result.high_severity} "
+            f"M:{result.medium_severity} L:{result.low_severity})"
+        )
+        return result
 
     # =========================================================================
     # Virtual MCP Server Operations

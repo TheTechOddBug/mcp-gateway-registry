@@ -2865,7 +2865,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                   disabled={skillFormLoading}
                   className="flex-1 px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-md transition-colors"
                 >
-                  {skillFormLoading ? 'Saving...' : (editingSkill ? 'Save Changes' : 'Register Skill')}
+                  {skillFormLoading
+                    ? (editingSkill ? 'Saving...' : 'Registering & Scanning...')
+                    : (editingSkill ? 'Save Changes' : 'Register Skill')}
                 </button>
                 <button
                   type="button"
@@ -2875,6 +2877,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                   Cancel
                 </button>
               </div>
+              {!editingSkill && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                  Registration includes a security scan and may take a few seconds
+                </p>
+              )}
             </form>
           </div>
         </div>
