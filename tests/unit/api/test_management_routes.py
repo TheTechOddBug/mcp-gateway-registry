@@ -427,6 +427,7 @@ class TestManagementCreateGroup:
                 group_mappings=["new-group"],
                 server_access=[],
                 ui_permissions={},
+                agent_access=[],
             )
 
     def test_create_group_success_entra(self, test_client_admin):
@@ -471,6 +472,7 @@ class TestManagementCreateGroup:
                 group_mappings=[entra_group_id],
                 server_access=[],
                 ui_permissions={},
+                agent_access=[],
             )
 
     def test_create_group_requires_admin(self, test_client_regular):
@@ -584,6 +586,7 @@ class TestManagementCreateGroup:
                 group_mappings=["minimal-group"],
                 server_access=[],
                 ui_permissions={},
+                agent_access=[],
             )
 
 

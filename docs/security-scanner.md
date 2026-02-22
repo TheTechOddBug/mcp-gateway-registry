@@ -1,25 +1,27 @@
-# MCP Security Scanner - Supply Chain Security for MCP Servers and A2A Agents
+# MCP Security Scanner - Supply Chain Security for MCP Servers, A2A Agents, and Agent Skills
 
 ## Introduction
 
 [Watch the Security Scanning Demo Video](https://github.com/user-attachments/assets/9450f027-ef7f-4ed7-a55c-ce970bf26fd8)
 
-As organizations integrate Model Context Protocol (MCP) servers and Agent-to-Agent (A2A) agents into their AI workflows, supply chain security becomes critical. These third-party components provide tools and capabilities to AI systems, making them potential vectors for security vulnerabilities, malicious code injection, and data exfiltration.
+As organizations integrate Model Context Protocol (MCP) servers, Agent-to-Agent (A2A) agents, and Agent Skills into their AI workflows, supply chain security becomes critical. These third-party components provide tools, capabilities, and behavioral guidance to AI systems, making them potential vectors for security vulnerabilities, malicious code injection, and data exfiltration.
 
-The MCP Gateway Registry addresses this challenge by integrating automated security scanning powered by two specialized tools:
+The MCP Gateway Registry addresses this challenge by integrating automated security scanning powered by three specialized tools:
 
 - **[Cisco AI Defence MCP Scanner](https://github.com/cisco-ai-defense/mcp-scanner)** - For MCP server security analysis
 - **[Cisco AI Defence A2A Scanner](https://github.com/cisco-ai-defense/a2a-scanner)** - For Agent-to-Agent protocol security analysis
+- **[Cisco AI Defense Skill Scanner](https://github.com/cisco-ai-defense/cisco-ai-skill-scanner)** - For Agent Skills (SKILL.md files) security analysis
 
-These open-source security tools perform deep analysis of MCP servers and A2A agents to identify vulnerabilities before they can be exploited in production environments.
+These open-source security tools perform deep analysis of MCP servers, A2A agents, and Agent Skills to identify vulnerabilities before they can be exploited in production environments.
 
 **GitHub Repositories:**
 - MCP Scanner: https://github.com/cisco-ai-defense/mcp-scanner
 - A2A Scanner: https://github.com/cisco-ai-defense/a2a-scanner
+- Skill Scanner: https://github.com/cisco-ai-defense/cisco-ai-skill-scanner
 
 ### Security Scanning Workflows
 
-The registry implements multiple complementary security scanning workflows for both MCP servers and A2A agents:
+The registry implements multiple complementary security scanning workflows for MCP servers, A2A agents, and Agent Skills:
 
 #### MCP Server Scanning
 1. **Automated Scanning During Server Registration** - Every new server is scanned before being made available to AI agents
@@ -32,7 +34,12 @@ The registry implements multiple complementary security scanning workflows for b
 2. **Manual On-Demand Agent Scans via API** - Administrators can trigger security scans for specific agents
 3. **Query Agent Scan Results** - View detailed security scan results for any registered agent
 
-These workflows ensure continuous security monitoring throughout the MCP server and A2A agent lifecycle, from initial registration through ongoing operations.
+#### Agent Skills Scanning
+1. **Automated Scanning During Skill Registration** - Every new skill (SKILL.md file) is scanned before being made available
+2. **Manual On-Demand Skill Scans via API** - Administrators can trigger security scans for specific skills
+3. **Query Skill Scan Results via API** - View detailed security scan results for any registered skill
+
+These workflows ensure continuous security monitoring throughout the MCP server, A2A agent, and Agent Skills lifecycle, from initial registration through ongoing operations.
 
 ### Architecture Diagram
 
@@ -529,6 +536,184 @@ If the security scan detects critical or high severity vulnerabilities:
 
 Administrators must review the security scan results and remediate any issues before manually enabling the agent.
 
+## Agent Skills Security Scanning
+
+The registry provides comprehensive security scanning for Agent Skills (SKILL.md files) using the [Cisco AI Defense Skill Scanner](https://github.com/cisco-ai-defense/cisco-ai-skill-scanner). This ensures that skills registered in the system are safe and do not contain malicious instructions, prompt injection attempts, or other security threats before being made available to AI coding assistants.
+
+### Automated Scanning During Skill Registration
+
+When registering a new Agent Skill, security scanning is automatically performed as part of the registration workflow.
+
+**Environment Variables for Skill Security Scanning:**
+- `SKILL_SECURITY_SCAN_ENABLED=true` - Enable/disable skill security scanning (default: true)
+- `SKILL_SECURITY_SCAN_ON_REGISTRATION=true` - Scan during registration (default: true)
+- `SKILL_SECURITY_BLOCK_UNSAFE_SKILLS=true` - Auto-disable unsafe skills (default: true)
+- `SKILL_SECURITY_ANALYZERS=static` - Comma-separated list of analyzers (default: static)
+- `SKILL_SECURITY_SCAN_TIMEOUT=120` - Scan timeout in seconds (default: 120)
+- `SKILL_SECURITY_ADD_PENDING_TAG=true` - Add security-pending tag to unsafe skills (default: true)
+- `SKILL_SECURITY_LLM_API_KEY=<key>` - API key for LLM analyzer (optional)
+- `SKILL_SECURITY_VIRUSTOTAL_API_KEY=<key>` - API key for VirusTotal integration (optional)
+- `SKILL_SECURITY_AI_DEFENSE_API_KEY=<key>` - API key for Cisco AI Defense (optional)
+
+**Available Analyzers:**
+- `static` - Static code analysis for common security patterns
+- `behavioral` - Behavioral analysis of skill instructions
+- `llm` - LLM-powered semantic analysis (requires API key)
+- `virustotal` - VirusTotal URL reputation checking (requires API key)
+- `ai-defense` - Cisco AI Defense cloud analysis (requires API key)
+- `meta` - Meta-analyzer combining results from other analyzers
+
+**Example: Registering a Skill with Security Scan**
+
+Using the UI:
+1. Navigate to Skills section in the dashboard
+2. Click "Register Skill"
+3. Enter the SKILL.md URL (e.g., `https://github.com/org/repo/blob/main/skills/pdf/SKILL.md`)
+4. The skill is automatically scanned during registration
+5. View scan results in the skill card's security shield icon
+
+Using the CLI:
+```bash
+# Register skill with automatic security scan
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-register \
+  --name pdf \
+  --url "https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md" \
+  --description "Create and manipulate PDF documents" \
+  --tags pdf,documents,conversion \
+  --visibility public
+```
+
+### Manual On-Demand Skill Scans (API)
+
+Administrators can trigger manual security scans for specific skills using CLI commands or the REST API.
+
+#### Trigger Skill Security Scan (Admin Only)
+
+**Endpoint:** `POST /api/skills/{path}/rescan`
+
+**Description:** Initiates a new security scan for the specified skill and returns the results.
+
+**Authentication:** JWT Bearer token or session cookie
+
+**Authorization:** Requires admin privileges
+
+**Example using CLI:**
+
+```bash
+# Trigger security scan for a specific skill
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-rescan --path pdf
+```
+
+**Example Output:**
+
+```
+Security scan completed for skill '/pdf':
+  Status: SAFE
+  Scan timestamp: 2026-02-20T10:30:00.000000Z
+  Analyzers used: static
+
+  Severity counts:
+    Critical: 0
+    High: 0
+    Medium: 0
+    Low: 0
+```
+
+**Example using curl:**
+
+```bash
+curl -X POST http://localhost/api/skills/pdf/rescan \
+  -H "Authorization: Bearer $JWT_TOKEN"
+```
+
+#### Query Skill Scan Results
+
+**Endpoint:** `GET /api/skills/{path}/security-scan`
+
+**Description:** Retrieves the latest security scan results for a skill, including detailed threat analysis and findings.
+
+**Authentication:** JWT Bearer token or session cookie
+
+**Authorization:** Requires admin privileges or access to the skill
+
+**Example using CLI:**
+
+```bash
+# Get security scan results
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-security-scan --path pdf
+
+# Get results in JSON format
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-security-scan --path pdf --json
+```
+
+**Example Output:**
+
+```json
+{
+  "skill_path": "/pdf",
+  "skill_md_url": "https://github.com/anthropics/skills/blob/main/skills/pdf/SKILL.md",
+  "scan_timestamp": "2026-02-20T10:30:00.000000Z",
+  "is_safe": true,
+  "critical_issues": 0,
+  "high_severity": 0,
+  "medium_severity": 0,
+  "low_severity": 0,
+  "analyzers_used": ["static"],
+  "scan_failed": false
+}
+```
+
+### Python Client Library for Skill Scanning
+
+```python
+from api.registry_client import RegistryClient
+
+# Initialize client
+client = RegistryClient(
+    registry_url="http://localhost",
+    token_file=".oauth-tokens/ingress.json"
+)
+
+# Trigger skill security scan
+scan_result = client.rescan_skill(path="/pdf")
+print(f"Scan Status: {'SAFE' if scan_result.is_safe else 'UNSAFE'}")
+print(f"Critical Issues: {scan_result.critical_issues}")
+print(f"Analyzers Used: {', '.join(scan_result.analyzers_used)}")
+
+# Get skill scan results
+results = client.get_skill_security_scan(path="/pdf")
+print(f"Last Scan: {results.scan_timestamp}")
+print(f"Is Safe: {results.is_safe}")
+```
+
+### What the Skill Scanner Detects
+
+The Cisco AI Defense Skill Scanner analyzes SKILL.md files for various security threats:
+
+1. **Prompt Injection Attempts** - Malicious instructions designed to manipulate AI behavior
+2. **Command Injection Patterns** - Dangerous shell command patterns in skill instructions
+3. **Data Exfiltration Risks** - Instructions that could leak sensitive information
+4. **Privilege Escalation** - Instructions attempting to gain elevated permissions
+5. **Social Engineering** - Deceptive patterns designed to trick users or AI systems
+6. **Malicious URL References** - Links to known malicious domains
+7. **Sensitive Data Handling** - Improper handling of credentials, tokens, or PII
+
+### What Happens When a Skill Scan Fails
+
+If the security scan detects critical or high severity vulnerabilities:
+
+1. **Skill is Registered but Disabled** - The skill is added to the database but marked as `is_enabled=false`
+2. **Security-Pending Tag** - The skill receives a `security-pending` tag to flag it for review
+3. **Excluded from Discovery** - Disabled skills are not returned in skill discovery queries
+4. **Shield Icon Indicator** - The skill card shows a red shield icon in the UI
+5. **Detailed Report Available** - Click the shield icon to view detailed findings
+
+Administrators must review the security scan results and remediate any issues before manually enabling the skill.
+
 ## Periodic Registry Scans
 
 Beyond initial registration security checks, the registry supports comprehensive periodic scans of all enabled servers. This ongoing monitoring detects newly discovered vulnerabilities and ensures continued security compliance.
@@ -731,6 +916,7 @@ chmod 755 security_scans
 ### Documentation
 - **Cisco AI Defence MCP Scanner:** https://github.com/cisco-ai-defense/mcp-scanner
 - **Cisco AI Defence A2A Scanner:** https://github.com/cisco-ai-defense/a2a-scanner
+- **Cisco AI Defense Skill Scanner:** https://github.com/cisco-ai-defense/cisco-ai-skill-scanner
 - **Example Report:** [scan_report_example.md](scan_report_example.md)
 
 ### CLI Tools
@@ -744,6 +930,10 @@ chmod 755 security_scans
 ### A2A Agent API Endpoints
 - **Trigger Agent Scan:** `POST /api/agents/{path}/rescan` - Admin-only manual security scan for A2A agents
 - **Query Agent Results:** `GET /api/agents/{path}/security-scan` - Retrieve A2A agent scan results (file system access recommended)
+
+### Agent Skills API Endpoints
+- **Trigger Skill Scan:** `POST /api/skills/{path}/rescan` - Admin-only manual security scan for Agent Skills
+- **Query Skill Results:** `GET /api/skills/{path}/security-scan` - Retrieve Agent Skills scan results
 
 ### Registry Management CLI Commands
 
@@ -769,9 +959,26 @@ uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json
   --registry-url http://localhost agent-rescan --path /agent-path --json
 ```
 
+#### Agent Skills Security Commands
+```bash
+# Trigger skill security scan
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-rescan --path skill-path
+
+# Get skill scan results
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-security-scan --path skill-path
+
+# Get skill scan results (with JSON output)
+uv run python api/registry_management.py --token-file .oauth-tokens/ingress.json \
+  --registry-url http://localhost skill-security-scan --path skill-path --json
+```
+
 ### Python Client
 - **Registry Client:** `api/registry_client.py` - Python library with security scanning methods:
   - `rescan_server(path)` - Trigger MCP server security scan
   - `get_security_scan(path)` - Get MCP server scan results
   - `rescan_agent(path)` - Trigger A2A agent security scan
   - `get_agent_security_scan(path)` - Get A2A agent scan results
+  - `rescan_skill(path)` - Trigger Agent Skill security scan
+  - `get_skill_security_scan(path)` - Get Agent Skill scan results

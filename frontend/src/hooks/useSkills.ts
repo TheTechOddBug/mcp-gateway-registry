@@ -22,7 +22,7 @@ export const useSkills = (): UseSkillsReturn => {
       setLoading(true);
       setError(null);
 
-      const response = await axios.get('/api/skills');
+      const response = await axios.get('/api/skills?include_disabled=true');
 
       // The API returns {"skills": [...]}
       const responseData = response.data || {};

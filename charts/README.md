@@ -6,7 +6,7 @@ This directory contains Helm charts for deploying the MCP Gateway Registry stack
 
 ### EKS Cluster Setup
 
-For deploying on Amazon EKS, we recommend using the [AWS AI/ML on Amazon EKS](https://github.com/awslabs/ai-on-eks) blueprints to provision a production-ready EKS cluster with GPU support, autoscaling, and AI/ML optimizations.
+For deploying on Amazon EKS, we recommend using the [AWS AI/ML on Amazon EKS](https://github.com/awslabs/ai-on-eks) blueprints to provision an EKS cluster with GPU support, autoscaling, and AI/ML optimizations.
 
 **Quick Start with AI on EKS:**
 

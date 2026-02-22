@@ -15,7 +15,8 @@ import {
   SemanticServerHit,
   SemanticToolHit,
   SemanticAgentHit,
-  SemanticSkillHit
+  SemanticSkillHit,
+  SemanticVirtualServerHit
 } from '../hooks/useSemanticSearch';
 import ServerConfigModal from './ServerConfigModal';
 import AgentDetailsModal from './AgentDetailsModal';
@@ -30,6 +31,7 @@ interface SemanticSearchResultsProps {
   tools: SemanticToolHit[];
   agents: SemanticAgentHit[];
   skills: SemanticSkillHit[];
+  virtualServers?: SemanticVirtualServerHit[];
 }
 
 interface ToolSchemaModalProps {
@@ -421,6 +423,335 @@ const SkillContentModal: React.FC<SkillContentModalProps> = ({
 };
 
 
+interface VirtualServerDetailsModalProps {
+  virtualServer: SemanticVirtualServerHit;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const VirtualServerDetailsModal: React.FC<VirtualServerDetailsModalProps> = ({
+  virtualServer,
+  isOpen,
+  onClose
+}) => {
+  const [copiedEndpoint, setCopiedEndpoint] = useState(false);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+
+  if (!isOpen) return null;
+
+  const tools = virtualServer.matching_tools || [];
+  const backendPaths = virtualServer.backend_paths || [];
+
+  const handleCopyEndpoint = () => {
+    if (virtualServer.endpoint_url) {
+      navigator.clipboard.writeText(virtualServer.endpoint_url);
+      setCopiedEndpoint(true);
+      setTimeout(() => setCopiedEndpoint(false), 2000);
+    }
+  };
+
+  const toggleToolExpand = (toolName: string) => {
+    setExpandedTools(prev => {
+      const next = new Set(prev);
+      if (next.has(toolName)) {
+        next.delete(toolName);
+      } else {
+        next.add(toolName);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {virtualServer.server_name}
+              </h3>
+              <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-600">
+                VIRTUAL
+              </span>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{virtualServer.path}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition-colors"
+          >
+            <XMarkIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-4 overflow-auto flex-1 space-y-4">
+          {/* Endpoint URL */}
+          {virtualServer.endpoint_url && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Endpoint URL
+              </p>
+              <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-900/50 rounded-lg p-2">
+                <code className="flex-1 text-sm text-indigo-600 dark:text-indigo-400 font-mono break-all">
+                  {virtualServer.endpoint_url}
+                </code>
+                <button
+                  onClick={handleCopyEndpoint}
+                  className="flex-shrink-0 p-2 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                  title="Copy endpoint URL"
+                >
+                  {copiedEndpoint ? (
+                    <span className="text-xs text-green-600 dark:text-green-400 font-medium">Copied!</span>
+                  ) : (
+                    <ClipboardIcon className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+              Description
+            </p>
+            <p className="text-sm text-gray-700 dark:text-gray-200">
+              {virtualServer.description || 'No description available.'}
+            </p>
+          </div>
+
+          {/* Tags */}
+          {virtualServer.tags && virtualServer.tags.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Tags
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {virtualServer.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-2.5 py-1 text-xs rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Backend Servers */}
+          {backendPaths.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Backend Servers ({backendPaths.length})
+              </p>
+              <ul className="space-y-1">
+                {backendPaths.map((path) => (
+                  <li key={path} className="text-sm text-gray-700 dark:text-gray-200 font-mono bg-gray-50 dark:bg-gray-900/50 px-2 py-1 rounded">
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Tools */}
+          {tools.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                Tools ({tools.length})
+              </p>
+              <ul className="space-y-2">
+                {tools.map((tool) => {
+                  const isExpanded = expandedTools.has(tool.tool_name);
+                  return (
+                    <li key={tool.tool_name} className="text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-900/50 rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => toggleToolExpand(tool.tool_name)}
+                        className="w-full p-3 text-left hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-gray-900 dark:text-white">{tool.tool_name}</span>
+                          <div className="flex items-center gap-2">
+                            {tool.relevance_score !== undefined && (
+                              <span className="text-xs text-indigo-600 dark:text-indigo-400">
+                                {Math.round(tool.relevance_score * 100)}%
+                              </span>
+                            )}
+                            <InformationCircleIcon className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                        </div>
+                        {(tool.description || tool.match_context) && (
+                          <p className="text-gray-600 dark:text-gray-300 mt-1 text-xs">
+                            {tool.description || tool.match_context}
+                          </p>
+                        )}
+                      </button>
+                      {isExpanded && (
+                        <div className="px-3 pb-3 border-t border-gray-200 dark:border-gray-700 pt-2">
+                          {tool.inputSchema && Object.keys(tool.inputSchema).length > 0 ? (
+                            <>
+                              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                                Input Schema
+                              </p>
+                              <pre className="text-xs bg-gray-100 dark:bg-gray-900 p-3 rounded-lg overflow-auto text-gray-800 dark:text-gray-200 max-h-48">
+                                {JSON.stringify(tool.inputSchema, null, 2)}
+                              </pre>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                              No input schema available for this tool.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Status */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+              Status
+            </p>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${
+                virtualServer.is_enabled
+                  ? 'bg-green-400 shadow-lg shadow-green-400/30'
+                  : 'bg-gray-300 dark:bg-gray-600'
+              }`} />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {virtualServer.is_enabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+          </div>
+
+          {/* Relevance Score */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+              Match Score
+            </p>
+            <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200 px-3 py-1 text-xs font-semibold">
+              {Math.round(Math.min(virtualServer.relevance_score, 1) * 100)}% match
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+interface VirtualServerResultCardProps {
+  virtualServer: SemanticVirtualServerHit;
+  onViewDetails: () => void;
+}
+
+const VirtualServerResultCard: React.FC<VirtualServerResultCardProps> = ({
+  virtualServer,
+  onViewDetails
+}) => {
+  const [showAllTools, setShowAllTools] = useState(false);
+  const tools = virtualServer.matching_tools || [];
+  const visibleTools = showAllTools ? tools : tools.slice(0, 3);
+  const hasMoreTools = tools.length > 3;
+
+  return (
+    <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-700 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-base font-semibold text-gray-900 dark:text-white">
+              {virtualServer.server_name}
+            </p>
+            <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-600">
+              VIRTUAL
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{virtualServer.path}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onViewDetails}
+            className="p-2 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-700/30 rounded-lg transition-colors"
+            title="View virtual server details"
+          >
+            <InformationCircleIcon className="h-4 w-4" />
+          </button>
+          <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200 px-3 py-1 text-xs font-semibold">
+            {Math.round(Math.min(virtualServer.relevance_score, 1) * 100)}% match
+          </span>
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 line-clamp-3">
+        {virtualServer.description || virtualServer.match_context || 'No description available.'}
+      </p>
+
+      {virtualServer.tags && virtualServer.tags.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {virtualServer.tags.slice(0, 6).map((tag) => (
+            <span
+              key={tag}
+              className="px-2.5 py-1 text-[11px] rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Tools Section */}
+      {tools.length > 0 && (
+        <div className="mt-4 border-t border-dashed border-indigo-200 dark:border-indigo-700 pt-3">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Tools ({tools.length})
+          </p>
+          <ul className="space-y-2">
+            {visibleTools.map((tool) => (
+              <li key={tool.tool_name} className="text-sm text-gray-700 dark:text-gray-200 flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-gray-900 dark:text-white">{tool.tool_name}</span>
+                  {tool.relevance_score !== undefined && (
+                    <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400">
+                      {Math.round(tool.relevance_score * 100)}%
+                    </span>
+                  )}
+                  {(tool.description || tool.match_context) && (
+                    <p className="text-gray-600 dark:text-gray-300 text-xs mt-0.5 line-clamp-1">
+                      {tool.description || tool.match_context}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {hasMoreTools && (
+            <button
+              type="button"
+              onClick={() => setShowAllTools(!showAllTools)}
+              className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              {showAllTools ? 'Show less' : `+${tools.length - 3} more tools...`}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+        <span>{virtualServer.backend_count || 0} backends</span>
+        <span>{virtualServer.is_enabled ? 'Enabled' : 'Disabled'}</span>
+      </div>
+    </div>
+  );
+};
+
+
 const formatPercent = (value: number) => `${Math.round(Math.min(value, 1) * 100)}%`;
 
 const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
@@ -430,13 +761,15 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
   servers,
   tools,
   agents,
-  skills
+  skills,
+  virtualServers = []
 }) => {
-  const hasResults = servers.length > 0 || tools.length > 0 || agents.length > 0 || skills.length > 0;
+  const hasResults = servers.length > 0 || tools.length > 0 || agents.length > 0 || skills.length > 0 || virtualServers.length > 0;
   const [configServer, setConfigServer] = useState<SemanticServerHit | null>(null);
   const [detailsServer, setDetailsServer] = useState<SemanticServerHit | null>(null);
   const [detailsSkill, setDetailsSkill] = useState<SemanticSkillHit | null>(null);
   const [detailsAgent, setDetailsAgent] = useState<SemanticAgentHit | null>(null);
+  const [detailsVirtualServer, setDetailsVirtualServer] = useState<SemanticVirtualServerHit | null>(null);
   const [agentDetailsData, setAgentDetailsData] = useState<any>(null);
   const [agentDetailsLoading, setAgentDetailsLoading] = useState(false);
   const [selectedToolSchema, setSelectedToolSchema] = useState<{
@@ -481,18 +814,21 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
     }
   };
 
-  const mapHitToAgent = (hit: SemanticAgentHit): AgentType => ({
-    name: hit.agent_name,
-    path: hit.path,
-     url: hit.url || (hit.agent_card as any)?.url,
-    description: hit.description,
-    version: (hit as any).version,
-    visibility: (hit.visibility as AgentType['visibility']) ?? 'public',
-    trust_level: (hit.trust_level as AgentType['trust_level']) ?? 'unverified',
-    enabled: hit.is_enabled ?? true,
-    tags: hit.tags,
-    status: 'unknown',
-  });
+  const mapHitToAgent = (hit: SemanticAgentHit): AgentType => {
+    const card = hit.agent_card || {};
+    return {
+      name: card.name || hit.path.replace(/^\//, ''),
+      path: hit.path,
+      url: card.url,
+      description: card.description,
+      version: card.version,
+      visibility: (card.visibility as AgentType['visibility']) ?? 'public',
+      trust_level: (card.trust_level as AgentType['trust_level']) ?? 'unverified',
+      enabled: card.is_enabled ?? true,
+      tags: card.tags || [],
+      status: 'unknown',
+    };
+  };
 
   return (
     <>
@@ -714,12 +1050,28 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
             style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}
           >
             {agents.map((agent) => {
+              // Extract agent details from agent_card
+              const card = agent.agent_card || {};
+              const agentName = card.name || agent.path.replace(/^\//, '');
+              const agentDescription = card.description;
+              const agentTags = card.tags || [];
+              const agentVisibility = card.visibility || 'public';
+              const agentTrustLevel = card.trust_level || 'unverified';
+              const agentIsEnabled = card.is_enabled ?? false;
+              const syncMetadata = card.sync_metadata;
+
+              // Extract skill names from agent_card.skills (array of skill objects)
+              const rawSkills = card.skills || [];
+              const skillNames = rawSkills.map((s: any) =>
+                typeof s === 'string' ? s : s?.name || s?.id
+              ).filter(Boolean);
+
               // Detect if agent is from a peer registry using sync_metadata
-              const isFederatedAgent = agent.sync_metadata?.is_federated === true;
-              const peerRegistryId = isFederatedAgent && agent.sync_metadata?.source_peer_id
-                ? agent.sync_metadata.source_peer_id.replace('peer-registry-', '').replace('peer-', '').toUpperCase()
+              const isFederatedAgent = syncMetadata?.is_federated === true;
+              const peerRegistryId = isFederatedAgent && syncMetadata?.source_peer_id
+                ? syncMetadata.source_peer_id.replace('peer-registry-', '').replace('peer-', '').toUpperCase()
                 : null;
-              const isOrphanedAgent = agent.sync_metadata?.is_orphaned === true;
+              const isOrphanedAgent = syncMetadata?.is_orphaned === true;
 
               return (
               <div
@@ -730,7 +1082,7 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-base font-semibold text-gray-900 dark:text-white">
-                        {agent.agent_name}
+                        {agentName}
                       </p>
                       {/* Registry source badge - only show for federated (peer registry) items */}
                       {isFederatedAgent && (
@@ -746,7 +1098,7 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
                       )}
                     </div>
                     <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                      {agent.visibility || 'public'}
+                      {agentVisibility}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -765,24 +1117,24 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
                 </div>
 
                 <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 line-clamp-3">
-                  {agent.description || agent.match_context || 'No description available.'}
+                  {agentDescription || agent.match_context || 'No description available.'}
                 </p>
 
-                {agent.skills?.length > 0 && (
+                {skillNames.length > 0 && (
                   <div className="mt-4">
                     <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
                       Key Skills
                     </p>
                     <p className="text-xs text-gray-600 dark:text-gray-300">
-                      {agent.skills.slice(0, 4).join(', ')}
-                      {agent.skills.length > 4 && '…'}
+                      {skillNames.slice(0, 4).join(', ')}
+                      {skillNames.length > 4 && '…'}
                     </p>
                   </div>
                 )}
 
-                {agent.tags?.length > 0 && (
+                {agentTags.length > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {agent.tags.slice(0, 6).map((tag) => (
+                    {agentTags.slice(0, 6).map((tag: string) => (
                       <span
                         key={tag}
                         className="px-2.5 py-1 text-[11px] rounded-full bg-cyan-50 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200"
@@ -795,9 +1147,9 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
 
                 <div className="mt-4 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                   <span className="font-semibold text-cyan-700 dark:text-cyan-200">
-                    {agent.trust_level || 'unverified'}
+                    {agentTrustLevel}
                   </span>
-                  <span>{agent.is_enabled ? 'Enabled' : 'Disabled'}</span>
+                  <span>{agentIsEnabled ? 'Enabled' : 'Disabled'}</span>
                 </div>
               </div>
             );
@@ -884,6 +1236,28 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
           </div>
         </section>
       )}
+
+      {virtualServers.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Matching Virtual Servers <span className="text-sm font-normal text-gray-500">({virtualServers.length})</span>
+            </h4>
+          </div>
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}
+          >
+            {virtualServers.map((vs) => (
+              <VirtualServerResultCard
+                key={vs.path}
+                virtualServer={vs}
+                onViewDetails={() => setDetailsVirtualServer(vs)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
 
     {configServer && (
@@ -936,6 +1310,14 @@ const SemanticSearchResults: React.FC<SemanticSearchResultsProps> = ({
         skill={detailsSkill}
         isOpen
         onClose={() => setDetailsSkill(null)}
+      />
+    )}
+
+    {detailsVirtualServer && (
+      <VirtualServerDetailsModal
+        virtualServer={detailsVirtualServer}
+        isOpen
+        onClose={() => setDetailsVirtualServer(null)}
       />
     )}
     </>

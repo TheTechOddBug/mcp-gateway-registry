@@ -15,6 +15,10 @@ services:
   registry:
     image: ${DOCKERHUB_ORG:-mcpgateway}/registry:${REGISTRY_VERSION:-latest}
     environment:
+      # Deployment Mode Configuration
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-with-gateway}
+      - REGISTRY_MODE=${REGISTRY_MODE:-full}
+      - GATEWAY_ADDITIONAL_SERVER_NAMES=${GATEWAY_ADDITIONAL_SERVER_NAMES:-}
       - BUILD_VERSION=${BUILD_VERSION:-1.0.0}
       - SECRET_KEY=${SECRET_KEY}
       - ADMIN_USER=${ADMIN_USER:-admin}
@@ -428,6 +432,7 @@ services:
       - DOCUMENTDB_USERNAME=${DOCUMENTDB_USERNAME:-admin}
       - DOCUMENTDB_PASSWORD=${DOCUMENTDB_PASSWORD:-admin}
       - DOCUMENTDB_NAMESPACE=${DOCUMENTDB_NAMESPACE:-default}
+      - ENTRA_GROUP_ADMIN_ID=${ENTRA_GROUP_ADMIN_ID:-}
     volumes:
       - ./scripts/init-mongodb-ce.py:/app/scripts/init-mongodb-ce.py:ro
       - ./scripts/registry-admins.json:/app/scripts/registry-admins.json:ro

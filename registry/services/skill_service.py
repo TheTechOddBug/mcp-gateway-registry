@@ -289,10 +289,42 @@ async def _parse_skill_md_content(
                 "skill_md_raw_url": raw_url,
             }
 
-            # Try to parse YAML frontmatter (between --- markers)
+            # Try to parse YAML frontmatter from multiple formats:
+            # 1. Standard: --- at start of file
+            # 2. Code block with ---: ```yaml\n---\n...\n---\n```
+            # 3. Code block without ---: ```yaml\n...\n```
+            frontmatter = None
+            frontmatter_end_pos = 0
+
+            # Format 1: Standard frontmatter at start of file
             frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
             if frontmatter_match:
                 frontmatter = frontmatter_match.group(1)
+                frontmatter_end_pos = frontmatter_match.end()
+            else:
+                # Format 2: YAML code block with --- markers inside
+                # Matches: ```yaml\n---\nkey: value\n---\n```
+                codeblock_with_markers = re.search(
+                    r"```ya?ml\s*\n---\s*\n(.*?)\n---\s*\n```",
+                    content,
+                    re.DOTALL | re.IGNORECASE,
+                )
+                if codeblock_with_markers:
+                    frontmatter = codeblock_with_markers.group(1)
+                    frontmatter_end_pos = codeblock_with_markers.end()
+                else:
+                    # Format 3: YAML code block without --- markers
+                    # Matches: ```yaml\nkey: value\n```
+                    codeblock_no_markers = re.search(
+                        r"```ya?ml\s*\n(.*?)\n```",
+                        content,
+                        re.DOTALL | re.IGNORECASE,
+                    )
+                    if codeblock_no_markers:
+                        frontmatter = codeblock_no_markers.group(1)
+                        frontmatter_end_pos = codeblock_no_markers.end()
+
+            if frontmatter:
                 # Parse simple YAML key: value pairs
                 for line in frontmatter.split("\n"):
                     if ":" in line:
@@ -316,7 +348,7 @@ async def _parse_skill_md_content(
                             ]
 
                 # Remove frontmatter from content for further parsing
-                content = content[frontmatter_match.end() :]
+                content = content[frontmatter_end_pos:]
 
             # Extract name from first H1 heading if not in frontmatter
             if not result["name"]:

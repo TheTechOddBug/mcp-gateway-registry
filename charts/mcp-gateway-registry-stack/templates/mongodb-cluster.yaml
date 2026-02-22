@@ -3,7 +3,7 @@ apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
 metadata:
   name: {{ default .Values.mongodb.host "mcp-registry-mongodb" }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Release.Namespace | quote }}
 spec:
   members: {{ default .Values.mongodb.replicas "3"}}
   type: ReplicaSet

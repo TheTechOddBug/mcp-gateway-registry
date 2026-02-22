@@ -185,6 +185,40 @@ class AgentRescanResponse(BaseModel):
     output_file: Optional[str] = Field(None, description="Path to scan output file")
 
 
+class SkillSecurityScanResponse(BaseModel):
+    """Skill security scan results response model."""
+
+    skill_path: str = Field(..., description="Skill path")
+    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    scan_timestamp: str = Field(..., description="Scan timestamp")
+    is_safe: bool = Field(..., description="Whether skill is safe")
+    critical_issues: int = Field(default=0, description="Number of critical issues")
+    high_severity: int = Field(default=0, description="Number of high severity issues")
+    medium_severity: int = Field(default=0, description="Number of medium severity issues")
+    low_severity: int = Field(default=0, description="Number of low severity issues")
+    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    scan_failed: bool = Field(default=False, description="Whether scan failed")
+    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+
+
+class SkillRescanResponse(BaseModel):
+    """Skill rescan response model."""
+
+    skill_path: str = Field(..., description="Skill path")
+    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    scan_timestamp: str = Field(..., description="Scan timestamp")
+    is_safe: bool = Field(..., description="Whether skill is safe")
+    critical_issues: int = Field(default=0, description="Number of critical issues")
+    high_severity: int = Field(default=0, description="Number of high severity issues")
+    medium_severity: int = Field(default=0, description="Number of medium severity issues")
+    low_severity: int = Field(default=0, description="Number of low severity issues")
+    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    scan_failed: bool = Field(default=False, description="Whether scan failed")
+    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+
+
 class GroupListResponse(BaseModel):
     """Group list response model."""
 
@@ -522,23 +556,209 @@ class AgentSemanticDiscoveryResponse(BaseModel):
     agents: List[SemanticDiscoveredAgent] = Field(..., description="Semantically discovered agents")
 
 
+class MatchingToolResult(BaseModel):
+    """Tool matching result with optional schema for display."""
+
+    tool_name: str = Field(..., description="Tool name")
+    description: Optional[str] = Field(None, description="Tool description")
+    relevance_score: float = Field(0.0, ge=0.0, le=1.0, description="Relevance score")
+    match_context: Optional[str] = Field(None, description="Why this tool matched")
+    inputSchema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for tool input parameters")
+
+
+class SyncMetadata(BaseModel):
+    """Metadata for items synced from peer registries."""
+
+    is_federated: bool = Field(False, description="Whether this is from a federated registry")
+    source_peer_id: Optional[str] = Field(None, description="Source peer registry ID")
+    synced_at: Optional[str] = Field(None, description="When item was synced")
+    original_path: Optional[str] = Field(None, description="Original path on source registry")
+    is_orphaned: bool = Field(False, description="Whether item is orphaned")
+    orphaned_at: Optional[str] = Field(None, description="When item became orphaned")
+    is_read_only: bool = Field(True, description="Whether item is read-only")
+
+
 class SemanticDiscoveredServer(BaseModel):
     """Semantically discovered server model."""
 
     path: str = Field(..., description="Server path")
     server_name: str = Field(..., description="Server name")
     relevance_score: float = Field(..., description="Semantic similarity score")
-    description: str = Field(..., description="Server description")
+    description: Optional[str] = Field(None, description="Server description")
     tags: List[str] = Field(default_factory=list, description="Server tags")
-    num_tools: int = Field(..., description="Number of tools")
-    is_enabled: bool = Field(..., description="Whether server is enabled")
+    num_tools: int = Field(0, description="Number of tools")
+    is_enabled: bool = Field(False, description="Whether server is enabled")
+    match_context: Optional[str] = Field(None, description="Why this matched")
+    matching_tools: List[MatchingToolResult] = Field(default_factory=list, description="Matching tools")
+    sync_metadata: Optional[SyncMetadata] = Field(None, description="Sync metadata for federated items")
+    # Endpoint URL for agent connectivity (computed based on deployment mode)
+    endpoint_url: Optional[str] = Field(None, description="URL for agents to connect to this MCP server")
+    # Raw endpoint fields (for advanced use cases)
+    proxy_pass_url: Optional[str] = Field(None, description="Base URL for the MCP server backend (internal)")
+    mcp_endpoint: Optional[str] = Field(None, description="Explicit streamable-http endpoint URL")
+    sse_endpoint: Optional[str] = Field(None, description="Explicit SSE endpoint URL")
+    supported_transports: List[str] = Field(default_factory=list, description="Supported transport types")
+
+
+class ToolSearchResult(BaseModel):
+    """Tool search result model."""
+
+    server_path: str = Field(..., description="Parent server path")
+    server_name: str = Field(..., description="Parent server name")
+    tool_name: str = Field(..., description="Tool name")
+    description: Optional[str] = Field(None, description="Tool description")
+    inputSchema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for tool input")
+    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
+    match_context: Optional[str] = Field(None, description="Why this tool matched")
+    # Endpoint URL for the parent MCP server
+    endpoint_url: Optional[str] = Field(None, description="URL for agents to connect to the parent MCP server")
+
+
+class AgentSearchResult(BaseModel):
+    """Agent search result with minimal top-level fields.
+
+    Only search-specific fields are at the top level. All agent details
+    (name, description, url, skills, etc.) are in the agent_card.
+    """
+
+    path: str = Field(..., description="Agent path for identification")
+    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
+    match_context: Optional[str] = Field(None, description="Why this agent matched")
+    agent_card: Dict[str, Any] = Field(..., description="Full agent card with all details")
+
+
+class SkillSearchResult(BaseModel):
+    """Skill search result model."""
+
+    path: str = Field(..., description="Skill path")
+    skill_name: str = Field(..., description="Skill name")
+    description: Optional[str] = Field(None, description="Skill description")
+    tags: List[str] = Field(default_factory=list, description="Skill tags")
+    skill_md_url: Optional[str] = Field(None, description="Skill markdown URL")
+    skill_md_raw_url: Optional[str] = Field(None, description="Skill markdown raw URL")
+    version: Optional[str] = Field(None, description="Skill version")
+    author: Optional[str] = Field(None, description="Skill author")
+    visibility: Optional[str] = Field(None, description="Visibility setting")
+    owner: Optional[str] = Field(None, description="Skill owner")
+    is_enabled: bool = Field(False, description="Whether skill is enabled")
+    health_status: str = Field("unknown", description="Health status")
+    last_checked_time: Optional[str] = Field(None, description="Last health check time")
+    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
+    match_context: Optional[str] = Field(None, description="Why this skill matched")
+
+
+class VirtualServerSearchResult(BaseModel):
+    """Virtual server search result model."""
+
+    path: str = Field(..., description="Virtual server path")
+    server_name: str = Field(..., description="Virtual server name")
+    description: Optional[str] = Field(None, description="Virtual server description")
+    tags: List[str] = Field(default_factory=list, description="Virtual server tags")
+    num_tools: int = Field(0, description="Number of tools")
+    backend_count: int = Field(0, description="Number of backend servers")
+    backend_paths: List[str] = Field(default_factory=list, description="Backend server paths")
+    is_enabled: bool = Field(False, description="Whether virtual server is enabled")
+    relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
+    match_context: Optional[str] = Field(None, description="Why this matched")
+    matching_tools: List[MatchingToolResult] = Field(default_factory=list, description="Matching tools")
+    # Endpoint URL for agent connectivity
+    endpoint_url: Optional[str] = Field(None, description="URL for agents to connect to this virtual MCP server")
+
+
+class ToolMapping(BaseModel):
+    """Tool mapping for virtual MCP servers."""
+
+    tool_name: str = Field(..., description="Original tool name on backend server")
+    alias: Optional[str] = Field(None, description="Renamed tool name in virtual server")
+    backend_server_path: str = Field(..., description="Backend server path (e.g., /github)")
+    backend_version: Optional[str] = Field(None, description="Pin to specific backend version")
+    description_override: Optional[str] = Field(None, description="Override tool description")
+
+
+class ToolScopeOverride(BaseModel):
+    """Per-tool scope override for access control."""
+
+    tool_alias: str = Field(..., description="Tool alias or name")
+    required_scopes: List[str] = Field(default_factory=list, description="Required scopes for this tool")
+
+
+class VirtualServerCreateRequest(BaseModel):
+    """Request to create a virtual MCP server."""
+
+    path: str = Field(..., description="Virtual server path (e.g., /virtual/dev-tools)")
+    server_name: str = Field(..., description="Display name for the virtual server")
+    description: Optional[str] = Field(None, description="Virtual server description")
+    tool_mappings: List[ToolMapping] = Field(..., min_length=1, description="Tool mappings (at least one)")
+    required_scopes: List[str] = Field(default_factory=list, description="Server-level required scopes")
+    tool_scope_overrides: List[ToolScopeOverride] = Field(default_factory=list, description="Per-tool scope overrides")
+    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    supported_transports: List[str] = Field(default_factory=lambda: ["streamable-http"], description="Supported transports")
+    is_enabled: bool = Field(True, description="Whether to enable on creation")
+
+
+class VirtualServerConfig(BaseModel):
+    """Full virtual MCP server configuration."""
+
+    path: str = Field(..., description="Virtual server path")
+    server_name: str = Field(..., description="Display name")
+    description: Optional[str] = Field(None, description="Description")
+    tool_mappings: List[ToolMapping] = Field(default_factory=list, description="Tool mappings")
+    required_scopes: List[str] = Field(default_factory=list, description="Server-level scopes")
+    tool_scope_overrides: List[ToolScopeOverride] = Field(default_factory=list, description="Per-tool scope overrides")
+    tags: List[str] = Field(default_factory=list, description="Tags")
+    supported_transports: List[str] = Field(default_factory=list, description="Supported transports")
+    is_enabled: bool = Field(False, description="Whether enabled")
+    num_stars: float = Field(0.0, description="Average rating")
+    rating_details: List[Dict[str, Any]] = Field(default_factory=list, description="Individual ratings")
+    created_by: Optional[str] = Field(None, description="Creator username")
+    created_at: Optional[str] = Field(None, description="Creation timestamp")
+    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+
+
+class VirtualServerListResponse(BaseModel):
+    """Response for listing virtual servers."""
+
+    virtual_servers: List[VirtualServerConfig] = Field(default_factory=list, description="Virtual servers")
+    total: int = Field(0, description="Total count")
+
+
+class VirtualServerToggleResponse(BaseModel):
+    """Response from toggling a virtual server."""
+
+    path: str = Field(..., description="Virtual server path")
+    is_enabled: bool = Field(..., description="New enabled state")
+    message: str = Field(..., description="Status message")
+
+
+class VirtualServerDeleteResponse(BaseModel):
+    """Response from deleting a virtual server."""
+
+    path: str = Field(..., description="Deleted virtual server path")
+    message: str = Field(..., description="Status message")
+
+
+class SemanticSearchResponse(BaseModel):
+    """Comprehensive semantic search response with all entity types."""
+
+    query: str = Field(..., description="Search query")
+    search_mode: str = Field("hybrid", description="Search mode: hybrid or lexical-only")
+    servers: List[SemanticDiscoveredServer] = Field(default_factory=list, description="Matching servers")
+    tools: List[ToolSearchResult] = Field(default_factory=list, description="Matching tools")
+    agents: List[AgentSearchResult] = Field(default_factory=list, description="Matching agents")
+    skills: List[SkillSearchResult] = Field(default_factory=list, description="Matching skills")
+    virtual_servers: List[VirtualServerSearchResult] = Field(default_factory=list, description="Matching virtual servers")
+    total_servers: int = Field(0, description="Total server count")
+    total_tools: int = Field(0, description="Total tool count")
+    total_agents: int = Field(0, description="Total agent count")
+    total_skills: int = Field(0, description="Total skill count")
+    total_virtual_servers: int = Field(0, description="Total virtual server count")
 
 
 class ServerSemanticSearchResponse(BaseModel):
-    """Server semantic search response model."""
+    """Server semantic search response model (legacy, use SemanticSearchResponse)."""
 
     query: str = Field(..., description="Search query")
-    servers: List[SemanticDiscoveredServer] = Field(..., description="Matching servers")
+    servers: List[SemanticDiscoveredServer] = Field(default_factory=list, description="Matching servers")
 
 
 class RatingDetail(BaseModel):
@@ -914,7 +1134,7 @@ class RegistryClient:
         logger.debug(f"{method} {url}")
 
         # Determine content type based on endpoint
-        # Agent, Management, Search, Federation, Skills, version, and group import endpoints use JSON
+        # Agent, Management, Search, Federation, Skills, Virtual Servers, version, and group import endpoints use JSON
         # Server registration uses form data
         if (endpoint.startswith("/api/agents") or
             endpoint.startswith("/api/management") or
@@ -922,6 +1142,7 @@ class RegistryClient:
             endpoint.startswith("/api/federation") or
             endpoint.startswith("/api/peers") or
             endpoint.startswith("/api/skills") or
+            endpoint.startswith("/api/virtual-servers") or
             endpoint == "/api/servers/groups/import" or
             "/versions" in endpoint):
             # Send as JSON for agent, management, search, federation, and import endpoints
@@ -1092,6 +1313,31 @@ class RegistryClient:
 
         result = response.json()
         logger.info(f"Health check completed: {result.get('status', 'unknown')}")
+        return result
+
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Get registry configuration including deployment mode and features.
+
+        Returns:
+            Configuration response with deployment_mode, registry_mode,
+            nginx_updates_enabled, and features dict
+
+        Raises:
+            requests.HTTPError: If request fails
+        """
+        logger.info("Fetching registry configuration")
+
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/config"
+        )
+
+        result = response.json()
+        logger.info(
+            f"Registry config: deployment_mode={result.get('deployment_mode')}, "
+            f"registry_mode={result.get('registry_mode')}"
+        )
         return result
 
     def add_server_to_groups(
@@ -1622,6 +1868,52 @@ class RegistryClient:
 
         result = ServerSemanticSearchResponse(**response.json())
         logger.info(f"Found {len(result.servers)} servers via semantic search")
+        return result
+
+
+    def semantic_search(
+        self,
+        query: str,
+        entity_types: Optional[List[str]] = None,
+        max_results: int = 10
+    ) -> SemanticSearchResponse:
+        """
+        Comprehensive semantic search across all entity types.
+
+        Args:
+            query: Natural language query (e.g., "coding assistants")
+            entity_types: Optional list of entity types to search.
+                         Valid values: "mcp_server", "tool", "a2a_agent", "skill", "virtual_server"
+                         If None, searches all entity types.
+            max_results: Maximum number of results per entity type (default: 10, max: 50)
+
+        Returns:
+            SemanticSearchResponse with servers, tools, agents, skills, and virtual_servers
+
+        Raises:
+            requests.HTTPError: If search fails (400 for bad request, 500 for search error)
+        """
+        logger.info(f"Semantic search: {query} (entity_types={entity_types})")
+
+        request_data: Dict[str, Any] = {
+            "query": query,
+            "max_results": max_results
+        }
+        if entity_types:
+            request_data["entity_types"] = entity_types
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/api/search/semantic",
+            data=request_data
+        )
+
+        result = SemanticSearchResponse(**response.json())
+        logger.info(
+            f"Found: {len(result.servers)} servers, {len(result.tools)} tools, "
+            f"{len(result.agents)} agents, {len(result.skills)} skills, "
+            f"{len(result.virtual_servers)} virtual servers"
+        )
         return result
 
 
@@ -3304,3 +3596,325 @@ class RegistryClient:
         result = response.json()
         logger.info(f"Skill rating: {result.get('num_stars')} stars")
         return SkillRatingResponse(**result)
+
+    def get_skill_security_scan(
+        self,
+        path: str
+    ) -> SkillSecurityScanResponse:
+        """
+        Get security scan results for a skill.
+
+        Returns the latest security scan results including threat analysis,
+        findings by analyzer, and overall safety status.
+
+        Args:
+            path: Skill path or name
+
+        Returns:
+            Security scan results with analysis_results and scan_results
+        """
+        api_path = path.replace("/skills/", "/") if path.startswith("/skills/") else f"/{path}"
+        logger.info(f"Getting security scan results for skill: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/skills{api_path}/security-scan"
+        )
+
+        result = SkillSecurityScanResponse(**response.json())
+        logger.info(f"Retrieved security scan results for skill '{api_path}'")
+        return result
+
+    def rescan_skill(
+        self,
+        path: str
+    ) -> SkillRescanResponse:
+        """
+        Trigger a manual security scan for a skill.
+
+        Initiates a new security scan for the specified skill and returns
+        the scan results. Requires admin privileges.
+
+        Args:
+            path: Skill path or name
+
+        Returns:
+            Newly generated security scan results
+        """
+        api_path = path.replace("/skills/", "/") if path.startswith("/skills/") else f"/{path}"
+        logger.info(f"Triggering security scan for skill: {api_path}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/skills{api_path}/rescan"
+        )
+
+        result = SkillRescanResponse(**response.json())
+        safety_status = "SAFE" if result.is_safe else "UNSAFE"
+        logger.info(
+            f"Security scan completed for skill '{api_path}': {safety_status} "
+            f"(C:{result.critical_issues} H:{result.high_severity} "
+            f"M:{result.medium_severity} L:{result.low_severity})"
+        )
+        return result
+
+    # =========================================================================
+    # Virtual MCP Server Operations
+    # =========================================================================
+
+    def create_virtual_server(
+        self,
+        request: VirtualServerCreateRequest
+    ) -> VirtualServerConfig:
+        """
+        Create a new virtual MCP server.
+
+        Args:
+            request: Virtual server creation request with tool mappings
+
+        Returns:
+            VirtualServerConfig with created server details
+
+        Raises:
+            requests.HTTPError: If creation fails (400 invalid, 409 conflict)
+        """
+        logger.info(f"Creating virtual server: {request.path}")
+        logger.debug(f"Virtual server config:\n{json.dumps(request.model_dump(), indent=2)}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/api/virtual-servers",
+            data=request.model_dump()
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server created: {result.get('path')}")
+        return VirtualServerConfig(**result)
+
+
+    def list_virtual_servers(
+        self,
+        enabled_only: bool = False,
+        tag: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> VirtualServerListResponse:
+        """
+        List virtual MCP servers.
+
+        Args:
+            enabled_only: If True, only return enabled servers
+            tag: Filter by tag
+            limit: Maximum number of results
+            offset: Pagination offset
+
+        Returns:
+            VirtualServerListResponse with list of servers
+        """
+        params = {
+            "limit": limit,
+            "offset": offset
+        }
+        if enabled_only:
+            params["enabled_only"] = "true"
+        if tag:
+            params["tag"] = tag
+
+        logger.info(f"Listing virtual servers (enabled_only={enabled_only}, tag={tag})")
+
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/virtual-servers",
+            params=params
+        )
+
+        result = response.json()
+        logger.info(f"Found {result.get('total', 0)} virtual servers")
+        return VirtualServerListResponse(**result)
+
+
+    def get_virtual_server(
+        self,
+        path: str
+    ) -> VirtualServerConfig:
+        """
+        Get details of a virtual MCP server.
+
+        Args:
+            path: Virtual server path (e.g., /virtual/dev-tools)
+
+        Returns:
+            VirtualServerConfig with server details
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Getting virtual server: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/virtual-servers{api_path}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server: {result.get('server_name')}")
+        return VirtualServerConfig(**result)
+
+
+    def update_virtual_server(
+        self,
+        path: str,
+        request: VirtualServerCreateRequest
+    ) -> VirtualServerConfig:
+        """
+        Update an existing virtual MCP server.
+
+        Args:
+            path: Virtual server path
+            request: Updated configuration
+
+        Returns:
+            VirtualServerConfig with updated server details
+
+        Raises:
+            requests.HTTPError: If server not found (404) or invalid (400)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Updating virtual server: {api_path}")
+        logger.debug(f"Updated config:\n{json.dumps(request.model_dump(), indent=2)}")
+
+        response = self._make_request(
+            method="PUT",
+            endpoint=f"/api/virtual-servers{api_path}",
+            data=request.model_dump()
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server updated: {result.get('path')}")
+        return VirtualServerConfig(**result)
+
+
+    def delete_virtual_server(
+        self,
+        path: str
+    ) -> VirtualServerDeleteResponse:
+        """
+        Delete a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            VirtualServerDeleteResponse with confirmation
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Deleting virtual server: {api_path}")
+
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/virtual-servers{api_path}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server deleted: {api_path}")
+        return VirtualServerDeleteResponse(**result)
+
+
+    def toggle_virtual_server(
+        self,
+        path: str,
+        enable: bool
+    ) -> VirtualServerToggleResponse:
+        """
+        Enable or disable a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+            enable: True to enable, False to disable
+
+        Returns:
+            VirtualServerToggleResponse with new state
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        action = "enable" if enable else "disable"
+        logger.info(f"Toggling virtual server {api_path}: {action}")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/virtual-servers{api_path}/{action}"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server {action}d: {result.get('is_enabled')}")
+        return VirtualServerToggleResponse(**result)
+
+
+    def rate_virtual_server(
+        self,
+        path: str,
+        rating: int
+    ) -> Dict[str, Any]:
+        """
+        Rate a virtual MCP server (1-5 stars).
+
+        Args:
+            path: Virtual server path
+            rating: Rating value (1-5)
+
+        Returns:
+            Rating response with average rating
+
+        Raises:
+            requests.HTTPError: If server not found (404) or invalid rating (400)
+        """
+        if not 1 <= rating <= 5:
+            raise ValueError("Rating must be between 1 and 5")
+
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Rating virtual server {api_path}: {rating} stars")
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/virtual-servers{api_path}/rate",
+            data={"rating": rating}
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server rated: avg={result.get('average_rating')}")
+        return result
+
+
+    def get_virtual_server_rating(
+        self,
+        path: str
+    ) -> Dict[str, Any]:
+        """
+        Get rating information for a virtual MCP server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            Dict with rating details (num_stars, rating_count, etc.)
+
+        Raises:
+            requests.HTTPError: If server not found (404)
+        """
+        api_path = path if path.startswith("/") else f"/{path}"
+        logger.info(f"Getting rating for virtual server: {api_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/virtual-servers{api_path}/rating"
+        )
+
+        result = response.json()
+        logger.info(f"Virtual server rating: {result.get('num_stars')} stars")
+        return result

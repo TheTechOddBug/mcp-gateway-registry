@@ -4,11 +4,20 @@ import { MagnifyingGlassIcon, PlusIcon, XMarkIcon, ArrowPathIcon, CheckCircleIco
 import { useServerStats } from '../hooks/useServerStats';
 import { useSkills, Skill } from '../hooks/useSkills';
 import { useAuth } from '../contexts/AuthContext';
+import { useRegistryConfig } from '../hooks/useRegistryConfig';
 import ServerCard from '../components/ServerCard';
 import AgentCard from '../components/AgentCard';
 import SkillCard from '../components/SkillCard';
+import VirtualServerCard from '../components/VirtualServerCard';
 import SemanticSearchResults from '../components/SemanticSearchResults';
 import { useSemanticSearch } from '../hooks/useSemanticSearch';
+import { useVirtualServers, useVirtualServer } from '../hooks/useVirtualServers';
+import {
+  VirtualServerInfo,
+  CreateVirtualServerRequest,
+  UpdateVirtualServerRequest,
+} from '../types/virtualServer';
+import VirtualServerForm from '../components/VirtualServerForm';
 import axios from 'axios';
 
 
@@ -121,7 +130,22 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const navigate = useNavigate();
   const { servers, agents: agentsFromStats, loading, error, refreshData, setServers, setAgents } = useServerStats();
   const { skills, setSkills, loading: skillsLoading, error: skillsError, refreshData: refreshSkills } = useSkills();
+  const {
+    virtualServers,
+    loading: virtualServersLoading,
+    error: virtualServersError,
+    toggleVirtualServer,
+    deleteVirtualServer,
+    updateVirtualServer,
+    refreshData: refreshVirtualServers,
+  } = useVirtualServers();
+
+  // Virtual server edit modal state
+  const [editingVirtualServerPath, setEditingVirtualServerPath] = useState<string | undefined>(undefined);
+  const [showVirtualServerForm, setShowVirtualServerForm] = useState(false);
+  const { virtualServer: editingVirtualServer, loading: editingVirtualServerLoading } = useVirtualServer(editingVirtualServerPath);
   const { user } = useAuth();
+  const { config: registryConfig } = useRegistryConfig();
   const [searchTerm, setSearchTerm] = useState('');
   const [committedQuery, setCommittedQuery] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);
@@ -159,7 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const [agentApiToken, setAgentApiToken] = useState<string | null>(null);
 
   // View filter state
-  const [viewFilter, setViewFilter] = useState<'all' | 'servers' | 'agents' | 'skills' | 'external'>('all');
+  const [viewFilter, setViewFilter] = useState<'all' | 'servers' | 'agents' | 'skills' | 'virtual' | 'external'>('all');
 
   // Collapsible state for registry groups (tracks which groups are expanded)
   // Key is registry name: 'local' or peer registry ID like 'peer-registry-lob-1'
@@ -418,6 +442,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const semanticTools = semanticResults?.tools ?? [];
   const semanticAgents = semanticResults?.agents ?? [];
   const semanticSkills = semanticResults?.skills ?? [];
+  const semanticVirtualServers = semanticResults?.virtual_servers ?? [];
   const semanticDisplayQuery = semanticResults?.query || committedQuery || searchTerm;
   const semanticSectionVisible = semanticEnabled;
   const shouldShowFallbackGrid =
@@ -427,7 +452,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         semanticServers.length === 0 &&
         semanticTools.length === 0 &&
         semanticAgents.length === 0 &&
-        semanticSkills.length === 0));
+        semanticSkills.length === 0 &&
+        semanticVirtualServers.length === 0));
 
   // Filter servers based on activeFilter and searchTerm
   const filteredServers = useMemo(() => {
@@ -531,6 +557,95 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
 
     return filtered;
   }, [skills, activeFilter, searchTerm]);
+
+  // Filter virtual servers based on activeFilter and searchTerm
+  const filteredVirtualServers = useMemo(() => {
+    let filtered = virtualServers;
+
+    // Apply filter
+    if (activeFilter === 'enabled') filtered = filtered.filter(s => s.is_enabled);
+    else if (activeFilter === 'disabled') filtered = filtered.filter(s => !s.is_enabled);
+
+    // Apply search
+    if (searchTerm) {
+      const query = searchTerm.toLowerCase();
+      filtered = filtered.filter(vs =>
+        vs.server_name.toLowerCase().includes(query) ||
+        (vs.description || '').toLowerCase().includes(query) ||
+        vs.path.toLowerCase().includes(query) ||
+        (vs.tags || []).some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+
+    return filtered;
+  }, [virtualServers, activeFilter, searchTerm]);
+
+  // Virtual server action handlers
+  const handleToggleVirtualServer = useCallback(async (path: string, enabled: boolean) => {
+    try {
+      await toggleVirtualServer(path, enabled);
+      showToast(`Virtual server ${enabled ? 'enabled' : 'disabled'} successfully`, 'success');
+    } catch (err) {
+      console.error('Failed to toggle virtual server:', err);
+      showToast('Failed to toggle virtual server', 'error');
+    }
+  }, [toggleVirtualServer]);
+
+  // State for virtual server delete confirmation on Dashboard
+  const [deleteVirtualServerTarget, setDeleteVirtualServerTarget] = useState<VirtualServerInfo | null>(null);
+  const [deleteVirtualServerTypedName, setDeleteVirtualServerTypedName] = useState('');
+  const [deletingVirtualServer, setDeletingVirtualServer] = useState(false);
+
+  const handleDeleteVirtualServer = useCallback((path: string) => {
+    const target = virtualServers.find((vs) => vs.path === path);
+    if (target) {
+      setDeleteVirtualServerTarget(target);
+      setDeleteVirtualServerTypedName('');
+    }
+  }, [virtualServers]);
+
+  const confirmDeleteVirtualServer = useCallback(async () => {
+    if (!deleteVirtualServerTarget || deleteVirtualServerTypedName !== deleteVirtualServerTarget.server_name) return;
+
+    setDeletingVirtualServer(true);
+    try {
+      await deleteVirtualServer(deleteVirtualServerTarget.path);
+      showToast('Virtual server deleted successfully', 'success');
+      setDeleteVirtualServerTarget(null);
+      setDeleteVirtualServerTypedName('');
+    } catch (err) {
+      console.error('Failed to delete virtual server:', err);
+      showToast('Failed to delete virtual server', 'error');
+    } finally {
+      setDeletingVirtualServer(false);
+    }
+  }, [deleteVirtualServerTarget, deleteVirtualServerTypedName, deleteVirtualServer]);
+
+  const handleEditVirtualServer = useCallback((vs: VirtualServerInfo) => {
+    setEditingVirtualServerPath(vs.path);
+    setShowVirtualServerForm(true);
+  }, []);
+
+  const handleSaveVirtualServer = useCallback(async (
+    data: CreateVirtualServerRequest | UpdateVirtualServerRequest
+  ) => {
+    if (!editingVirtualServerPath) return;
+    try {
+      await updateVirtualServer(editingVirtualServerPath, data as UpdateVirtualServerRequest);
+      showToast('Virtual server updated successfully', 'success');
+      setShowVirtualServerForm(false);
+      setEditingVirtualServerPath(undefined);
+      refreshVirtualServers();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      showToast(`Failed to save virtual server: ${message}`, 'error');
+    }
+  }, [editingVirtualServerPath, updateVirtualServer, refreshVirtualServers]);
+
+  const handleCancelVirtualServerEdit = useCallback(() => {
+    setShowVirtualServerForm(false);
+    setEditingVirtualServerPath(undefined);
+  }, []);
 
   // Debug logging for filtering
   console.log('Dashboard filtering debug:');
@@ -655,8 +770,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
     setEditingAgent(null);
   };
 
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type: type === 'info' ? 'success' : type });
   }, []);
 
   const hideToast = useCallback(() => {
@@ -851,7 +966,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
     );
 
     try {
-      await axios.post(`/api/skills${path}/toggle?enabled=${enabled}`);
+      // Convert full path to API path (e.g., /skills/pdf -> /pdf)
+      const apiPath = path.startsWith('/skills/') ? path.replace('/skills/', '/') : path;
+      await axios.post(`/api/skills${apiPath}/toggle`, { enabled });
 
       showToast(`Skill ${enabled ? 'enabled' : 'disabled'} successfully!`, 'success');
     } catch (error: any) {
@@ -1125,8 +1242,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
   const renderDashboardCollections = () => (
     <>
       {/* MCP Servers Section - Grouped by Registry */}
-      {(viewFilter === 'all' || viewFilter === 'servers') &&
-        (filteredServers.length > 0 || (!searchTerm && activeFilter === 'all')) && (
+      {registryConfig?.features.mcp_servers !== false &&
+        (viewFilter === 'all' || viewFilter === 'servers') && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -1267,13 +1384,26 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                               onToggle={handleToggleServer}
                               onEdit={handleEditServer}
                               canModify={user?.can_modify_servers || false}
-                              canHealthCheck={hasUiPermission('health_check_service', server.path)}
-                              canToggle={hasUiPermission('toggle_service', server.path)}
+                              canHealthCheck={user?.is_admin || hasUiPermission('health_check_service', server.path)}
+                              canToggle={user?.is_admin || hasUiPermission('toggle_service', server.path)}
                               canDelete={(user?.is_admin || hasUiPermission('delete_service', server.path)) && !server.sync_metadata?.is_federated}
                               onDelete={handleDeleteServer}
                               onRefreshSuccess={refreshData}
                               onShowToast={showToast}
                               onServerUpdate={handleServerUpdate}
+                              authToken={agentApiToken}
+                            />
+                          ))}
+                          {/* Virtual MCP Servers in Local Registry */}
+                          {filteredVirtualServers.map((vs) => (
+                            <VirtualServerCard
+                              key={vs.path}
+                              virtualServer={vs}
+                              canModify={user?.can_modify_servers || user?.is_admin || false}
+                              onToggle={handleToggleVirtualServer}
+                              onEdit={handleEditVirtualServer}
+                              onDelete={handleDeleteVirtualServer}
+                              onShowToast={showToast}
                               authToken={agentApiToken}
                             />
                           ))}
@@ -1311,7 +1441,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                             | {registryId === 'local' ? localRegistryUrl : (peerRegistryEndpoints[registryId] || 'Loading...')}
                           </span>
                           <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full">
-                            {filteredRegistryServers.length} server{filteredRegistryServers.length !== 1 ? 's' : ''}
+                            {registryId === 'local'
+                              ? `${filteredRegistryServers.length + filteredVirtualServers.length} server${(filteredRegistryServers.length + filteredVirtualServers.length) !== 1 ? 's' : ''}`
+                              : `${filteredRegistryServers.length} server${filteredRegistryServers.length !== 1 ? 's' : ''}`
+                            }
                           </span>
                           {/* Resync button for federated registries */}
                           {registryId !== 'local' && (
@@ -1344,13 +1477,26 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                                 onToggle={handleToggleServer}
                                 onEdit={handleEditServer}
                                 canModify={user?.can_modify_servers || false}
-                                canHealthCheck={hasUiPermission('health_check_service', server.path)}
-                                canToggle={hasUiPermission('toggle_service', server.path)}
+                                canHealthCheck={user?.is_admin || hasUiPermission('health_check_service', server.path)}
+                                canToggle={user?.is_admin || hasUiPermission('toggle_service', server.path)}
                                 canDelete={(user?.is_admin || hasUiPermission('delete_service', server.path)) && !server.sync_metadata?.is_federated}
                                 onDelete={handleDeleteServer}
                                 onRefreshSuccess={refreshData}
                                 onShowToast={showToast}
                                 onServerUpdate={handleServerUpdate}
+                                authToken={agentApiToken}
+                              />
+                            ))}
+                            {/* Virtual MCP Servers in Local Registry (collapsible view) */}
+                            {registryId === 'local' && filteredVirtualServers.map((vs) => (
+                              <VirtualServerCard
+                                key={vs.path}
+                                virtualServer={vs}
+                                canModify={user?.can_modify_servers || user?.is_admin || false}
+                                onToggle={handleToggleVirtualServer}
+                                onEdit={handleEditVirtualServer}
+                                onDelete={handleDeleteVirtualServer}
+                                onShowToast={showToast}
                                 authToken={agentApiToken}
                               />
                             ))}
@@ -1366,8 +1512,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         )}
 
       {/* A2A Agents Section - Grouped by Registry */}
-      {(viewFilter === 'all' || viewFilter === 'agents') &&
-        (filteredAgents.length > 0 || (!searchTerm && activeFilter === 'all')) && (
+      {registryConfig?.features.agents !== false &&
+        (viewFilter === 'all' || viewFilter === 'agents') && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -1491,8 +1637,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                               onToggle={handleToggleAgent}
                               onEdit={handleEditAgent}
                               canModify={user?.can_modify_servers || false}
-                              canHealthCheck={hasUiPermission('health_check_agent', agent.path)}
-                              canToggle={hasUiPermission('toggle_agent', agent.path)}
+                              canHealthCheck={user?.is_admin || hasUiPermission('health_check_agent', agent.path)}
+                              canToggle={user?.is_admin || hasUiPermission('toggle_agent', agent.path)}
                               canDelete={
                                 (user?.is_admin ||
                                 hasUiPermission('delete_agent', agent.path) ||
@@ -1573,8 +1719,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                                 onToggle={handleToggleAgent}
                                 onEdit={handleEditAgent}
                                 canModify={user?.can_modify_servers || false}
-                                canHealthCheck={hasUiPermission('health_check_agent', agent.path)}
-                                canToggle={hasUiPermission('toggle_agent', agent.path)}
+                                canHealthCheck={user?.is_admin || hasUiPermission('health_check_agent', agent.path)}
+                                canToggle={user?.is_admin || hasUiPermission('toggle_agent', agent.path)}
                                 canDelete={
                                   (user?.is_admin ||
                                   hasUiPermission('delete_agent', agent.path) ||
@@ -1600,8 +1746,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
         )}
 
       {/* Agent Skills Section */}
-      {(viewFilter === 'all' || viewFilter === 'skills') &&
-        (filteredSkills.length > 0 || (!searchTerm && activeFilter === 'all')) && (
+      {registryConfig?.features.skills !== false &&
+        (viewFilter === 'all' || viewFilter === 'skills') && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -1661,7 +1807,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                     onEdit={handleEditSkill}
                     onDelete={(path: string) => setShowDeleteSkillConfirm(path)}
                     canModify={user?.can_modify_servers || false}
-                    canToggle={hasUiPermission('toggle_skill', skill.path)}
+                    canToggle={user?.is_admin || hasUiPermission('toggle_skill', skill.path)}
                     onRefreshSuccess={refreshSkills}
                     onShowToast={showToast}
                     onSkillUpdate={handleSkillUpdate}
@@ -1673,8 +1819,70 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
           </div>
         )}
 
+      {/* Virtual MCP Servers Section */}
+      {(viewFilter === 'all' || viewFilter === 'virtual') &&
+        (filteredVirtualServers.length > 0 || viewFilter === 'virtual') && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Virtual MCP Servers
+              </h2>
+              {(user?.can_modify_servers || user?.is_admin) && (
+                <button
+                  onClick={() => navigate('/settings/virtual-mcp/servers')}
+                  className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors"
+                >
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  Add Virtual Server
+                </button>
+              )}
+            </div>
+
+            {virtualServersError ? (
+              <div className="text-center py-12 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                <div className="text-red-500 text-lg mb-2">Failed to load virtual servers</div>
+                <p className="text-red-600 dark:text-red-400 text-sm">{virtualServersError}</p>
+              </div>
+            ) : virtualServersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+              </div>
+            ) : filteredVirtualServers.length === 0 ? (
+              <div className="text-center py-12 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-800">
+                <div className="text-gray-400 text-lg mb-2">No virtual servers found</div>
+                <p className="text-gray-500 dark:text-gray-300 text-sm">
+                  {searchTerm || activeFilter !== 'all'
+                    ? 'Try adjusting your search or filter'
+                    : 'No virtual servers are configured yet'}
+                </p>
+              </div>
+            ) : (
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+                  gap: 'clamp(1.5rem, 3vw, 2.5rem)'
+                }}
+              >
+                {filteredVirtualServers.map((vs) => (
+                  <VirtualServerCard
+                    key={vs.path}
+                    virtualServer={vs}
+                    canModify={user?.can_modify_servers || user?.is_admin || false}
+                    onToggle={handleToggleVirtualServer}
+                    onEdit={handleEditVirtualServer}
+                    onDelete={handleDeleteVirtualServer}
+                    onShowToast={showToast}
+                    authToken={agentApiToken}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       {/* External Registries Section */}
-      {viewFilter === 'external' && (
+      {registryConfig?.features.federation !== false && viewFilter === 'external' && (
         <div className="mb-8">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
             External Registries
@@ -1745,8 +1953,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                         onToggle={handleToggleAgent}
                         onEdit={handleEditAgent}
                         canModify={user?.can_modify_servers || false}
-                        canHealthCheck={hasUiPermission('health_check_agent', agent.path)}
-                        canToggle={hasUiPermission('toggle_agent', agent.path)}
+                        canHealthCheck={user?.is_admin || hasUiPermission('health_check_agent', agent.path)}
+                        canToggle={user?.is_admin || hasUiPermission('toggle_agent', agent.path)}
                         canDelete={
                           (user?.is_admin ||
                           hasUiPermission('delete_agent', agent.path) ||
@@ -1768,10 +1976,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
       )}
 
       {/* Empty state when all are filtered out */}
-      {((viewFilter === 'all' && filteredServers.length === 0 && filteredAgents.length === 0 && filteredSkills.length === 0) ||
+      {((viewFilter === 'all' && filteredServers.length === 0 && filteredAgents.length === 0 && filteredSkills.length === 0 && filteredVirtualServers.length === 0) ||
         (viewFilter === 'servers' && filteredServers.length === 0) ||
         (viewFilter === 'agents' && filteredAgents.length === 0) ||
-        (viewFilter === 'skills' && filteredSkills.length === 0)) &&
+        (viewFilter === 'skills' && filteredSkills.length === 0) ||
+        (viewFilter === 'virtual' && filteredVirtualServers.length === 0)) &&
         (searchTerm || activeFilter !== 'all') && (
           <div className="text-center py-16">
             <div className="text-gray-400 text-xl mb-4">No items found</div>
@@ -1823,58 +2032,85 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
       <div className="flex flex-col h-full">
         {/* Fixed Header Section */}
         <div className="flex-shrink-0 space-y-4 pb-4">
-          {/* View Filter Tabs */}
+          {/* View Filter Tabs - conditionally show based on registry mode */}
+          {/* Calculate if multiple features are enabled to determine if "All" tab is needed */}
           <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+{/* Only show "All" tab if more than one feature is enabled */}
+            {[
+              registryConfig?.features.mcp_servers !== false,
+              registryConfig?.features.agents !== false,
+              registryConfig?.features.skills !== false,
+              registryConfig?.features.federation !== false
+            ].filter(Boolean).length > 1 && (
+              <button
+                onClick={() => handleChangeViewFilter('all')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'all'
+                    ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                All
+              </button>
+            )}
+            {registryConfig?.features.mcp_servers !== false && (
+              <button
+                onClick={() => handleChangeViewFilter('servers')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'servers'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                MCP Servers
+              </button>
+            )}
             <button
-              onClick={() => handleChangeViewFilter('all')}
+              onClick={() => handleChangeViewFilter('virtual')}
               className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'all'
-                  ? 'border-purple-500 text-purple-600 dark:text-purple-400'
+                viewFilter === 'virtual'
+                  ? 'border-teal-500 text-teal-600 dark:text-teal-400'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
               }`}
             >
-              All
+              Virtual MCP Servers
             </button>
-            <button
-              onClick={() => handleChangeViewFilter('servers')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'servers'
-                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              MCP Servers Only
-            </button>
-            <button
-              onClick={() => handleChangeViewFilter('agents')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'agents'
-                  ? 'border-cyan-500 text-cyan-600 dark:text-cyan-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              A2A Agents Only
-            </button>
-            <button
-              onClick={() => handleChangeViewFilter('skills')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'skills'
-                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              Agent Skills
-            </button>
-            <button
-              onClick={() => handleChangeViewFilter('external')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'external'
-                  ? 'border-green-500 text-green-600 dark:text-green-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              External Registries
-            </button>
+            {registryConfig?.features.agents !== false && (
+              <button
+                onClick={() => handleChangeViewFilter('agents')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'agents'
+                    ? 'border-cyan-500 text-cyan-600 dark:text-cyan-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                A2A Agents
+              </button>
+            )}
+            {registryConfig?.features.skills !== false && (
+              <button
+                onClick={() => handleChangeViewFilter('skills')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'skills'
+                    ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Agent Skills
+              </button>
+            )}
+            {registryConfig?.features.federation !== false && (
+              <button
+                onClick={() => handleChangeViewFilter('external')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'external'
+                    ? 'border-green-500 text-green-600 dark:text-green-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                External Registries
+              </button>
+            )}
           </div>
 
           {/* Search Bar and Refresh Button */}
@@ -1934,7 +2170,19 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                 </>
               ) : (
                 <>
-                  Showing {filteredServers.length} servers, {filteredAgents.length} agents, {filteredSkills.length} skills
+                  {/* Dynamic count display based on enabled features */}
+                  Showing{' '}
+                  {registryConfig?.features.mcp_servers !== false && (
+                    <>{filteredServers.length} servers</>
+                  )}
+                  {registryConfig?.features.mcp_servers !== false && registryConfig?.features.agents !== false && ', '}
+                  {registryConfig?.features.agents !== false && (
+                    <>{filteredAgents.length} agents</>
+                  )}
+                  {(registryConfig?.features.mcp_servers !== false || registryConfig?.features.agents !== false) && registryConfig?.features.skills !== false && ', '}
+                  {registryConfig?.features.skills !== false && (
+                    <>{filteredSkills.length} skills</>
+                  )}
                 </>
               )}
               {activeFilter !== 'all' && (
@@ -1961,6 +2209,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                 tools={semanticTools}
                 agents={semanticAgents}
                 skills={semanticSkills}
+                virtualServers={semanticVirtualServers}
               />
 
               {shouldShowFallbackGrid && (
@@ -2616,7 +2865,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                   disabled={skillFormLoading}
                   className="flex-1 px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-md transition-colors"
                 >
-                  {skillFormLoading ? 'Saving...' : (editingSkill ? 'Save Changes' : 'Register Skill')}
+                  {skillFormLoading
+                    ? (editingSkill ? 'Saving...' : 'Registering & Scanning...')
+                    : (editingSkill ? 'Save Changes' : 'Register Skill')}
                 </button>
                 <button
                   type="button"
@@ -2626,6 +2877,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
                   Cancel
                 </button>
               </div>
+              {!editingSkill && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                  Registration includes a security scan and may take a few seconds
+                </p>
+              )}
             </form>
           </div>
         </div>
@@ -2658,6 +2914,105 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all' }) => {
           </div>
         </div>
       )}
+
+      {/* Virtual Server Delete Confirmation Modal */}
+      {deleteVirtualServerTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete virtual server confirmation"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              Delete Virtual Server
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              This action is irreversible. The virtual server and all its tool
+              mappings will be permanently removed.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Type <strong>{deleteVirtualServerTarget.server_name}</strong> to confirm:
+            </p>
+            <input
+              type="text"
+              value={deleteVirtualServerTypedName}
+              onChange={(e) => setDeleteVirtualServerTypedName(e.target.value)}
+              placeholder={deleteVirtualServerTarget.server_name}
+              disabled={deletingVirtualServer}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
+                         bg-white dark:bg-gray-900 text-gray-900 dark:text-white mb-4"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setDeleteVirtualServerTarget(null);
+                  setDeleteVirtualServerTypedName('');
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setDeleteVirtualServerTarget(null);
+                  setDeleteVirtualServerTypedName('');
+                }}
+                disabled={deletingVirtualServer}
+                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200
+                           rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteVirtualServer}
+                disabled={deleteVirtualServerTypedName !== deleteVirtualServerTarget.server_name || deletingVirtualServer}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700
+                           disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                {deletingVirtualServer && (
+                  <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Virtual Server Edit Modal */}
+      {showVirtualServerForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit virtual server"
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-auto">
+            {editingVirtualServerLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                <span className="ml-3 text-gray-500 dark:text-gray-400">Loading virtual server...</span>
+              </div>
+            ) : editingVirtualServer ? (
+              <VirtualServerForm
+                virtualServer={editingVirtualServer}
+                onSave={handleSaveVirtualServer}
+                onCancel={handleCancelVirtualServerEdit}
+              />
+            ) : (
+              <div className="p-6 text-center">
+                <p className="text-gray-500 dark:text-gray-400">Failed to load virtual server</p>
+                <button
+                  onClick={handleCancelVirtualServerEdit}
+                  className="mt-4 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </>
   );
 };

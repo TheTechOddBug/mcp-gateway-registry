@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, List, Optional
 
@@ -142,9 +143,11 @@ def _build_query(
         if to_time:
             query["timestamp"]["$lte"] = to_time
     
-    # Identity filters
+    # Identity filters - use case-insensitive regex for partial matching
     if username:
-        query["identity.username"] = username
+        # Escape special regex characters in the username
+        escaped_username = re.escape(username)
+        query["identity.username"] = {"$regex": escaped_username, "$options": "i"}
     
     # Action filters
     if operation:

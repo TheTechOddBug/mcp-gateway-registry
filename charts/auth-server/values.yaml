@@ -2,7 +2,7 @@
 global:
   image:
     repository: public.ecr.aws/p3v1o3c6/auth-server
-    tag: v1.0.13
+    tag: 1.0.13
     pullPolicy: IfNotPresent
 
 # Application configuration
@@ -21,6 +21,12 @@ app:
   # secretKey: "your-secure-key-here"
   sessionCookieDomain: ""  # Auto-inferred from Host header if empty
   sessionCookieSecure: true
+
+  # Federation configuration
+  federationStaticTokenAuthEnabled: false #If not provided, defaults to false
+  federationStaticToken: # If not provided, a random token is auto-generated
+  federationEncryptionKey: # If not provided, a Fernet key is auto-generated
+  registryId: # Unique identifier for this registry instance (optional)
 
 # Authentication Provider Configuration
 # Choose ONE provider: keycloak or entra

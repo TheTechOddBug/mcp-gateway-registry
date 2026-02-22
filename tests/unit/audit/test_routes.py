@@ -63,8 +63,10 @@ class TestBuildQuery:
         query = _build_query(stream="registry_api", from_time=from_time, to_time=None,
                             username="admin", operation="create", resource_type="server",
                             resource_id=None, status_min=400, status_max=499, auth_decision=None)
-        
-        assert query["identity.username"] == "admin"
+
+        # Username uses case-insensitive regex for partial matching
+        assert query["identity.username"]["$regex"] == "admin"
+        assert query["identity.username"]["$options"] == "i"
         assert query["action.operation"] == "create"
         assert query["response.status_code"]["$gte"] == 400
 
@@ -113,17 +115,27 @@ class TestAuditEventsEndpoint:
         mock_repo = MagicMock()
         mock_repo.find = AsyncMock(return_value=[{"request_id": "req-1"}])
         mock_repo.count = AsyncMock(return_value=1)
-        
+
         with patch("registry.audit.routes.get_audit_repository", return_value=mock_repo):
             from registry.audit.routes import get_audit_events
-            
+
             result = await get_audit_events(
                 user_context={"is_admin": True},
                 stream="registry_api",
+                from_time=None,
+                to_time=None,
+                username=None,
+                operation=None,
+                resource_type=None,
+                resource_id=None,
+                status_min=None,
+                status_max=None,
+                auth_decision=None,
                 limit=50,
                 offset=0,
+                sort_order=-1,
             )
-            
+
             assert result.total == 1
             assert len(result.events) == 1
 

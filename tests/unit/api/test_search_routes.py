@@ -230,21 +230,29 @@ def sample_faiss_search_results() -> dict[str, list[dict[str, Any]]]:
         "agents": [
             {
                 "path": "/agents/code-reviewer",
-                "agent_name": "code-reviewer",
-                "description": "Review code for best practices",
-                "tags": ["code", "review"],
-                "skills": [{"name": "Code Review"}],
                 "relevance_score": 0.88,
                 "match_context": "code review analysis",
+                "agent_card": {
+                    "name": "code-reviewer",
+                    "description": "Review code for best practices",
+                    "tags": ["code", "review"],
+                    "skills": [{"name": "Code Review"}],
+                    "visibility": "public",
+                    "is_enabled": True,
+                },
             },
             {
                 "path": "/agents/test-agent",
-                "agent_name": "test-agent",
-                "description": "Test automation agent",
-                "tags": ["test", "automation"],
-                "skills": [{"name": "Test Generation"}],
                 "relevance_score": 0.82,
                 "match_context": "test automation",
+                "agent_card": {
+                    "name": "test-agent",
+                    "description": "Test automation agent",
+                    "tags": ["test", "automation"],
+                    "skills": [{"name": "Test Generation"}],
+                    "visibility": "public",
+                    "is_enabled": True,
+                },
             },
         ],
     }
@@ -360,35 +368,42 @@ class TestPydanticModels:
         # Arrange & Act
         agent = AgentSearchResult(
             path="/agents/test",
-            agent_name="test-agent",
-            description="Test agent",
-            tags=["test"],
-            skills=["skill1", "skill2"],
-            trust_level="verified",
-            visibility="public",
-            is_enabled=True,
             relevance_score=0.88,
             match_context="test context",
+            agent_card={
+                "name": "test-agent",
+                "description": "Test agent",
+                "tags": ["test"],
+                "skills": [{"name": "skill1"}, {"name": "skill2"}],
+                "trust_level": "verified",
+                "visibility": "public",
+                "is_enabled": True,
+            },
         )
 
         # Assert
         assert agent.path == "/agents/test"
-        assert agent.agent_name == "test-agent"
-        assert len(agent.skills) == 2
+        assert agent.agent_card["name"] == "test-agent"
+        assert len(agent.agent_card["skills"]) == 2
 
     def test_agent_search_result_defaults(self):
         """Test AgentSearchResult with default values."""
         # Arrange & Act
         agent = AgentSearchResult(
             path="/agents/test",
-            agent_name="test-agent",
             relevance_score=0.8,
+            agent_card={
+                "name": "test-agent",
+                "tags": [],
+                "skills": [],
+                "is_enabled": False,
+            },
         )
 
         # Assert
-        assert agent.tags == []
-        assert agent.skills == []
-        assert agent.is_enabled is False
+        assert agent.agent_card["tags"] == []
+        assert agent.agent_card["skills"] == []
+        assert agent.agent_card["is_enabled"] is False
 
     def test_semantic_search_request_valid(self):
         """Test SemanticSearchRequest with valid data."""
@@ -1229,8 +1244,11 @@ class TestSemanticSearchErrorHandling:
             "agents": [
                 {
                     "path": "/agents/missing",
-                    "agent_name": "missing-agent",
                     "relevance_score": 0.8,
+                    "agent_card": {
+                        "name": "missing-agent",
+                        "visibility": "public",
+                    },
                 }
             ],
         }
@@ -1240,16 +1258,15 @@ class TestSemanticSearchErrorHandling:
         request = SemanticSearchRequest(query="test")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, admin_user_context, mock_search_repo
         )
 
         # Assert
         # Note: Current implementation uses fallback data from FAISS results
         # even when agent_service.get_agent_info returns None, so agent is included
-        # This is a potential bug - see .scratchpad/fixes/search_routes_test_issues.md
         assert len(response.agents) == 1
-        assert response.agents[0].agent_name == "missing-agent"
+        assert response.agents[0].agent_card["name"] == "missing-agent"
 
     @pytest.mark.asyncio
     async def test_semantic_search_handles_agent_without_path(
@@ -1325,9 +1342,9 @@ class TestSemanticSearchAgentFieldExtraction:
             "agents": [
                 {
                     "path": "/agents/test",
-                    "agent_name": "old-name",
                     "relevance_score": 0.9,
                     "match_context": "test context",
+                    "agent_card": {"name": "old-name", "visibility": "public"},
                 }
             ],
         }
@@ -1336,20 +1353,21 @@ class TestSemanticSearchAgentFieldExtraction:
         request = SemanticSearchRequest(query="test")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, admin_user_context, mock_search_repo
         )
 
         # Assert
         assert len(response.agents) == 1
         agent = response.agents[0]
-        assert agent.agent_name == "Test Agent"
-        assert agent.description == "Test description"
-        assert agent.tags == ["tag1", "tag2"]
-        assert agent.skills == ["Skill 1", "Skill 2"]
-        assert agent.trust_level == "verified"
-        assert agent.visibility == "public"
-        assert agent.is_enabled is True
+        # Agent card data comes from the mock agent service's model_dump
+        assert agent.agent_card["name"] == "Test Agent"
+        assert agent.agent_card["description"] == "Test description"
+        assert agent.agent_card["tags"] == ["tag1", "tag2"]
+        assert agent.agent_card["skills"] == [{"name": "Skill 1"}, {"name": "Skill 2"}]
+        assert agent.agent_card["trust_level"] == "verified"
+        assert agent.agent_card["visibility"] == "public"
+        assert agent.agent_card["is_enabled"] is True
 
     @pytest.mark.asyncio
     async def test_semantic_search_handles_skills_as_strings(
@@ -1380,6 +1398,7 @@ class TestSemanticSearchAgentFieldExtraction:
                 {
                     "path": "/agents/test",
                     "relevance_score": 0.9,
+                    "agent_card": {"name": "Test Agent", "visibility": "public"},
                 }
             ],
         }
@@ -1388,13 +1407,13 @@ class TestSemanticSearchAgentFieldExtraction:
         request = SemanticSearchRequest(query="test")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, admin_user_context, mock_search_repo
         )
 
         # Assert
         assert len(response.agents) == 1
-        assert response.agents[0].skills == ["Skill 1", "Skill 2"]
+        assert response.agents[0].agent_card["skills"] == ["Skill 1", "Skill 2"]
 
     @pytest.mark.asyncio
     async def test_semantic_search_fallback_to_faiss_agent_data(
@@ -1414,14 +1433,13 @@ class TestSemanticSearchAgentFieldExtraction:
             "agents": [
                 {
                     "path": "/agents/test",
-                    "agent_name": "Test Agent",
-                    "description": "From search",
-                    "tags": ["search"],
-                    "skills": ["skill1"],
                     "relevance_score": 0.9,
                     "agent_card": {
+                        "name": "Test Agent",
+                        "description": "From search",
                         "tags": ["from_card"],
                         "skills": [{"name": "Card Skill"}],
+                        "visibility": "public",
                     },
                 }
             ],
@@ -1431,7 +1449,7 @@ class TestSemanticSearchAgentFieldExtraction:
         request = SemanticSearchRequest(query="test")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, admin_user_context, mock_search_repo
         )
 
@@ -1439,18 +1457,18 @@ class TestSemanticSearchAgentFieldExtraction:
         assert len(response.agents) == 1
         agent = response.agents[0]
         # Should use fallback data from agent_card in FAISS results
-        assert agent.tags == ["from_card"]
-        assert agent.skills == ["Card Skill"]
+        assert agent.agent_card["tags"] == ["from_card"]
+        assert agent.agent_card["skills"] == [{"name": "Card Skill"}]
 
     @pytest.mark.asyncio
-    async def test_semantic_search_filters_none_skills(
+    async def test_semantic_search_preserves_skills_structure(
         self,
         mock_http_request,
         mock_search_repo,
         mock_agent_service,
         admin_user_context,
     ):
-        """Test None values are filtered from skills list."""
+        """Test skills structure is preserved in agent_card."""
         # Arrange
         mock_agent = Mock()
         mock_agent.model_dump.return_value = {
@@ -1471,6 +1489,7 @@ class TestSemanticSearchAgentFieldExtraction:
                 {
                     "path": "/agents/test",
                     "relevance_score": 0.9,
+                    "agent_card": {"name": "Test Agent", "visibility": "public"},
                 }
             ],
         }
@@ -1479,14 +1498,16 @@ class TestSemanticSearchAgentFieldExtraction:
         request = SemanticSearchRequest(query="test")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, admin_user_context, mock_search_repo
         )
 
         # Assert
         assert len(response.agents) == 1
-        # None skill should be filtered out
-        assert response.agents[0].skills == ["Skill 1", "Skill 2"]
+        # Skills structure is preserved in agent_card
+        assert response.agents[0].agent_card["skills"] == [
+            {"name": "Skill 1"}, {"name": None}, {"name": "Skill 2"}
+        ]
 
 
 # =============================================================================
@@ -1561,10 +1582,12 @@ class TestSemanticSearchIntegration:
                 {
                     "path": "/agents/code-reviewer",
                     "relevance_score": 0.88,
+                    "agent_card": {"name": "code-reviewer", "visibility": "public"},
                 },
                 {
                     "path": "/agents/restricted-agent",
                     "relevance_score": 0.82,
+                    "agent_card": {"name": "restricted-agent", "visibility": "private"},
                 },
             ],
         }
@@ -1593,7 +1616,7 @@ class TestSemanticSearchIntegration:
         request = SemanticSearchRequest(query="test query")
 
         # Act
-        response = await semantic_search(mock_http_request, 
+        response = await semantic_search(mock_http_request,
             request, regular_user_context, mock_search_repo
         )
 
@@ -1608,7 +1631,7 @@ class TestSemanticSearchIntegration:
 
         # User has access to "/agents/code-reviewer" but not private agent
         assert len(response.agents) == 1
-        assert response.agents[0].agent_name == "code-reviewer"
+        assert response.agents[0].agent_card["name"] == "code-reviewer"
 
         # Totals should match filtered results
         assert response.total_servers == 1

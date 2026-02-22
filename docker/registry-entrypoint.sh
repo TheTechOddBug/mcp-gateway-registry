@@ -33,6 +33,19 @@ fi
 # --- Environment Variable Setup ---
 echo "Setting up environment variables..."
 
+# Get deployment mode (default: with-gateway)
+DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-with-gateway}"
+REGISTRY_MODE="${REGISTRY_MODE:-full}"
+
+echo "============================================================"
+echo "Starting MCP Gateway Registry"
+echo "  DEPLOYMENT_MODE: ${DEPLOYMENT_MODE}"
+echo "  REGISTRY_MODE: ${REGISTRY_MODE}"
+if [ "$DEPLOYMENT_MODE" = "registry-only" ]; then
+    echo "  Note: Dynamic MCP server location blocks will NOT be generated"
+fi
+echo "============================================================"
+
 # Generate secret key if not provided
 if [ -z "$SECRET_KEY" ]; then
     SECRET_KEY=$(python -c 'import secrets; print(secrets.token_hex(32))')
@@ -93,25 +106,14 @@ fi
 echo "Setting up Lua support for nginx..."
 LUA_SCRIPTS_DIR="/etc/nginx/lua"
 mkdir -p "$LUA_SCRIPTS_DIR"
+mkdir -p "$LUA_SCRIPTS_DIR/virtual_mappings"
 
-cat > "$LUA_SCRIPTS_DIR/capture_body.lua" << 'EOF'
--- capture_body.lua: Read request body and encode it in X-Body header for auth_request
-local cjson = require "cjson"
+# Copy Lua scripts from the docker/lua directory (standalone files, not heredocs)
+LUA_SOURCE_DIR="/app/docker/lua"
+cp "$LUA_SOURCE_DIR/capture_body.lua" "$LUA_SCRIPTS_DIR/capture_body.lua"
+cp "$LUA_SOURCE_DIR/virtual_router.lua" "$LUA_SCRIPTS_DIR/virtual_router.lua"
 
--- Read the request body
-ngx.req.read_body()
-local body_data = ngx.req.get_body_data()
-
-if body_data then
-    -- Set the X-Body header with the raw body data
-    ngx.req.set_header("X-Body", body_data)
-    ngx.log(ngx.INFO, "Captured request body (" .. string.len(body_data) .. " bytes) for auth validation")
-else
-    ngx.log(ngx.INFO, "No request body found")
-end
-EOF
-
-echo "Lua script created."
+echo "Lua scripts copied from $LUA_SOURCE_DIR to $LUA_SCRIPTS_DIR."
 
 # --- Nginx Configuration ---
 echo "Preparing Nginx configuration..."
@@ -204,7 +206,7 @@ export EMBEDDINGS_MODEL_DIMENSIONS=$EMBEDDINGS_MODEL_DIMENSIONS
 echo "Starting MCP Registry in the background..."
 cd /app
 source /app/.venv/bin/activate
-uvicorn registry.main:app --host 0.0.0.0 --port 7860 &
+uvicorn registry.main:app --host 0.0.0.0 --port 7860 --proxy-headers --forwarded-allow-ips='*' &
 echo "MCP Registry started."
 
 # Wait for nginx config to be generated (check that placeholders are replaced)
@@ -216,7 +218,8 @@ while [ $WAIT_TIME -lt $MAX_WAIT ]; do
         # Check if placeholders have been replaced
         if ! grep -q "{{ADDITIONAL_SERVER_NAMES}}" "/etc/nginx/conf.d/nginx_rev_proxy.conf" && \
            ! grep -q "{{ANTHROPIC_API_VERSION}}" "/etc/nginx/conf.d/nginx_rev_proxy.conf" && \
-           ! grep -q "{{LOCATION_BLOCKS}}" "/etc/nginx/conf.d/nginx_rev_proxy.conf"; then
+           ! grep -q "{{LOCATION_BLOCKS}}" "/etc/nginx/conf.d/nginx_rev_proxy.conf" && \
+           ! grep -q "{{VIRTUAL_SERVER_BLOCKS}}" "/etc/nginx/conf.d/nginx_rev_proxy.conf"; then
             echo "Nginx configuration generated successfully"
             break
         fi

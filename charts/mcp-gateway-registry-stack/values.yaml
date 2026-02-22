@@ -1,5 +1,8 @@
 # Global configuration - these values are passed to all subcharts
 global:
+  # When installing chart from repository, add --set global.chartVersion=$(git rev-parse HEAD) to add the git hash to a configmap for debugging
+  chartVersion:
+
   # Domain configuration - update this to your actual domain
   domain: "DOMAIN"
 
@@ -11,8 +14,15 @@ global:
   # secretKey: "your-secure-key-here"
 
   # Shared secret name - automatically set for stack deployment
-  # Both auth-server and registry will use this secret for SECRET_KEY
+  # Both auth-server and registry will use this secret for SECRET_KEY and federation (if enabled)
   sharedSecretName: "shared-secret"
+
+  # Federation configuration - shared between registry and auth-server
+  federation:
+    staticTokenAuthEnabled: false # If not provided, defaults to false
+    staticToken: # If not provided, a random token is auto-generated
+    encryptionKey: # If not provided, a Fernet key is auto-generated
+    registryId: # Unique identifier for this registry instance (optional)
 
   # Authentication Provider Configuration
   # Choose ONE provider: keycloak or entra
@@ -52,10 +62,11 @@ mongodb:
 # Keycloak configuration
 # Set create: true to deploy Keycloak as part of this stack
 # Set create: false to use an external Keycloak instance
+# NOTE: When using Entra (global.authProvider.type: entra), set create: false
 keycloak:
-  create: true  # Deploy Keycloak in this stack (set to false to use external Keycloak)
+  create: true  # Deploy Keycloak in this stack (set to false for external Keycloak or Entra)
   image:
-    repository: bitnamilegacy/keycloak
+    registry: public.ecr.aws
 
   global:
     security:
@@ -63,7 +74,7 @@ keycloak:
 
   postgresql:
     image:
-      repository: bitnamilegacy/postgresql
+      registry: public.ecr.aws
 
   # HTTP relative path for path-based routing
   # IMPORTANT: This must match global.ingress.paths.keycloak when routingMode is "path"
@@ -119,8 +130,9 @@ keycloak:
 # Keycloak configuration job
 # Automatically enabled when global.authProvider.type = "keycloak"
 # Set to false to skip configuration (e.g., when using pre-configured Keycloak)
+# NOTE: When using Entra (global.authProvider.type: entra), set enabled: false
 keycloak-configure:
-  enabled: true  # Set to false to skip Keycloak configuration
+  enabled: true  # Set to false to skip Keycloak configuration or when using Entra
   keycloak:
     realm: mcp-gateway
     adminUser: user
@@ -134,6 +146,11 @@ mongodb-configure:
 registry:
   app:
     replicas: 2 # set to > 1 replica for high availability
+    # Deployment mode: with-gateway (nginx integration) or registry-only (catalog only)
+    deploymentMode: with-gateway
+
+    # Registry mode: full, skills-only, mcp-servers-only, agents-only
+    registryMode: full
   ingress:
     enabled: true
     ingressClassName: alb

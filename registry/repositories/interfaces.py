@@ -16,6 +16,11 @@ try:
 except ImportError:
     SkillCard = None
 
+try:
+    from ..schemas.virtual_server_models import VirtualServerConfig
+except ImportError:
+    VirtualServerConfig = None
+
 
 class ServerRepositoryBase(ABC):
     """Abstract base class for MCP server data access."""
@@ -621,6 +626,98 @@ class SecurityScanRepositoryBase(ABC):
         pass
 
 
+class SkillSecurityScanRepositoryBase(ABC):
+    """
+    Abstract base class for skill security scan results data access.
+
+    Implementations:
+    - FileSkillSecurityScanRepository: reads ~/mcp-gateway/skill_security_scans/*.json
+    - DocumentDBSkillSecurityScanRepository: reads mcp-skill-security-scans collection
+    """
+
+    @abstractmethod
+    async def get(
+        self,
+        skill_path: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get latest security scan result for a skill.
+
+        Args:
+            skill_path: Skill path (e.g., "/skills/pdf-processing")
+
+        Returns:
+            Security scan result dict if found, None otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def list_all(self) -> List[Dict[str, Any]]:
+        """
+        List all skill security scan results.
+
+        Returns:
+            List of all skill security scan result dicts.
+        """
+        pass
+
+    @abstractmethod
+    async def create(
+        self,
+        scan_result: Dict[str, Any],
+    ) -> bool:
+        """
+        Create/update a skill security scan result.
+
+        Args:
+            scan_result: Skill security scan result dict. Must contain "skill_path".
+
+        Returns:
+            True if created successfully.
+        """
+        pass
+
+    @abstractmethod
+    async def get_latest(
+        self,
+        skill_path: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get latest scan result for a skill.
+
+        Args:
+            skill_path: Skill path
+
+        Returns:
+            Latest scan result if found, None otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def query_by_status(
+        self,
+        status: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query scan results by status.
+
+        Args:
+            status: Scan status (e.g., "completed", "failed", "pending")
+
+        Returns:
+            List of scan results with the given status.
+        """
+        pass
+
+    @abstractmethod
+    async def load_all(self) -> None:
+        """
+        Load/reload all skill security scan results from storage.
+        Called once at application startup.
+        """
+        pass
+
+
 class SearchRepositoryBase(ABC):
     """Abstract base class for semantic/hybrid search using FAISS or DocumentDB."""
 
@@ -682,6 +779,24 @@ class SearchRepositoryBase(ABC):
             path: Skill path (e.g., /skills/pdf-processing)
             skill: SkillCard object
             is_enabled: Whether skill is enabled
+        """
+        pass
+
+    async def index_virtual_server(
+        self,
+        path: str,
+        virtual_server: Any,
+        is_enabled: bool = False,
+    ) -> None:
+        """Index a virtual server for search.
+
+        Default implementation is a no-op. Override in implementations
+        that support virtual server indexing.
+
+        Args:
+            path: Virtual server path (e.g., /virtual/dev-essentials)
+            virtual_server: VirtualServerConfig object
+            is_enabled: Whether virtual server is enabled
         """
         pass
 
@@ -923,4 +1038,225 @@ class SkillRepositoryBase(ABC):
         updates: Dict[str, Dict[str, Any]],
     ) -> int:
         """Update multiple skills by path, return count."""
+        pass
+
+
+class BackendSessionRepositoryBase(ABC):
+    """Abstract base class for backend MCP session storage.
+
+    Manages per-client backend sessions for virtual MCP servers.
+    Each session maps a (client_session_id, backend_key) pair to the
+    backend MCP server's session ID, enabling session isolation and
+    persistence across L1 cache misses.
+    """
+
+    @abstractmethod
+    async def ensure_indexes(self) -> None:
+        """Create required indexes (TTL on last_used_at, etc.)."""
+        pass
+
+    @abstractmethod
+    async def get_backend_session(
+        self,
+        client_session_id: str,
+        backend_key: str,
+    ) -> Optional[str]:
+        """Get backend session ID and bump last_used_at atomically.
+
+        Args:
+            client_session_id: Client-facing session ID
+            backend_key: Backend location key
+
+        Returns:
+            Backend session ID if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def store_backend_session(
+        self,
+        client_session_id: str,
+        backend_key: str,
+        backend_session_id: str,
+        user_id: str,
+        virtual_server_path: str,
+    ) -> None:
+        """Store or update a backend session (upsert).
+
+        Args:
+            client_session_id: Client-facing session ID
+            backend_key: Backend location key
+            backend_session_id: Session ID from the backend MCP server
+            user_id: User identity for audit
+            virtual_server_path: Virtual server path
+        """
+        pass
+
+    @abstractmethod
+    async def delete_backend_session(
+        self,
+        client_session_id: str,
+        backend_key: str,
+    ) -> None:
+        """Delete a stale backend session.
+
+        Args:
+            client_session_id: Client-facing session ID
+            backend_key: Backend location key
+        """
+        pass
+
+    @abstractmethod
+    async def create_client_session(
+        self,
+        client_session_id: str,
+        user_id: str,
+        virtual_server_path: str,
+    ) -> None:
+        """Create a client session document for validation.
+
+        Args:
+            client_session_id: Generated client session ID
+            user_id: User identity from auth context
+            virtual_server_path: Virtual server path
+        """
+        pass
+
+    @abstractmethod
+    async def validate_client_session(
+        self,
+        client_session_id: str,
+    ) -> bool:
+        """Check if a client session exists and bump last_used_at.
+
+        Args:
+            client_session_id: Client-facing session ID
+
+        Returns:
+            True if session exists, False otherwise
+        """
+        pass
+
+
+class VirtualServerRepositoryBase(ABC):
+    """Abstract base class for virtual MCP server data access."""
+
+    @abstractmethod
+    async def ensure_indexes(self) -> None:
+        """Create required indexes if not present."""
+        pass
+
+    @abstractmethod
+    async def get(
+        self,
+        path: str,
+    ) -> Optional[VirtualServerConfig]:
+        """Get a virtual server by path.
+
+        Args:
+            path: Virtual server path (e.g., '/virtual/dev-essentials')
+
+        Returns:
+            VirtualServerConfig if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def list_all(self) -> List[VirtualServerConfig]:
+        """List all virtual servers.
+
+        Returns:
+            List of all VirtualServerConfig objects
+        """
+        pass
+
+    @abstractmethod
+    async def list_enabled(self) -> List[VirtualServerConfig]:
+        """List all enabled virtual servers.
+
+        Returns:
+            List of enabled VirtualServerConfig objects
+        """
+        pass
+
+    @abstractmethod
+    async def create(
+        self,
+        config: VirtualServerConfig,
+    ) -> VirtualServerConfig:
+        """Create a new virtual server.
+
+        Args:
+            config: Virtual server configuration
+
+        Returns:
+            Created VirtualServerConfig
+
+        Raises:
+            VirtualServerAlreadyExistsError: If path already exists
+        """
+        pass
+
+    @abstractmethod
+    async def update(
+        self,
+        path: str,
+        updates: Dict[str, Any],
+    ) -> Optional[VirtualServerConfig]:
+        """Update a virtual server.
+
+        Args:
+            path: Virtual server path
+            updates: Fields to update
+
+        Returns:
+            Updated VirtualServerConfig if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def delete(
+        self,
+        path: str,
+    ) -> bool:
+        """Delete a virtual server.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            True if deleted, False if not found
+        """
+        pass
+
+    @abstractmethod
+    async def get_state(
+        self,
+        path: str,
+    ) -> bool:
+        """Get virtual server enabled/disabled state.
+
+        Args:
+            path: Virtual server path
+
+        Returns:
+            True if enabled, False if disabled or not found
+        """
+        pass
+
+    @abstractmethod
+    async def set_state(
+        self,
+        path: str,
+        enabled: bool,
+    ) -> bool:
+        """Set virtual server enabled/disabled state.
+
+        Args:
+            path: Virtual server path
+            enabled: New enabled state
+
+        Returns:
+            True if updated, False if not found
+        """
         pass

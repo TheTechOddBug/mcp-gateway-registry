@@ -7,7 +7,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.app.name }}
-  namespace: {{ include "common.names.namespace" . | quote }}
+  namespace: {{ .Release.Namespace | quote }}
   labels:
     app.kubernetes.io/name: {{ .Values.app.name }}
     app.kubernetes.io/component: {{ .Values.app.name }}
@@ -25,7 +25,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-mongodb
-          image: python:3.13-alpine
+          image: public.ecr.aws/docker/library/python:3.13-slim
           command: ['sh', '-c']
           envFrom:
             - secretRef:

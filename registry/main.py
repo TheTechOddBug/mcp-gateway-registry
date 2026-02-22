@@ -19,6 +19,9 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
+# Import registry mode middleware
+from registry.middleware.mode_filter import RegistryModeMiddleware
+
 # Import domain routers
 from registry.auth.routes import router as auth_router
 from registry.api.server_routes import router as servers_router
@@ -31,6 +34,9 @@ from registry.api.federation_routes import router as federation_router
 from registry.api.federation_export_routes import router as federation_export_router
 from registry.api.peer_management_routes import router as peer_management_router
 from registry.api.skill_routes import router as skill_router
+from registry.api.config_routes import router as config_router
+from registry.api.virtual_server_routes import router as virtual_server_router
+from registry.api.internal_routes import router as internal_router
 from registry.health.routes import router as health_router
 from registry.audit.routes import router as audit_router
 
@@ -51,7 +57,13 @@ from registry.services.peer_federation_service import get_peer_federation_servic
 from registry.services.peer_sync_scheduler import get_peer_sync_scheduler
 
 # Import core configuration
-from registry.core.config import settings
+from registry.core.config import (
+    settings,
+    RegistryMode,
+    _validate_mode_combination,
+    _print_config_warning_banner,
+)
+from registry.core.metrics import DEPLOYMENT_MODE_INFO
 
 # Import audit logging
 from registry.audit import AuditLogger, add_audit_middleware
@@ -108,10 +120,75 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging configured. Writing to file: {log_file_path}")
 
 
+def _log_startup_configuration() -> None:
+    """Log startup configuration with clear formatting."""
+    logger.info("=" * 60)
+    logger.info("Registry starting with:")
+    logger.info(f"  - DEPLOYMENT_MODE: {settings.deployment_mode.value}")
+    logger.info(f"  - REGISTRY_MODE: {settings.registry_mode.value}")
+    logger.info(f"  - Nginx updates: {'ENABLED' if settings.nginx_updates_enabled else 'DISABLED'}")
+
+    # Log what's disabled based on registry mode
+    if settings.registry_mode == RegistryMode.SKILLS_ONLY:
+        logger.info("  - Running in skills-only mode:")
+        logger.info("    - MCP servers API: DISABLED")
+        logger.info("    - A2A agents API: DISABLED")
+        logger.info("    - Federation API: DISABLED")
+        logger.info("    - Skills API: ENABLED")
+    elif settings.registry_mode == RegistryMode.MCP_SERVERS_ONLY:
+        logger.info("  - Running in mcp-servers-only mode:")
+        logger.info("    - MCP servers API: ENABLED")
+        logger.info("    - A2A agents API: DISABLED")
+        logger.info("    - Skills API: DISABLED")
+        logger.info("    - Federation API: DISABLED")
+    elif settings.registry_mode == RegistryMode.AGENTS_ONLY:
+        logger.info("  - Running in agents-only mode:")
+        logger.info("    - A2A agents API: ENABLED")
+        logger.info("    - MCP servers API: DISABLED")
+        logger.info("    - Skills API: DISABLED")
+        logger.info("    - Federation API: DISABLED")
+
+    logger.info("=" * 60)
+
+
+def _initialize_deployment_metrics() -> None:
+    """Initialize deployment mode Prometheus metrics."""
+    DEPLOYMENT_MODE_INFO.labels(
+        deployment_mode=settings.deployment_mode.value,
+        registry_mode=settings.registry_mode.value
+    ).set(1)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle management."""
     logger.info("🚀 Starting MCP Gateway Registry...")
+
+    # Validate and potentially correct mode combination
+    original_deployment = settings.deployment_mode
+    original_registry = settings.registry_mode
+
+    corrected_deployment, corrected_registry, was_corrected = _validate_mode_combination(
+        original_deployment,
+        original_registry
+    )
+
+    if was_corrected:
+        _print_config_warning_banner(
+            original_deployment,
+            original_registry,
+            corrected_deployment,
+            corrected_registry
+        )
+        # Update settings (use object.__setattr__ for frozen pydantic settings)
+        object.__setattr__(settings, 'deployment_mode', corrected_deployment)
+        object.__setattr__(settings, 'registry_mode', corrected_registry)
+
+    # Log startup configuration
+    _log_startup_configuration()
+
+    # Initialize Prometheus metrics
+    _initialize_deployment_metrics()
 
     # Initialize audit logger reference (middleware added at module level)
     audit_logger = getattr(app.state, 'audit_logger', None)
@@ -241,14 +318,21 @@ async def lifespan(app: FastAPI):
         await peer_sync_scheduler.start()
         logger.info("Peer sync scheduler started")
 
-        logger.info("🌐 Generating initial Nginx configuration...")
-        enabled_service_paths = await server_service.get_enabled_services()
-        enabled_servers = {}
-        for path in enabled_service_paths:
-            server_info = await server_service.get_server_info(path)
-            if server_info:
-                enabled_servers[path] = server_info
-        await nginx_service.generate_config_async(enabled_servers)
+        # Always generate nginx configuration at startup to ensure placeholders are replaced
+        # In registry-only mode, generate base config without MCP server location blocks
+        if settings.nginx_updates_enabled:
+            logger.info("Generating initial Nginx configuration with MCP server locations...")
+            enabled_service_paths = await server_service.get_enabled_services()
+            enabled_servers = {}
+            for path in enabled_service_paths:
+                server_info = await server_service.get_server_info(path)
+                if server_info:
+                    enabled_servers[path] = server_info
+            await nginx_service.generate_config_async(enabled_servers)
+        else:
+            logger.info("Generating base Nginx configuration (registry-only mode)...")
+            # Generate base config with empty location blocks but substitute all placeholders
+            await nginx_service.generate_config_async({}, force_base_config=True)
 
         logger.info("✅ All services initialized successfully!")
         
@@ -332,6 +416,10 @@ app = FastAPI(
         {
             "name": "skills",
             "description": "Agent Skills registration and management. Requires JWT Bearer token authentication."
+        },
+        {
+            "name": "virtual-servers",
+            "description": "Virtual MCP Server management. Aggregate tools from multiple backends into unified endpoints."
         }
     ]
 )
@@ -344,6 +432,14 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Add registry mode middleware to filter endpoints based on REGISTRY_MODE
+# This must be after CORS (to allow preflight) and before audit (to log blocked requests)
+if settings.registry_mode != RegistryMode.FULL:
+    logger.info(
+        f"Adding registry mode middleware - mode: {settings.registry_mode.value}"
+    )
+    app.add_middleware(RegistryModeMiddleware)
 
 # Add audit middleware if enabled (must be added before app starts)
 if settings.audit_log_enabled:
@@ -389,6 +485,9 @@ app.include_router(management_router, prefix="/api")
 app.include_router(search_router, prefix="/api/search", tags=["Semantic Search"])
 app.include_router(federation_router, prefix="/api", tags=["federation"])
 app.include_router(skill_router, prefix="/api", tags=["skills"])
+app.include_router(config_router, prefix="/api/config", tags=["config"])
+app.include_router(virtual_server_router, prefix="/api", tags=["virtual-servers"])
+app.include_router(internal_router, prefix="/api")
 app.include_router(health_router, prefix="/api/health", tags=["Health Monitoring"])
 app.include_router(federation_export_router)
 app.include_router(peer_management_router)
@@ -472,7 +571,13 @@ async def get_current_user(user_context: Dict[str, Any] = Depends(nginx_proxied_
 @app.get("/health")
 async def health_check():
     """Simple health check for load balancers and monitoring."""
-    return {"status": "healthy", "service": "mcp-gateway-registry"}
+    return {
+        "status": "healthy",
+        "service": "mcp-gateway-registry",
+        "deployment_mode": settings.deployment_mode.value,
+        "registry_mode": settings.registry_mode.value,
+        "nginx_updates_enabled": settings.nginx_updates_enabled,
+    }
 
 
 # Version endpoint for UI
@@ -560,5 +665,7 @@ if __name__ == "__main__":
         host="0.0.0.0", 
         port=7860, 
         reload=True,
-        log_level="info"
+        log_level="info",
+        proxy_headers=True,
+        forwarded_allow_ips="*"
     ) 

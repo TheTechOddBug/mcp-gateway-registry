@@ -1,0 +1,61 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+interface RegistryConfig {
+  deployment_mode: 'with-gateway' | 'registry-only';
+  registry_mode: 'full' | 'skills-only' | 'mcp-servers-only' | 'agents-only';
+  nginx_updates_enabled: boolean;
+  features: {
+    mcp_servers: boolean;
+    agents: boolean;
+    skills: boolean;
+    federation: boolean;
+    gateway_proxy: boolean;
+  };
+}
+
+const DEFAULT_CONFIG: RegistryConfig = {
+  deployment_mode: 'with-gateway',
+  registry_mode: 'full',
+  nginx_updates_enabled: true,
+  features: {
+    mcp_servers: true,
+    agents: true,
+    skills: true,
+    federation: true,
+    gateway_proxy: true,
+  },
+};
+
+let cachedConfig: RegistryConfig | null = null;
+
+export function useRegistryConfig(): {
+  config: RegistryConfig | null;
+  loading: boolean;
+  error: Error | null;
+} {
+  const [config, setConfig] = useState<RegistryConfig | null>(cachedConfig);
+  const [loading, setLoading] = useState(!cachedConfig);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (cachedConfig) return;
+
+    setLoading(true);
+    axios
+      .get<RegistryConfig>('/api/config')
+      .then((res) => {
+        cachedConfig = res.data;
+        setConfig(res.data);
+        setError(null);
+      })
+      .catch((err) => {
+        console.error('Failed to load registry config:', err);
+        setError(err);
+        setConfig(DEFAULT_CONFIG);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { config, loading, error };
+}

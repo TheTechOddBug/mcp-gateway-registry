@@ -5,14 +5,11 @@ This service wraps the scope repository and implements high-level business
 logic for managing server scopes, groups, and authorization rules.
 """
 
-import os
-import logging
 import base64
+import logging
+import os
 from typing import (
-    List,
-    Dict,
     Any,
-    Optional,
 )
 
 import httpx
@@ -29,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-STANDARD_METHODS: List[str] = [
+STANDARD_METHODS: list[str] = [
     "initialize",
     "notifications/initialized",
     "ping",
@@ -71,8 +68,7 @@ async def _trigger_auth_server_reload() -> bool:
                 return True
             else:
                 logger.error(
-                    f"Failed to reload auth server scopes: "
-                    f"{response.status_code} - {response.text}"
+                    f"Failed to reload auth server scopes: {response.status_code} - {response.text}"
                 )
                 return False
 
@@ -85,7 +81,7 @@ async def _trigger_auth_server_reload() -> bool:
 async def update_server_scopes(
     server_path: str,
     server_name: str,
-    tools: List[str],
+    tools: list[str],
 ) -> bool:
     """
     Update scopes for a server (add or update) and reload auth server.
@@ -118,10 +114,7 @@ async def update_server_scopes(
             tools=tools,
         )
 
-        logger.info(
-            f"Successfully updated scopes for server {server_path} "
-            f"with {len(tools)} tools"
-        )
+        logger.info(f"Successfully updated scopes for server {server_path} with {len(tools)} tools")
 
         # Reload auth server
         await _trigger_auth_server_reload()
@@ -165,7 +158,7 @@ async def remove_server_scopes(
 
 async def add_server_to_groups(
     server_path: str,
-    group_names: List[str],
+    group_names: list[str],
 ) -> bool:
     """
     Add a server and all its known tools/methods to specific groups.
@@ -192,9 +185,7 @@ async def add_server_to_groups(
         # Get the tools from the last health check
         tool_list = server_info.get("tool_list", [])
         tool_names = [
-            tool["name"]
-            for tool in tool_list
-            if isinstance(tool, dict) and "name" in tool
+            tool["name"] for tool in tool_list if isinstance(tool, dict) and "name" in tool
         ]
 
         logger.info(f"Found {len(tool_names)} tools for server {server_path}: {tool_names}")
@@ -235,7 +226,7 @@ async def add_server_to_groups(
 
 async def remove_server_from_groups(
     server_path: str,
-    group_names: List[str],
+    group_names: list[str],
 ) -> bool:
     """
     Remove a server from specific groups.
@@ -285,9 +276,7 @@ async def remove_server_from_groups(
         return True
 
     except Exception as e:
-        logger.error(
-            f"Failed to remove server {server_path} from groups {group_names}: {e}"
-        )
+        logger.error(f"Failed to remove server {server_path} from groups {group_names}: {e}")
         return False
 
 
@@ -320,8 +309,7 @@ async def create_group(
         )
 
         logger.info(
-            f"Successfully created group {group_name} "
-            f"in scopes, group_mappings, and UI-Scopes"
+            f"Successfully created group {group_name} in scopes, group_mappings, and UI-Scopes"
         )
 
         # Reload auth server
@@ -381,6 +369,7 @@ async def import_group(
     server_access: list = None,
     group_mappings: list = None,
     ui_permissions: dict = None,
+    agent_access: list = None,
 ) -> bool:
     """
     Import a complete group definition with all document types.
@@ -395,6 +384,7 @@ async def import_group(
         server_access: Optional list of server access definitions
         group_mappings: Optional list of group names this group maps to
         ui_permissions: Optional dictionary of UI permissions
+        agent_access: Optional list of agent paths this group can access
 
     Returns:
         True if successful, False otherwise
@@ -412,6 +402,7 @@ async def import_group(
             server_access=server_access,
             group_mappings=group_mappings,
             ui_permissions=ui_permissions,
+            agent_access=agent_access,
         )
 
         if success:
@@ -426,7 +417,7 @@ async def import_group(
         return False
 
 
-async def get_group(group_name: str) -> Dict[str, Any]:
+async def get_group(group_name: str) -> dict[str, Any]:
     """
     Get full details of a specific group from scopes storage.
 
@@ -454,7 +445,7 @@ async def get_group(group_name: str) -> Dict[str, Any]:
         return None
 
 
-async def list_groups() -> Dict[str, Any]:
+async def list_groups() -> dict[str, Any]:
     """
     List all groups defined in scopes.
 
@@ -538,13 +529,9 @@ async def add_group_mapping_to_scope(
         success = await scope_repo.add_group_mapping(scope_name, group_id)
 
         if success:
-            logger.info(
-                f"Added group ID {group_id} to scope {scope_name} group_mappings"
-            )
+            logger.info(f"Added group ID {group_id} to scope {scope_name} group_mappings")
         else:
-            logger.error(
-                f"Failed to add group ID {group_id} to scope {scope_name} group_mappings"
-            )
+            logger.error(f"Failed to add group ID {group_id} to scope {scope_name} group_mappings")
         return success
 
     except Exception as e:

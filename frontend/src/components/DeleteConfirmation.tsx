@@ -5,7 +5,7 @@ import { ArrowPathIcon } from '@heroicons/react/24/outline';
  * Props for the DeleteConfirmation component.
  */
 export interface DeleteConfirmationProps {
-  entityType: 'server' | 'agent';
+  entityType: 'server' | 'agent' | 'group' | 'user' | 'm2m';
   entityName: string;
   entityPath: string;
   onConfirm: (path: string) => Promise<void>;
@@ -54,7 +54,14 @@ const DeleteConfirmation: React.FC<DeleteConfirmationProps> = ({
     }
   };
 
-  const entityTypeLabel = entityType === 'server' ? 'Server' : 'Agent';
+  const entityTypeLabels: Record<string, string> = {
+    server: 'Server',
+    agent: 'Agent',
+    group: 'Group',
+    user: 'User',
+    m2m: 'M2M Account',
+  };
+  const entityTypeLabel = entityTypeLabels[entityType] || entityType;
 
   return (
     <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">

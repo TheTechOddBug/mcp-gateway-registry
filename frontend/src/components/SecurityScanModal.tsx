@@ -34,7 +34,7 @@ export interface SecurityScanResult {
 
 interface SecurityScanModalProps {
   resourceName: string;
-  resourceType: 'server' | 'agent';
+  resourceType: 'server' | 'agent' | 'skill';
   isOpen: boolean;
   onClose: () => void;
   loading: boolean;
@@ -292,6 +292,7 @@ const SecurityScanModal: React.FC<SecurityScanModalProps> = ({
                         <button
                           onClick={() => toggleAnalyzer(analyzer)}
                           className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                          aria-expanded={expandedAnalyzers.has(analyzer)}
                         >
                           <span className="font-medium text-gray-900 dark:text-white">
                             {analyzer.charAt(0).toUpperCase() + analyzer.slice(1).replace(/_/g, ' ')} Analysis
@@ -305,42 +306,100 @@ const SecurityScanModal: React.FC<SecurityScanModalProps> = ({
                             <ChevronRightIcon className="h-5 w-5 text-gray-500" />
                           )}
                         </button>
+                        {/* Always show finding summaries - collapsed shows preview, expanded shows full details */}
+                        {Array.isArray(findings) && findings.length > 0 && !expandedAnalyzers.has(analyzer) && (
+                          <div className="px-3 pb-3">
+                            <div className="space-y-2">
+                              {findings.map((finding: any, idx: number) => {
+                                // Try multiple possible field names for the description
+                                const description = finding.threat_summary
+                                  || finding.description
+                                  || finding.message
+                                  || finding.detail
+                                  || finding.reason
+                                  || (finding.threat_names && finding.threat_names.length > 0
+                                    ? finding.threat_names.join(', ')
+                                    : null);
+                                const title = finding.title || finding.tool_name || finding.skill_name || finding.name || finding.rule_id;
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-900/30 rounded border dark:border-gray-700"
+                                  >
+                                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                                      {title || description || 'Finding'}
+                                      {description && title && (
+                                        <span className="text-gray-500 dark:text-gray-400 ml-2">
+                                          - {description.length > 60
+                                            ? description.substring(0, 60) + '...'
+                                            : description}
+                                        </span>
+                                      )}
+                                      {!title && description && description.length > 80 && (
+                                        <span className="text-gray-500 dark:text-gray-400">...</span>
+                                      )}
+                                    </span>
+                                    <span className={`px-2 py-0.5 text-xs font-semibold rounded ${_getSeverityBadgeClasses(finding.severity)}`}>
+                                      {finding.severity}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {expandedAnalyzers.has(analyzer) && (
                           <div className="p-3 bg-gray-50 dark:bg-gray-900/30 border-t dark:border-gray-700">
                             {Array.isArray(findings) && findings.length > 0 ? (
                               <div className="space-y-3">
-                                {findings.map((finding: any, idx: number) => (
-                                  <div
-                                    key={idx}
-                                    className="p-3 bg-white dark:bg-gray-800 rounded border dark:border-gray-700"
-                                  >
-                                    <div className="flex items-start justify-between mb-2">
-                                      <span className="font-medium text-gray-900 dark:text-white">
-                                        {finding.tool_name || finding.skill_name || 'Finding'}
-                                      </span>
-                                      <span className={`px-2 py-0.5 text-xs font-semibold rounded ${_getSeverityBadgeClasses(finding.severity)}`}>
-                                        {finding.severity}
-                                      </span>
-                                    </div>
-                                    {finding.threat_summary && (
-                                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                                        {finding.threat_summary}
-                                      </p>
-                                    )}
-                                    {finding.threat_names && finding.threat_names.length > 0 && (
-                                      <div className="flex flex-wrap gap-1">
-                                        {finding.threat_names.map((threat: string, tidx: number) => (
-                                          <span
-                                            key={tidx}
-                                            className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
-                                          >
-                                            {threat}
-                                          </span>
-                                        ))}
+                                {findings.map((finding: any, idx: number) => {
+                                  const findingTitle = finding.title || finding.tool_name || finding.skill_name || finding.name || 'Finding';
+                                  const findingDesc = finding.description || finding.threat_summary || finding.message;
+
+                                  return (
+                                    <div
+                                      key={idx}
+                                      className="p-3 bg-white dark:bg-gray-800 rounded border dark:border-gray-700"
+                                    >
+                                      <div className="flex items-start justify-between mb-2">
+                                        <span className="font-medium text-gray-900 dark:text-white">
+                                          {findingTitle}
+                                        </span>
+                                        <span className={`px-2 py-0.5 text-xs font-semibold rounded ${_getSeverityBadgeClasses(finding.severity)}`}>
+                                          {finding.severity}
+                                        </span>
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      {findingDesc && (
+                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                          {findingDesc}
+                                        </p>
+                                      )}
+                                      {finding.remediation && (
+                                        <p className="text-sm text-blue-600 dark:text-blue-400 mb-2">
+                                          <span className="font-medium">Fix: </span>{finding.remediation}
+                                        </p>
+                                      )}
+                                      {finding.file_path && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                          {finding.file_path}{finding.line_number ? `:${finding.line_number}` : ''}
+                                        </p>
+                                      )}
+                                      {finding.threat_names && finding.threat_names.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-2">
+                                          {finding.threat_names.map((threat: string, tidx: number) => (
+                                            <span
+                                              key={tidx}
+                                              className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded"
+                                            >
+                                              {threat}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : (
                               <p className="text-gray-500 dark:text-gray-400 text-sm">

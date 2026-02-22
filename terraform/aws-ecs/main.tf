@@ -143,6 +143,10 @@ module "mcp_gateway" {
   # Audit logging configuration
   audit_log_enabled  = var.audit_log_enabled
   audit_log_ttl_days = var.audit_log_ttl_days
+
+  # Deployment mode configuration
+  deployment_mode = var.deployment_mode
+  registry_mode   = var.registry_mode
 }
 
 # =============================================================================

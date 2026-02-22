@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 
-type EntityType = 'mcp_server' | 'tool' | 'a2a_agent' | 'skill';
+type EntityType = 'mcp_server' | 'tool' | 'a2a_agent' | 'skill' | 'virtual_server';
 
-const DEFAULT_ENTITY_TYPES: EntityType[] = ['mcp_server', 'tool', 'a2a_agent', 'skill'];
+const DEFAULT_ENTITY_TYPES: EntityType[] = ['mcp_server', 'tool', 'a2a_agent', 'skill', 'virtual_server'];
 const DEFAULT_ENTITY_TYPES_KEY = DEFAULT_ENTITY_TYPES.join('|');
 
 export interface MatchingToolHit {
@@ -34,6 +34,13 @@ export interface SemanticServerHit {
   match_context?: string;
   matching_tools: MatchingToolHit[];
   sync_metadata?: SyncMetadata;
+  // Endpoint URL for agent connectivity (computed based on deployment mode)
+  endpoint_url?: string;
+  // Raw endpoint fields (for advanced use cases)
+  proxy_pass_url?: string;
+  mcp_endpoint?: string;
+  sse_endpoint?: string;
+  supported_transports?: string[];
 }
 
 export interface SemanticToolHit {
@@ -44,22 +51,16 @@ export interface SemanticToolHit {
   inputSchema?: Record<string, any>;
   relevance_score: number;
   match_context?: string;
+  // Endpoint URL for the parent MCP server
+  endpoint_url?: string;
 }
 
 export interface SemanticAgentHit {
+  // Only search-specific fields at top level; all agent details in agent_card
   path: string;
-  agent_name: string;
-  description?: string;
-  tags: string[];
-  skills: string[];
-  trust_level?: string;
-  visibility?: string;
-  is_enabled?: boolean;
-  url?: string;
-  agent_card?: Record<string, any>;
   relevance_score: number;
   match_context?: string;
-  sync_metadata?: SyncMetadata;
+  agent_card: Record<string, any>;
 }
 
 export interface SemanticSkillHit {
@@ -80,16 +81,42 @@ export interface SemanticSkillHit {
   match_context?: string;
 }
 
+export interface VirtualServerToolHit {
+  tool_name: string;
+  description?: string;
+  relevance_score?: number;
+  match_context?: string;
+  inputSchema?: Record<string, any>;
+}
+
+export interface SemanticVirtualServerHit {
+  path: string;
+  server_name: string;
+  description?: string;
+  tags: string[];
+  num_tools: number;
+  backend_count?: number;
+  backend_paths?: string[];
+  is_enabled: boolean;
+  relevance_score: number;
+  match_context?: string;
+  matching_tools?: VirtualServerToolHit[];
+  // Endpoint URL for agent connectivity (computed based on deployment mode)
+  endpoint_url?: string;
+}
+
 export interface SemanticSearchResponse {
   query: string;
   servers: SemanticServerHit[];
   tools: SemanticToolHit[];
   agents: SemanticAgentHit[];
   skills: SemanticSkillHit[];
+  virtual_servers: SemanticVirtualServerHit[];
   total_servers: number;
   total_tools: number;
   total_agents: number;
   total_skills: number;
+  total_virtual_servers: number;
 }
 
 interface UseSemanticSearchOptions {

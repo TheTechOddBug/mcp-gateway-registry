@@ -301,3 +301,31 @@ registry_api_token = "m3zT65wREARMVDToKosg_DgNkKqS_434hNxy3sslGPY"
 #   - Azure China: https://login.chinacloudapi.cn
 #   - Azure Germany: https://login.microsoftonline.de
 # entra_login_base_url = "https://login.microsoftonline.com"
+
+# ============================================================================
+# DEPLOYMENT MODE CONFIGURATION
+# ============================================================================
+
+# DEPLOYMENT_MODE controls how the registry integrates with the gateway/nginx
+# Options:
+#   - "with-gateway" (default): Full integration with nginx reverse proxy
+#     - Nginx config is regenerated when servers are registered/deleted
+#     - Frontend shows gateway authentication instructions
+#   - "registry-only": Registry operates as catalog/discovery service only
+#     - Nginx config is NOT updated on server changes
+#     - Frontend shows direct connection mode (proxy_pass_url)
+#     - Use when registry is separate from gateway infrastructure
+# Default: "with-gateway" (uncomment to change)
+deployment_mode = "registry-only"
+
+# REGISTRY_MODE controls which features are enabled (informational - for UI feature flags)
+# This setting affects the /api/config response which the frontend can use
+# to show/hide navigation elements. Currently informational only - all APIs remain active.
+# Options:
+#   - "full" (default): All features enabled (mcp_servers, agents, skills, federation)
+#   - "skills-only": Only skills feature flag enabled
+#   - "mcp-servers-only": Only MCP server feature flag enabled
+#   - "agents-only": Only A2A agent feature flag enabled
+# Note: with-gateway + skills-only is invalid and auto-corrects to registry-only + skills-only
+# Default: "full" (uncomment to change)
+# registry_mode = "full"

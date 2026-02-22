@@ -2,13 +2,13 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: setup-mongodb
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Release.Namespace | quote }}
 spec:
   template:
     spec:
       initContainers:
         - name: wait-for-mongodb
-          image: python:3.13-alpine
+          image: public.ecr.aws/docker/library/python:3.13-slim
           command: ['sh', '-c']
           envFrom:
             - secretRef:
@@ -26,7 +26,7 @@ spec:
               subPath: wait.py
       containers:
         - name: job
-          image: python:3.13-slim
+          image: public.ecr.aws/docker/library/python:3.13-slim
           command: ["/bin/sh", "-c"]
           args: [
             "pip install --no-cache-dir pyyaml motor && python /app/script.py"

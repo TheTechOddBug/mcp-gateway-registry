@@ -2,11 +2,11 @@
 {{- $routingMode := .Values.global.ingress.routingMode | default "subdomain" }}
 {{- $domain := .Values.global.domain | default .Values.ingress.hostname }}
 {{- $pathPrefix := .Values.global.ingress.paths.authServer | default .Values.ingress.path | default "/auth-server" }}
-apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ .Values.app.name }}
-  namespace: {{ include "common.names.namespace" . | quote }}
+  namespace: {{ .Release.Namespace | quote }}
   annotations:
     {{- if eq $routingMode "path" }}
     alb.ingress.kubernetes.io/group.name: mcp-gateway-stack

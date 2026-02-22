@@ -343,6 +343,76 @@ async def group_exists_in_keycloak(
         return False
 
 
+async def update_keycloak_group(
+    group_name: str,
+    description: str
+) -> Dict[str, Any]:
+    """
+    Update a group's description in Keycloak.
+
+    Args:
+        group_name: Name of the group to update
+        description: New description for the group
+
+    Returns:
+        Dict containing updated group information (id, name, path, attributes)
+
+    Raises:
+        Exception: If group update fails or group not found
+    """
+    logger.info(f"Updating Keycloak group: {group_name}")
+
+    try:
+        # Get admin token
+        admin_token = await _get_keycloak_admin_token()
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Find the group by name to get its ID
+            name_map = await _get_group_name_map(client, admin_token)
+            group_id = name_map.get(group_name)
+
+            if not group_id:
+                raise Exception(f"Group '{group_name}' not found in Keycloak")
+
+            # Prepare updated group data
+            group_data = {
+                "name": group_name,
+                "attributes": {
+                    "description": [description] if description else []
+                }
+            }
+
+            # Update group via Admin API
+            update_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/groups/{group_id}"
+            headers = _auth_headers(admin_token)
+
+            response = await client.put(update_url, json=group_data, headers=headers)
+
+            if response.status_code == 204:
+                logger.info(f"Successfully updated Keycloak group: {group_name}")
+
+                # Get the updated group's details
+                group_info = await get_keycloak_group(group_name)
+                return {
+                    "id": group_info.get("id"),
+                    "name": group_info.get("name"),
+                    "path": group_info.get("path"),
+                    "attributes": group_info.get("attributes", {}),
+                }
+
+            elif response.status_code == 404:
+                logger.warning(f"Group not found in Keycloak: {group_name}")
+                raise Exception(f"Group '{group_name}' not found in Keycloak")
+
+            else:
+                logger.error(f"Failed to update group: HTTP {response.status_code} - {response.text}")
+                raise Exception(f"Failed to update group in Keycloak: HTTP {response.status_code}")
+
+    except Exception as e:
+        logger.error(f"Error updating Keycloak group '{group_name}': {e}")
+        raise
+
+
 def _normalize_group_list(groups: List[str]) -> List[str]:
     """Clean and validate incoming group list."""
     normalized = [group.strip() for group in groups if group and group.strip()]
@@ -373,6 +443,32 @@ async def _assign_user_to_groups_by_name(
             logger.error("Failed assigning user %s to group %s: %s", user_id, group_name, response.text)
             raise KeycloakAdminError(
                 f"Failed to assign group '{group_name}' (HTTP {response.status_code})"
+            )
+
+
+async def _remove_user_from_groups_by_name(
+    client: httpx.AsyncClient,
+    token: str,
+    user_id: str,
+    groups: List[str],
+) -> None:
+    """Remove a Keycloak user from a set of groups."""
+    if not groups:
+        return
+
+    name_map = await _get_group_name_map(client, token)
+    for group_name in groups:
+        group_id = name_map.get(group_name)
+        if not group_id:
+            logger.warning("Group '%s' not found in Keycloak, skipping removal", group_name)
+            continue
+
+        remove_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/users/{user_id}/groups/{group_id}"
+        response = await client.delete(remove_url, headers=_auth_headers(token, None))
+        if response.status_code not in (204, 404):
+            logger.error("Failed removing user %s from group %s: %s", user_id, group_name, response.text)
+            raise KeycloakAdminError(
+                f"Failed to remove group '{group_name}' (HTTP {response.status_code})"
             )
 
 
@@ -769,3 +865,79 @@ async def list_keycloak_users(
 
         # Apply max_results limit to combined list
         return all_users[:max_results]
+
+
+async def update_keycloak_user_groups(
+    username: str,
+    groups: List[str],
+) -> Dict[str, Any]:
+    """
+    Update group memberships for a Keycloak user or service account.
+
+    Calculates the diff between current and desired groups, then adds/removes
+    groups as needed.
+
+    Args:
+        username: Username of the human user or clientId of service account
+        groups: List of group names the user should belong to
+
+    Returns:
+        Dict with username and updated groups list
+
+    Raises:
+        KeycloakAdminError: If user not found or group operations fail
+    """
+    admin_token = await _get_keycloak_admin_token()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # Try to find as a human user first
+        user = await _get_user_by_username(client, admin_token, username)
+        user_id = None
+        is_service_account = False
+
+        if user:
+            user_id = user.get("id")
+        else:
+            # Try to find as a service account client
+            client_uuid = await _find_client_uuid(client, admin_token, username)
+            if client_uuid:
+                # Get the service account user ID
+                sa_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/clients/{client_uuid}/service-account-user"
+                sa_response = await client.get(sa_url, headers=_auth_headers(admin_token, None))
+                if sa_response.status_code == 200:
+                    sa_user = sa_response.json()
+                    user_id = sa_user.get("id")
+                    is_service_account = True
+
+        if not user_id:
+            raise KeycloakAdminError(f"User or service account '{username}' not found")
+
+        # Get current groups
+        current_groups = set(await _get_user_groups(client, admin_token, user_id))
+        desired_groups = set(groups)
+
+        # Calculate diff
+        groups_to_add = desired_groups - current_groups
+        groups_to_remove = current_groups - desired_groups
+
+        # Apply changes
+        if groups_to_add:
+            await _assign_user_to_groups_by_name(client, admin_token, user_id, list(groups_to_add))
+
+        if groups_to_remove:
+            await _remove_user_from_groups_by_name(client, admin_token, user_id, list(groups_to_remove))
+
+        logger.info(
+            "Updated groups for %s '%s': added=%s, removed=%s",
+            "service account" if is_service_account else "user",
+            username,
+            list(groups_to_add),
+            list(groups_to_remove),
+        )
+
+        return {
+            "username": username,
+            "groups": list(desired_groups),
+            "added": list(groups_to_add),
+            "removed": list(groups_to_remove),
+        }

@@ -7,49 +7,54 @@ import {
   GlobeAltIcon,
   ArrowLeftIcon,
   ClipboardDocumentListIcon,
+  CogIcon,
+  ServerStackIcon,
 } from '@heroicons/react/24/outline';
 import FederationPeers from '../components/FederationPeers';
 import FederationPeerForm from '../components/FederationPeerForm';
+import ConfigPanel from '../components/ConfigPanel';
+import VirtualServerList from '../components/VirtualServerList';
 import AuditLogsPage from './AuditLogsPage';
+import IAMGroups from '../components/IAMGroups';
+import IAMUsers from '../components/IAMUsers';
+import IAMM2M from '../components/IAMM2M';
 import { useAuth } from '../contexts/AuthContext';
+import { canAccessSettings } from '../utils/permissions';
 
 
-/**
- * Toast notification state interface.
- */
 interface ToastState {
   show: boolean;
   message: string;
   type: 'success' | 'error' | 'info';
 }
 
-
-/**
- * Settings category item interface.
- */
 interface SettingsItem {
   id: string;
   label: string;
   path: string;
 }
 
-
-/**
- * Settings category interface.
- */
 interface SettingsCategory {
   id: string;
   label: string;
   icon: React.ReactNode;
   items: SettingsItem[];
-  disabled?: boolean;
-  adminOnly?: boolean;
+  disabled?: boolean; // Greyed out, not clickable -- for future categories
+  adminOnly?: boolean; // Visible only to admins
 }
-
 
 /**
  * Settings categories configuration.
- * Following VS Code-style layout from issue #416.
+ * All active categories require admin access -- gated at the page level.
+ * Disabled categories are shown greyed out as a preview of upcoming features.
+ *
+ * Known issue: Hard-refreshing or directly navigating to a sub-path like
+ * /settings/iam/groups causes a blank page because Create React App
+ * (homepage: ".") generates relative asset paths. The browser resolves
+ * ./static/js/main.xxx.js relative to the current URL, requesting
+ * /settings/iam/static/js/main.xxx.js which returns HTML from the SPA
+ * catch-all instead of JavaScript.
+ * Root fix: inject <base href="/"> in registry/main.py _build_cached_index_html().
  */
 const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
@@ -59,7 +64,6 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     items: [
       { id: 'logs', label: 'Audit Logs', path: '/settings/audit/logs' },
     ],
-    adminOnly: true, // Only visible to admins
   },
   {
     id: 'federation',
@@ -67,6 +71,14 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon: <GlobeAltIcon className="h-5 w-5" />,
     items: [
       { id: 'peers', label: 'Peers', path: '/settings/federation/peers' },
+    ],
+  },
+  {
+    id: 'virtual-mcp',
+    label: 'Virtual MCP',
+    icon: <ServerStackIcon className="h-5 w-5" />,
+    items: [
+      { id: 'servers', label: 'Virtual Servers', path: '/settings/virtual-mcp/servers' },
     ],
   },
   {
@@ -78,7 +90,22 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
       { id: 'users', label: 'Users', path: '/settings/iam/users' },
       { id: 'm2m', label: 'M2M Accounts', path: '/settings/iam/m2m' },
     ],
-    disabled: true, // IAM not implemented yet
+  },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: <ClipboardDocumentListIcon className="h-5 w-5" />,
+    items: [],
+    disabled: true,
+  },
+  {
+    id: 'system-config',
+    label: 'System Config',
+    icon: <CogIcon className="h-5 w-5" />,
+    items: [
+      { id: 'configuration', label: 'Configuration', path: '/settings/system-config/configuration' },
+    ],
+    adminOnly: true,
   },
 ];
 
@@ -92,17 +119,24 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
-  // Filter categories based on user permissions
-  const visibleCategories = SETTINGS_CATEGORIES.filter(
-    (category) => !category.adminOnly || user?.is_admin
-  );
+  // All settings categories require admin -- no per-category filtering
+  const visibleCategories = canAccessSettings(user) ? SETTINGS_CATEGORIES : [];
 
-  // Track which categories are expanded
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set(['audit']) // Audit expanded by default
-  );
+  // Track which categories are expanded - auto-expand based on current path
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => {
+    const initial = new Set(['audit']);
+    // Auto-expand the category matching the current route
+    for (const category of SETTINGS_CATEGORIES) {
+      for (const item of category.items) {
+        if (location.pathname.startsWith(item.path) || location.pathname.startsWith(`/settings/${category.id}`)) {
+          initial.add(category.id);
+        }
+      }
+    }
+    return initial;
+  });
 
   // Toast notification state
   const [toast, setToast] = useState<ToastState>({
@@ -110,6 +144,13 @@ const SettingsPage: React.FC = () => {
     message: '',
     type: 'success',
   });
+
+  // Redirect non-admin users to home (only after auth has loaded)
+  useEffect(() => {
+    if (!loading && !canAccessSettings(user)) {
+      navigate('/', { replace: true });
+    }
+  }, [user, loading, navigate]);
 
   // Auto-dismiss toast after 4 seconds
   useEffect(() => {
@@ -120,6 +161,16 @@ const SettingsPage: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [toast.show]);
+
+  // Show spinner while auth is loading.
+  // Must return a valid element (not null) because Layout uses cloneElement.
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+      </div>
+    );
+  }
 
   /**
    * Show a toast notification.
@@ -134,11 +185,8 @@ const SettingsPage: React.FC = () => {
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
-      } else {
-        next.add(categoryId);
-      }
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
       return next;
     });
   };
@@ -191,31 +239,37 @@ const SettingsPage: React.FC = () => {
       return <FederationPeerForm peerId={editMatch[1]} onShowToast={showToast} />;
     }
 
-    // IAM placeholders (not implemented yet)
-    if (path.startsWith('/settings/iam')) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <UsersIcon className="h-12 w-12 mx-auto text-gray-400 dark:text-gray-600 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              IAM Settings
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400">
-              Identity and Access Management settings are coming soon.
-            </p>
-          </div>
-        </div>
-      );
+    // Virtual MCP > Servers
+    if (path === '/settings/virtual-mcp/servers' || path === '/settings/virtual-mcp') {
+      return <VirtualServerList onShowToast={showToast} />;
     }
 
-    // Default to Audit Logs for admins, Federation Peers for non-admins
-    if (user?.is_admin) {
-      return <AuditLogsPage embedded />;
+    // System Config > Configuration
+    if (path === '/settings/system-config/configuration' || path === '/settings/system-config') {
+      return <ConfigPanel showToast={showToast} />;
     }
-    return <FederationPeers onShowToast={showToast} />;
+
+    // IAM > Groups
+    if (path === '/settings/iam/groups' || path === '/settings/iam') {
+      return <IAMGroups onShowToast={showToast} />;
+    }
+
+    // IAM > Users
+    if (path === '/settings/iam/users') {
+      return <IAMUsers onShowToast={showToast} />;
+    }
+
+    // IAM > M2M Accounts
+    if (path === '/settings/iam/m2m') {
+      return <IAMM2M onShowToast={showToast} />;
+    }
+
+    // Default to Audit Logs (all settings require admin)
+    return <AuditLogsPage embedded />;
   };
 
   const activeItemId = getActiveItemId();
+
 
   return (
     <div className="flex flex-col h-full">
@@ -229,9 +283,7 @@ const SettingsPage: React.FC = () => {
         >
           <ArrowLeftIcon className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Settings
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
       </div>
 
       {/* Main content area with sidebar */}
@@ -253,15 +305,10 @@ const SettingsPage: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-center space-x-3">
-                      <span className={category.disabled ? 'opacity-50' : ''}>
+                      <span className={category.disabled ? 'opacity-40' : ''}>
                         {category.icon}
                       </span>
                       <span>{category.label}</span>
-                      {category.disabled && (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                          (Soon)
-                        </span>
-                      )}
                     </div>
                     {!category.disabled && (
                       expandedCategories.has(category.id) ? (
@@ -307,7 +354,7 @@ const SettingsPage: React.FC = () => {
       {/* Toast notification */}
       {toast.show && (
         <div
-          className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg transform transition-all duration-300 animate-slide-in-top ${
+          className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg transform transition-all duration-300 ${
             toast.type === 'success'
               ? 'bg-green-500 text-white'
               : toast.type === 'error'

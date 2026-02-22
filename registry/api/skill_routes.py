@@ -44,8 +44,8 @@ from ..schemas.skill_models import (
     VisibilityEnum,
 )
 from ..services.skill_service import (
-    get_skill_service,
     _is_safe_url,
+    get_skill_service,
 )
 from ..services.tool_validation_service import get_tool_validation_service
 from ..utils.path_utils import normalize_skill_path
@@ -226,15 +226,17 @@ async def search_skills(
                 continue
 
         if score > 0:
-            matching_skills.append({
-                "path": skill.path,
-                "name": skill.name,
-                "description": skill.description,
-                "tags": skill.tags,
-                "visibility": skill.visibility,
-                "is_enabled": skill.is_enabled,
-                "relevance_score": score,
-            })
+            matching_skills.append(
+                {
+                    "path": skill.path,
+                    "name": skill.name,
+                    "description": skill.description,
+                    "tags": skill.tags,
+                    "visibility": skill.visibility,
+                    "is_enabled": skill.is_enabled,
+                    "relevance_score": score,
+                }
+            )
 
     # Sort by relevance score descending
     matching_skills.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -394,6 +396,98 @@ async def get_skill_rating(
     }
 
 
+# ---------------------------------------------------------------------------
+# Security scan endpoints (must be before catch-all GET /{skill_path:path})
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{skill_path:path}/security-scan",
+    response_model=dict,
+    summary="Get skill security scan results",
+)
+async def get_skill_security_scan(
+    user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    skill_path: str = Path(..., description="Skill path"),
+) -> dict:
+    """Get the latest security scan results for a skill."""
+    normalized_path = normalize_skill_path(skill_path)
+    service = get_skill_service()
+
+    skill = await service.get_skill(normalized_path)
+    if not skill:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Skill not found: {normalized_path}",
+        )
+
+    if not _user_can_access_skill(skill, user_context):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    from ..services.skill_scanner import skill_scanner_service
+
+    scan_result = await skill_scanner_service.get_scan_result(normalized_path)
+    if not scan_result:
+        return {"message": "No security scan results available", "skill_path": normalized_path}
+
+    return scan_result
+
+
+@router.post(
+    "/{skill_path:path}/rescan",
+    response_model=dict,
+    summary="Trigger manual security scan",
+)
+async def rescan_skill(
+    http_request: Request,
+    user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    skill_path: str = Path(..., description="Skill path"),
+) -> dict:
+    """Trigger a manual security scan for a skill. Admin only."""
+    if not user_context.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    normalized_path = normalize_skill_path(skill_path)
+    service = get_skill_service()
+
+    skill = await service.get_skill(normalized_path)
+    if not skill:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Skill not found: {normalized_path}",
+        )
+
+    set_audit_action(
+        http_request,
+        "rescan",
+        "skill",
+        resource_id=normalized_path,
+        description=f"Manual security scan for skill {normalized_path}",
+    )
+
+    from ..services.skill_scanner import skill_scanner_service
+
+    try:
+        result = await skill_scanner_service.scan_skill(
+            skill_path=normalized_path,
+            skill_md_url=str(skill.skill_md_raw_url or skill.skill_md_url),
+        )
+        return result.model_dump()
+
+    except Exception as e:
+        logger.error(f"Manual security scan failed for skill '{normalized_path}': {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Security scan failed: {str(e)}",
+        )
+
+
 @router.get("/{skill_path:path}", response_model=SkillCard, summary="Get a skill by path")
 async def get_skill(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
@@ -444,6 +538,10 @@ async def register_skill(
     try:
         skill = await service.register_skill(request=request, owner=owner, validate_url=True)
         logger.info(f"Registered skill: {skill.name} by {owner}")
+
+        # Perform security scan on registration (non-blocking on failure)
+        await _perform_skill_security_scan_on_registration(skill, service)
+
         return skill
 
     except SkillUrlValidationError as e:
@@ -673,3 +771,54 @@ def _user_can_modify_skill(
         return True
 
     return skill.owner == user_context.get("username")
+
+
+async def _perform_skill_security_scan_on_registration(
+    skill: SkillCard,
+    service,
+) -> None:
+    """
+    Perform security scan on skill registration.
+
+    Args:
+        skill: The registered skill card
+        service: The skill service instance
+    """
+    from ..services.skill_scanner import skill_scanner_service
+
+    config = skill_scanner_service.get_scan_config()
+
+    if not config.enabled or not config.scan_on_registration:
+        logger.info("Skill security scanning disabled, skipping")
+        return
+
+    logger.info(f"Performing security scan for skill: {skill.path}")
+
+    try:
+        result = await skill_scanner_service.scan_skill(
+            skill_path=skill.path,
+            skill_md_url=str(skill.skill_md_raw_url or skill.skill_md_url),
+        )
+
+        if not result.is_safe and config.block_unsafe_skills:
+            logger.warning(f"Disabling unsafe skill: {skill.path}")
+            await service.toggle_skill(skill.path, enabled=False)
+
+            if config.add_security_pending_tag:
+                current_tags = skill.tags or []
+                if "security-pending" not in current_tags:
+                    await service.update_skill(
+                        skill.path, {"tags": current_tags + ["security-pending"]}
+                    )
+
+    except Exception as e:
+        logger.error(f"Security scan failed for skill {skill.path}: {e}")
+        if config.add_security_pending_tag:
+            try:
+                current_tags = skill.tags or []
+                if "security-pending" not in current_tags:
+                    await service.update_skill(
+                        skill.path, {"tags": current_tags + ["security-pending"]}
+                    )
+            except Exception as tag_err:
+                logger.error(f"Failed to add security-pending tag: {tag_err}")

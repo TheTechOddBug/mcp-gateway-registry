@@ -48,6 +48,9 @@ The registry implements hybrid search that combines semantic (vector) search wit
                           |  Result Grouping    |
                           |  - servers (top 3)  |
                           |  - agents (top 3)   |
+                          |  - virtual_servers  |
+                          |    (top 3)          |
+                          |  - skills (top 3)   |
                           +----------+----------+
                                      |
                                      v
@@ -133,7 +136,7 @@ Score for 'Context7' (type=mcp_server): vector=0.3412, normalized_vector=0.6706,
 
 ### 6. Result Structure
 
-Search returns grouped results:
+Search returns grouped results (top 3 per entity type):
 
 ```json
 {
@@ -154,7 +157,17 @@ Search returns grouped results:
       "inputSchema": {...}
     }
   ],
-  "agents": [...]
+  "agents": [...],
+  "virtual_servers": [
+    {
+      "path": "/virtual/dev-tools",
+      "server_name": "Dev Tools",
+      "relevance_score": 0.85,
+      "backend_paths": ["/github", "/jira"],
+      "tool_count": 5
+    }
+  ],
+  "skills": [...]
 }
 ```
 
@@ -207,6 +220,55 @@ Search returns grouped results:
 - When a server matches, its tools are checked for keyword matches
 - Top-level `tools[]` array contains full schema (inputSchema)
 - `matching_tools` in server results is a lightweight reference (no schema)
+
+### Virtual MCP Servers
+
+Virtual MCP Servers are indexed in the unified `mcp_embeddings_{dimensions}` collection (e.g., `mcp_embeddings_384` for 384-dimension models) alongside regular servers and agents, distinguished by `entity_type: "virtual_server"`.
+
+**What's included in the embedding:**
+- Server name
+- Server description
+- Tags (prefixed with "Tags: ")
+- Tool names (alias or original name from each tool mapping)
+- Tool description overrides (if specified in mappings)
+
+**What's NOT included in the embedding:**
+- Virtual server path
+- Backend server paths
+- Required scopes
+- Tool input schemas
+
+**Stored document fields:**
+- `path`, `name`, `description`, `tags`, `is_enabled`
+- `entity_type`: `"virtual_server"`
+- `tools[]` array with `name` (alias or original) per tool mapping
+- `embedding` vector
+- `metadata` object containing:
+  - `server_name`, `num_tools`, `backend_count`
+  - `backend_paths[]` (list of backend server paths)
+  - `required_scopes[]`, `supported_transports[]`
+  - `created_by`
+
+**Search result structure:**
+```json
+{
+  "virtual_servers": [
+    {
+      "entity_type": "virtual_server",
+      "path": "/virtual/dev-tools",
+      "server_name": "Dev Tools",
+      "description": "Aggregated development tools",
+      "relevance_score": 0.85,
+      "tags": ["development", "tools"],
+      "backend_paths": ["/github", "/jira"],
+      "tool_count": 5,
+      "matching_tools": [
+        {"tool_name": "github_search"}
+      ]
+    }
+  ]
+}
+```
 
 ## Backend Implementations
 

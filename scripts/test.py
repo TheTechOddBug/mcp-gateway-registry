@@ -127,14 +127,14 @@ def _check_dependencies() -> bool:
 def _run_pytest(
     args: List[str],
     description: str,
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run pytest with the specified arguments.
 
     Args:
         args: List of pytest arguments
         description: Description of what is being tested
-        workers: Number of parallel workers (None = serial, n = n workers)
+        workers: Number of parallel workers or 'auto' (None = serial)
 
     Returns:
         Exit code from pytest
@@ -149,9 +149,9 @@ def _run_pytest(
     if workers is not None:
         if "-n" not in args:
             args = args + ["-n", str(workers)]
-            if workers > 2:
+            if workers != "auto" and int(workers) > 2:
                 _print_colored(
-                    f"⚠️  WARNING: Running with {workers} workers may cause OOM on EC2",
+                    f"WARNING: Running with {workers} workers may cause OOM on EC2",
                     Colors.YELLOW
                 )
 
@@ -194,12 +194,12 @@ def _run_check() -> int:
 
 
 def _run_unit(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run unit tests only.
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
@@ -209,12 +209,12 @@ def _run_unit(
 
 
 def _run_integration(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run integration tests only.
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
@@ -225,12 +225,12 @@ def _run_integration(
 
 
 def _run_e2e(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run end-to-end tests only.
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
@@ -240,30 +240,30 @@ def _run_e2e(
 
 
 def _run_fast(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run fast tests (exclude slow tests).
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
     """
     # Use 2 workers by default for fast tests if not specified
     if workers is None:
-        workers = 2
+        workers = "2"
     args = ["-m", "not slow", "-v"]
     return _run_pytest(args, "Running Fast Tests (Excluding Slow)", workers)
 
 
 def _run_full(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run full test suite serially (memory-safe for EC2).
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
@@ -274,17 +274,16 @@ def _run_full(
 
 
 def _run_coverage(
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Generate coverage reports.
 
     Args:
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
     """
-    # Run serially for coverage to avoid parallel issues (ignore workers param)
     args = [
         "-v",
         "--cov=registry",
@@ -292,18 +291,18 @@ def _run_coverage(
         "--cov-report=html:htmlcov",
         "--cov-report=xml:coverage.xml",
     ]
-    return _run_pytest(args, "Running Tests with Coverage")
+    return _run_pytest(args, "Running Tests with Coverage", workers)
 
 
 def _run_domain(
     domain: str,
-    workers: Optional[int] = None
+    workers: Optional[str] = None
 ) -> int:
     """Run domain-specific tests.
 
     Args:
         domain: Domain name (auth, servers, search, health, core)
-        workers: Number of parallel workers
+        workers: Number of parallel workers or 'auto'
 
     Returns:
         Exit code from pytest
@@ -379,9 +378,9 @@ Examples:
     parser.add_argument(
         "-n",
         "--workers",
-        type=int,
+        type=str,
         default=None,
-        help="Number of parallel workers (default: serial). Use with caution on EC2.",
+        help="Number of parallel workers or 'auto' (default: serial). Use with caution on EC2.",
     )
 
     args = parser.parse_args()

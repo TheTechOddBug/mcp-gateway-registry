@@ -81,7 +81,11 @@ def pytest_configure(config):
     # (AWS DocumentDB clusters should NOT use directConnection)
     os.environ["DOCUMENTDB_DIRECT_CONNECTION"] = "true"
 
-    print("Test environment configured: DOCUMENTDB_HOST=localhost, STORAGE_BACKEND=mongodb-ce, DOCUMENTDB_DIRECT_CONNECTION=true")
+    # Disable TLS for local MongoDB in tests
+    # (AWS DocumentDB requires TLS, but local MongoDB CE does not)
+    os.environ["DOCUMENTDB_USE_TLS"] = "false"
+
+    print("Test environment configured: DOCUMENTDB_HOST=localhost, STORAGE_BACKEND=mongodb-ce, DOCUMENTDB_DIRECT_CONNECTION=true, DOCUMENTDB_USE_TLS=false")
 
     # Force reload settings if it's already been imported
     # This is needed because Settings() is created at module level
@@ -251,6 +255,8 @@ def test_settings(tmp_path: Path) -> Settings:
         embeddings_model_dimensions=384,
         documentdb_host="localhost",  # Use localhost for tests
         documentdb_port=27017,
+        documentdb_use_tls=False,  # Disable TLS for local MongoDB in tests
+        documentdb_direct_connection=True,  # Use direct connection for single-node MongoDB
     )
 
     # Patch path properties to use temp directories
@@ -412,6 +418,63 @@ def mock_security_scan_repository():
     return mock
 
 
+@pytest.fixture
+def mock_virtual_server_repository():
+    """
+    Mock virtual server repository to avoid DocumentDB access.
+
+    Returns:
+        AsyncMock instance with common virtual server repository methods
+    """
+    mock = AsyncMock()
+    mock.ensure_indexes = AsyncMock()
+    mock.get.return_value = None
+    mock.list_all.return_value = []
+    mock.list_enabled.return_value = []
+    mock.create = AsyncMock()
+    mock.update = AsyncMock()
+    mock.delete.return_value = True
+    mock.get_state.return_value = False
+    mock.set_state.return_value = True
+    return mock
+
+
+@pytest.fixture
+def mock_backend_session_repository():
+    """
+    Mock backend session repository to avoid DocumentDB access.
+
+    Returns:
+        AsyncMock instance with common backend session repository methods
+    """
+    mock = AsyncMock()
+    mock.ensure_indexes = AsyncMock()
+    mock.get_backend_session.return_value = None
+    mock.store_backend_session = AsyncMock()
+    mock.delete_backend_session = AsyncMock()
+    mock.create_client_session = AsyncMock()
+    mock.validate_client_session.return_value = False
+    return mock
+
+
+@pytest.fixture
+def mock_skill_security_scan_repository():
+    """
+    Mock skill security scan repository to avoid DocumentDB access.
+
+    Returns:
+        AsyncMock instance with common skill security scan methods
+    """
+    mock = AsyncMock()
+    mock.create.return_value = True
+    mock.get_latest.return_value = None
+    mock.get.return_value = None
+    mock.list_all.return_value = []
+    mock.query_by_status.return_value = []
+    mock.load_all.return_value = None
+    return mock
+
+
 @pytest.fixture(autouse=True)
 def mock_all_repositories(
     mock_scope_repository,
@@ -419,7 +482,10 @@ def mock_all_repositories(
     mock_agent_repository,
     mock_search_repository,
     mock_federation_config_repository,
-    mock_security_scan_repository
+    mock_security_scan_repository,
+    mock_virtual_server_repository,
+    mock_backend_session_repository,
+    mock_skill_security_scan_repository,
 ):
     """
     Auto-mock all repository factory functions to prevent DocumentDB access.
@@ -434,6 +500,8 @@ def mock_all_repositories(
         mock_search_repository: Mock search repository
         mock_federation_config_repository: Mock federation config repository
         mock_security_scan_repository: Mock security scan repository
+        mock_virtual_server_repository: Mock virtual server repository
+        mock_backend_session_repository: Mock backend session repository
 
     Yields:
         None
@@ -445,7 +513,10 @@ def mock_all_repositories(
          patch('registry.repositories.factory.get_agent_repository', return_value=mock_agent_repository), \
          patch('registry.repositories.factory.get_search_repository', return_value=mock_search_repository), \
          patch('registry.repositories.factory.get_federation_config_repository', return_value=mock_federation_config_repository), \
-         patch('registry.repositories.factory.get_security_scan_repository', return_value=mock_security_scan_repository):
+         patch('registry.repositories.factory.get_security_scan_repository', return_value=mock_security_scan_repository), \
+         patch('registry.repositories.factory.get_virtual_server_repository', return_value=mock_virtual_server_repository), \
+         patch('registry.repositories.factory.get_backend_session_repository', return_value=mock_backend_session_repository), \
+         patch('registry.repositories.factory.get_skill_security_scan_repository', return_value=mock_skill_security_scan_repository):
         logger.debug("Auto-mocked all repository factory functions")
         yield
 
@@ -556,3 +627,36 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.integration)
         elif "auth_server/" in str(item.fspath):
             item.add_marker(pytest.mark.auth)
+
+
+# =============================================================================
+# DEPLOYMENT MODE FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def client_registry_only(mock_settings) -> Generator[Any, None, None]:
+    """Test client with registry-only deployment mode."""
+    from fastapi.testclient import TestClient
+    from registry.core.config import DeploymentMode, RegistryMode
+
+    object.__setattr__(mock_settings, 'deployment_mode', DeploymentMode.REGISTRY_ONLY)
+    object.__setattr__(mock_settings, 'registry_mode', RegistryMode.FULL)
+
+    from registry.main import app
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def client_skills_only(mock_settings) -> Generator[Any, None, None]:
+    """Test client with skills-only registry mode."""
+    from fastapi.testclient import TestClient
+    from registry.core.config import DeploymentMode, RegistryMode
+
+    object.__setattr__(mock_settings, 'deployment_mode', DeploymentMode.REGISTRY_ONLY)
+    object.__setattr__(mock_settings, 'registry_mode', RegistryMode.SKILLS_ONLY)
+
+    from registry.main import app
+    with TestClient(app) as client:
+        yield client

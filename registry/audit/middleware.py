@@ -25,6 +25,7 @@ from .models import (
     Response as AuditResponse,
 )
 from .service import AuditLogger
+from ..utils.request_utils import get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -260,10 +261,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
         # Calculate duration
         duration_ms = (time.perf_counter() - start_time) * 1000
         
-        # Extract client IP
-        client_ip = "unknown"
-        if request.client:
-            client_ip = request.client.host
+        # Extract client IP (validated against spoofed/malformed headers)
+        client_ip = get_client_ip(request)
         
         # Get content length from request headers (may be None)
         request_content_length = None

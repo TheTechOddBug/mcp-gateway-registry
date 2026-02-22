@@ -37,7 +37,7 @@ For Kubernetes deployments on Amazon EKS, we recommend using the Helm charts wit
 
 **Why not Terraform for EKS here?**
 
-The [awslabs/ai-on-eks](https://github.com/awslabs/ai-on-eks) project provides production-ready, battle-tested Terraform blueprints specifically designed for AI/ML workloads on EKS. Rather than duplicate this excellent work, we recommend:
+The [awslabs/ai-on-eks](https://github.com/awslabs/ai-on-eks) project provides Terraform blueprints specifically designed for AI/ML workloads on EKS. Rather than duplicate this excellent work, we recommend:
 
 1. **Provision EKS cluster** using ai-on-eks blueprints:
    ```bash

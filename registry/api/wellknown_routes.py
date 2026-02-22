@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 
-from ..core.config import settings
+from ..core.config import settings, RegistryMode
 from ..services.server_service import server_service
 from ..health.service import health_service
 from ..constants import HealthStatus
@@ -26,6 +26,28 @@ async def get_wellknown_mcp_servers(
     # Step 1: Check if discovery is enabled
     if not settings.enable_wellknown_discovery:
         raise HTTPException(status_code=404, detail="Well-known discovery is disabled")
+
+    # Step 1.5: In skills-only mode, return empty server list
+    if settings.registry_mode == RegistryMode.SKILLS_ONLY:
+        response_data = {
+            "version": "1.0",
+            "servers": [],
+            "registry": {
+                "name": "Enterprise MCP Gateway (Skills Only)",
+                "description": "Skills-only registry mode - no MCP servers available",
+                "version": "1.0.0",
+                "contact": {
+                    "url": str(request.base_url).rstrip('/'),
+                    "support": "mcp-support@company.com"
+                }
+            }
+        }
+        headers = {
+            "Cache-Control": f"public, max-age={settings.wellknown_cache_ttl}",
+            "Content-Type": "application/json"
+        }
+        logger.info("Returning empty server list - skills-only mode")
+        return JSONResponse(content=response_data, headers=headers)
 
     # Step 2: Get all servers from server_service
     all_servers = await server_service.get_all_servers()

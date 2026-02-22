@@ -1,11 +1,13 @@
 # This template patches the Keycloak ingress hostname to use the global domain
+# Only deployed when the auth provider is keycloak (not entra)
+{{- if eq .Values.global.authProvider.type "keycloak" }}
 {{- $routingMode := .Values.global.ingress.routingMode | default "subdomain" }}
 {{- $pathPrefix := .Values.global.ingress.paths.keycloak | default "/keycloak" }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ .Release.Name }}-keycloak
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ .Release.Namespace | quote }}
   annotations:
     {{- if eq $routingMode "path" }}
     alb.ingress.kubernetes.io/group.name: mcp-gateway-stack
@@ -45,3 +47,4 @@ spec:
                 port:
                   number: 8080
     {{- end }}
+{{- end }}

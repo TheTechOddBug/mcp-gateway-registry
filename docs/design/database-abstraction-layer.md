@@ -16,7 +16,7 @@
 
 ## Architecture Overview
 
-The MCP Gateway Registry implements a **repository pattern with abstract base classes** to provide a clean separation between business logic and data storage. This design enables seamless switching between file-based storage (legacy, backwards compatible) and DocumentDB/MongoDB (recommended, production-ready) without modifying application code.
+The MCP Gateway Registry implements a **repository pattern with abstract base classes** to provide a clean separation between business logic and data storage. This design enables seamless switching between file-based storage (legacy, backwards compatible) and DocumentDB/MongoDB (recommended) without modifying application code.
 
 ### System Diagram
 
@@ -375,7 +375,7 @@ registry/
 **Purpose:** Distributed document database for production deployments
 
 **Characteristics:**
-- **Scalability**: Clustered deployment for high availability (DocumentDB) or replica sets (MongoDB)
+- **Scalability**: Clustered deployment for redundancy (DocumentDB) or replica sets (MongoDB)
 - **Query Capabilities**: Rich aggregation pipelines, complex filtering, projections
 - **Vector Search**: Native vector search (DocumentDB) or application-level (MongoDB CE)
 - **Collection Management**: Automatic index creation with proper field mappings
@@ -415,7 +415,7 @@ Provides:
 - Hybrid search (BM25 + k-NN) for semantic understanding
 - Native vector support for embeddings
 - Scales to millions of documents
-- Production-ready
+- Recommended for deployment
 
 **Limitations:**
 - Requires DocumentDB cluster or MongoDB CE instance

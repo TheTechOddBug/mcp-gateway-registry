@@ -1027,7 +1027,7 @@ telnet localhost 8080
 
 You now have a fully functional MCP Gateway & Registry running on macOS! The system provides:
 
-- **Authentication**: Enterprise-grade Keycloak identity provider
+- **Authentication**: Keycloak identity provider
 - **Registry**: Web-based interface for managing MCP servers
 - **API Gateway**: Centralized access to multiple MCP servers
 - **Agent Support**: Ready for AI coding assistants and agents

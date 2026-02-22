@@ -1,11 +1,11 @@
 <div align="center">
 <img src="img/mcp_gateway_horizontal_white_logo.png" alt="MCP Gateway Logo" width="100%">
 
-**Enterprise-Ready Gateway for AI Development Tools**
+**Gateway for AI Development Tools**
 
 </div>
 
-## Enterprise-Grade MCP Server & Registry
+## MCP Server & Registry
 
 A comprehensive solution for managing, securing, and accessing Model Context Protocol (MCP) servers at scale. Built for enterprises, development teams, and autonomous AI agents.
 
@@ -29,11 +29,11 @@ A comprehensive solution for managing, securing, and accessing Model Context Pro
 
 ## Key Features
 
-### Enterprise-Ready Architecture
+### Architecture Features
 - **Reverse Proxy**: Centralized access point for all MCP servers
 - **Service Discovery**: Automatic registration and health monitoring
 - **Load Balancing**: Intelligent request distribution across server instances
-- **High Availability**: Production-ready deployment patterns
+- **Multi-Instance Support**: Deployment patterns supporting redundancy
 
 ### Advanced Security & Authentication
 - **OAuth 2.0 Integration**: Amazon Cognito, Google, GitHub, and custom providers
@@ -250,7 +250,7 @@ Accelerate development workflows with integrated tooling:
 | [Complete Setup Guide](complete-setup-guide.md)<br/>Step-by-step from scratch on AWS EC2 | [Authentication Guide](auth.md)<br/>OAuth and identity provider integration | [AI Coding Assistants Setup](ai-coding-assistants-setup.md)<br/>VS Code, Cursor, Claude Code integration |
 | [Installation Guide](installation.md)<br/>Complete setup instructions for EC2 and EKS | [Amazon Cognito Setup](cognito.md)<br/>Step-by-step IdP configuration | [API Reference](registry_api.md)<br/>Programmatic registry management |
 | [Configuration Reference](configuration.md)<br/>Environment variables and settings | [Fine-Grained Access Control](scopes.md)<br/>Permission management and security | [Dynamic Tool Discovery](dynamic-tool-discovery.md)<br/>Autonomous agent capabilities |
-| | | [Production Deployment](installation.md)<br/>Complete setup for production environments |
+| | | [Deployment Guide](installation.md)<br/>Complete setup for deployment environments |
 | | | [Troubleshooting Guide](FAQ.md)<br/>Common issues and solutions |
 
 ---

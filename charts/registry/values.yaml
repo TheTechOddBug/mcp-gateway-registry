@@ -2,7 +2,7 @@
 global:
   image:
     repository: public.ecr.aws/p3v1o3c6/registry
-    tag: v1.0.13
+    tag: 1.0.13
     pullPolicy: IfNotPresent
 
 # Application configuration
@@ -19,6 +19,18 @@ app:
   # When deployed via mcp-gateway-registry-stack, the key is shared with auth-server.
   # Uncomment to use a specific key:
   # secretKey: "your-secure-key-here"
+
+  # Federation configuration
+  federationStaticTokenAuthEnabled: false #If not provided, defaults to false
+  federationStaticToken: # If not provided, a random token is auto-generated
+  federationEncryptionKey: # If not provided, a Fernet key is auto-generated
+  registryId: # Unique identifier for this registry instance (optional)
+
+  # Deployment mode: with-gateway (nginx integration) or registry-only (catalog only)
+  deploymentMode: with-gateway
+
+  # Registry mode: full, skills-only, mcp-servers-only, agents-only
+  registryMode: full
 
 # Service configuration
 service:
