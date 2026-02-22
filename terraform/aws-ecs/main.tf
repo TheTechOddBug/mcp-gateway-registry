@@ -127,6 +127,9 @@ module "mcp_gateway" {
   entra_client_id     = var.entra_client_id
   entra_client_secret = var.entra_client_secret
 
+  # OAuth token storage
+  oauth_store_tokens_in_session = var.oauth_store_tokens_in_session
+
   # Registry static token auth
   registry_static_token_auth_enabled = var.registry_static_token_auth_enabled
   registry_api_token                 = var.registry_api_token

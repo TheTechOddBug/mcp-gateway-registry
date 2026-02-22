@@ -259,7 +259,7 @@ services:
       - FEDERATION_STATIC_TOKEN_AUTH_ENABLED=${FEDERATION_STATIC_TOKEN_AUTH_ENABLED:-false}
       - FEDERATION_STATIC_TOKEN=${FEDERATION_STATIC_TOKEN:-}
       # OAuth token storage in session (set to false for Entra ID large tokens)
-      - OAUTH_STORE_TOKENS_IN_SESSION=${OAUTH_STORE_TOKENS_IN_SESSION:-true}
+      - OAUTH_STORE_TOKENS_IN_SESSION=${OAUTH_STORE_TOKENS_IN_SESSION:-false}
     ports:
       - "8888:8888"
     volumes:

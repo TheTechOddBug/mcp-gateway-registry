@@ -193,7 +193,7 @@ services:
       - DOCUMENTDB_REPLICA_SET=${DOCUMENTDB_REPLICA_SET:-rs0}
       - DOCUMENTDB_READ_PREFERENCE=${DOCUMENTDB_READ_PREFERENCE:-secondaryPreferred}
       # OAuth token storage in session (set to false for Entra ID large tokens)
-      - OAUTH_STORE_TOKENS_IN_SESSION=${OAUTH_STORE_TOKENS_IN_SESSION:-true}
+      - OAUTH_STORE_TOKENS_IN_SESSION=${OAUTH_STORE_TOKENS_IN_SESSION:-false}
     ports:
       - "8888:8888"
     volumes:

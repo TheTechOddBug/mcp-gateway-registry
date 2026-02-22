@@ -81,15 +81,14 @@ _registry_static_token_requested: bool = (
 REGISTRY_API_TOKEN: str = os.environ.get("REGISTRY_API_TOKEN", "")
 
 # OAuth token storage in session cookies (disable for IdPs with large tokens)
+# Default: false - tokens are not used functionally and storing them risks cookie size limits
 OAUTH_STORE_TOKENS_IN_SESSION: bool = (
-    os.environ.get("OAUTH_STORE_TOKENS_IN_SESSION", "true").lower() == "true"
+    os.environ.get("OAUTH_STORE_TOKENS_IN_SESSION", "false").lower() == "true"
 )
 
-if not OAUTH_STORE_TOKENS_IN_SESSION:
-    logging.warning(
-        "OAUTH_STORE_TOKENS_IN_SESSION=false: OAuth tokens will NOT be stored in "
-        "session cookies. Recommended for Entra ID to avoid cookie size limits."
-    )
+logging.info(
+    f"OAUTH_STORE_TOKENS_IN_SESSION={OAUTH_STORE_TOKENS_IN_SESSION}"
+)
 
 # Validate configuration: static token auth requires REGISTRY_API_TOKEN to be set
 if _registry_static_token_requested and not REGISTRY_API_TOKEN:

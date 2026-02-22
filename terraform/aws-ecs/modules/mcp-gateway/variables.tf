@@ -353,6 +353,12 @@ variable "session_cookie_domain" {
   default     = ""
 }
 
+variable "oauth_store_tokens_in_session" {
+  description = "Store OAuth provider tokens in session cookies. Set to false to avoid cookie size limits with large tokens (e.g., Entra ID). Tokens are not used functionally."
+  type        = bool
+  default     = false
+}
+
 # Security Scanning Configuration
 variable "security_scan_enabled" {
   description = "Enable/disable security scanning for MCP servers during registration"

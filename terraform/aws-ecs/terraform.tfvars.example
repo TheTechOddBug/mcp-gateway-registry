@@ -157,6 +157,13 @@ session_cookie_secure = true
 # Default: Empty (cookie scoped to exact host only - safest option)
 session_cookie_domain = ""
 
+# Control whether OAuth provider tokens are stored in session cookies
+# When false: OAuth tokens NOT stored in session cookies, reduces cookie size
+# When true: tokens stored (may cause cookie size issues with large tokens from Entra ID)
+# The tokens stored in the session are not used functionally, so false is recommended
+# Default: false
+oauth_store_tokens_in_session = false
+
 # ============================================================================
 # EMBEDDINGS CONFIGURATION
 # ============================================================================
