@@ -138,6 +138,11 @@ keycloak-configure:
     adminUser: user
   # authServer.externalUrl will be templated in the subchart using global.domain
 
+# Keycloak ingress for mcp-gateway-registry
+# Whether to create an ingress for Keycloak with this Chart (only applicable when keycloak.create: true)
+keycloakIngress:
+  enabled: true
+
 # Mongodb configuration job
 mongodb-configure:
   enabled: true # Whether to run the MongoDB configuration job
