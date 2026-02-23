@@ -56,6 +56,7 @@ mongodb-kubernetes:
     enableClusterMongoDBRoles: false
     telemetry:
       installClusterRole: false
+    nodeSelector: {}
 
 # MongoDB configuration
 mongodb:
@@ -98,6 +99,8 @@ keycloak:
 
   ingress:
     enabled: false  # We use a custom ingress template that supports global.domain
+
+  nodeSelector: {}
 
   # Lifecycle hook to configure realm SSL settings
   lifecycleHooks:
@@ -168,6 +171,8 @@ registry:
     enabled: true
     ingressClassName: alb
 
+  nodeSelector: {}
+
 # Auth server configuration
 auth-server:
   app:
@@ -187,3 +192,5 @@ auth-server:
   ingress:
     enabled: true
     ingressClassName: alb
+
+  nodeSelector: {}
