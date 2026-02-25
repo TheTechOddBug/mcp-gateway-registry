@@ -318,7 +318,7 @@ class TestOTelEmission:
             {
                 "service": "test-service",
                 "metric_type": "auth_request", 
-                "success": "True",
+                "success": "true",
                 "method": "oauth"
             }
         )
@@ -329,7 +329,7 @@ class TestOTelEmission:
             {
                 "service": "test-service",
                 "metric_type": "auth_request",
-                "success": "True", 
+                "success": "true", 
                 "method": "oauth"
             }
         )

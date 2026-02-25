@@ -113,10 +113,19 @@ LUA_SOURCE_DIR="/app/docker/lua"
 cp "$LUA_SOURCE_DIR/capture_body.lua" "$LUA_SCRIPTS_DIR/capture_body.lua"
 cp "$LUA_SOURCE_DIR/virtual_router.lua" "$LUA_SCRIPTS_DIR/virtual_router.lua"
 
+cp "$LUA_SOURCE_DIR/emit_metrics.lua" "$LUA_SCRIPTS_DIR/emit_metrics.lua"
+cp "$LUA_SOURCE_DIR/flush_metrics.lua" "$LUA_SCRIPTS_DIR/flush_metrics.lua"
+
 echo "Lua scripts copied from $LUA_SOURCE_DIR to $LUA_SCRIPTS_DIR."
 
 # --- Nginx Configuration ---
 echo "Preparing Nginx configuration..."
+
+# Pass environment variables through to Lua workers (nginx strips them by default)
+for envvar in METRICS_API_KEY METRICS_SERVICE_URL; do
+    grep -q "^env ${envvar};" /etc/nginx/nginx.conf 2>/dev/null || \
+        sed -i "1i env ${envvar};" /etc/nginx/nginx.conf
+done
 
 # Remove default nginx site to prevent conflicts with our config
 echo "Removing default nginx site configuration..."

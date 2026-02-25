@@ -9,6 +9,18 @@ from ..core.validator import validator
 logger = logging.getLogger(__name__)
 
 
+def _normalize_label_value(value: object) -> str:
+    """Normalize a label value for Prometheus compatibility.
+
+    Python's str(True) produces "True" (capital T), but Prometheus convention
+    is lowercase "true"/"false". Lua's tostring() already produces lowercase,
+    so without normalization the same metric gets split into two timeseries.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 class ProcessingResult:
     def __init__(self):
         self.accepted = 0
@@ -98,7 +110,7 @@ class MetricsProcessor:
         labels = {
             "service": service,
             "metric_type": metric.type.value,
-            **{k: str(v) for k, v in metric.dimensions.items()}
+            **{k: _normalize_label_value(v) for k, v in metric.dimensions.items()}
         }
         
         # Route to appropriate OTel instrument
