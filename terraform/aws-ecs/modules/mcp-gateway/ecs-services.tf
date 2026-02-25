@@ -629,6 +629,12 @@ module "ecs_service_registry" {
         {
           name  = "METRICS_SERVICE_URL"
           value = var.enable_observability ? "http://metrics-service:8890" : ""
+        },
+        # Service Connect namespace for FQDN alias injection in entrypoint.
+        # Enables Python health checker to resolve both short names and FQDNs.
+        {
+          name  = "SERVICE_CONNECT_NAMESPACE"
+          value = aws_service_discovery_private_dns_namespace.mcp.name
         }
       ]
 

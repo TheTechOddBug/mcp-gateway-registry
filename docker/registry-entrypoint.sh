@@ -127,6 +127,11 @@ for envvar in METRICS_API_KEY METRICS_SERVICE_URL; do
         sed -i "1i env ${envvar};" /etc/nginx/nginx.conf
 done
 
+# Raise main-context error_log to 'warn' so Lua init_worker/timer messages
+# (e.g. flush_metrics.lua startup confirmation and connection errors) are visible.
+# The default nginx.conf ships with 'error' level which suppresses WARN/INFO.
+sed -i 's|error_log /var/log/nginx/error.log;|error_log /var/log/nginx/error.log warn;|' /etc/nginx/nginx.conf
+
 # Remove default nginx site to prevent conflicts with our config
 echo "Removing default nginx site configuration..."
 rm -f /etc/nginx/sites-enabled/default
@@ -239,6 +244,40 @@ done
 
 if [ $WAIT_TIME -ge $MAX_WAIT ]; then
     echo "WARNING: Timeout waiting for nginx configuration. Starting nginx anyway..."
+fi
+
+# Resolve METRICS_SERVICE_URL hostname to IPv4 before nginx starts.
+# Lua cosockets use the nginx resolver (VPC DNS 169.254.169.253), which cannot
+# resolve Service Connect names (only the Envoy sidecar can).  By substituting
+# the hostname with its IPv4 Service Connect VIP (127.255.0.x) in the env var,
+# flush_metrics.lua connects directly to the IP, bypassing DNS entirely.
+if [ -n "$METRICS_SERVICE_URL" ]; then
+    metrics_host=$(echo "$METRICS_SERVICE_URL" | sed 's|http://||;s|:.*||')
+    if ! echo "$metrics_host" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        resolved=$(getent ahostsv4 "$metrics_host" 2>/dev/null | head -1 | awk '{print $1}')
+        if [ -n "$resolved" ]; then
+            export METRICS_SERVICE_URL=$(echo "$METRICS_SERVICE_URL" | sed "s|$metrics_host|$resolved|")
+            echo "Resolved METRICS_SERVICE_URL: $metrics_host -> $resolved ($METRICS_SERVICE_URL)"
+        else
+            echo "WARNING: Could not resolve $metrics_host to IPv4 -- metrics flush may fail"
+        fi
+    fi
+fi
+
+# Add FQDN aliases for Service Connect entries in /etc/hosts.
+# Service Connect only registers short names (e.g., "auth-server"), but servers
+# may be registered with Cloud Map FQDNs (e.g., "auth-server.mcp-gateway.local").
+# The Python health checker resolves proxy_pass_url hostnames via system DNS,
+# which only finds /etc/hosts entries.  Adding FQDN aliases ensures both short
+# names and FQDNs resolve to the IPv4 Service Connect VIP.
+# Gated on SERVICE_CONNECT_NAMESPACE -- only set in ECS Terraform deployments.
+if [ -n "${SERVICE_CONNECT_NAMESPACE:-}" ]; then
+    fqdn_count=0
+    grep '^127\.255\.0\.' /etc/hosts | while read -r ip name _rest; do
+        echo "$ip ${name}.${SERVICE_CONNECT_NAMESPACE}" >> /etc/hosts
+        fqdn_count=$((fqdn_count + 1))
+    done
+    echo "Added FQDN aliases for Service Connect entries (namespace: ${SERVICE_CONNECT_NAMESPACE})"
 fi
 
 echo "Starting Nginx..."
