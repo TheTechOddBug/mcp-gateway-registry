@@ -8,7 +8,7 @@ warm storage requirements.
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -162,6 +162,9 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
                 # Convert _id to string if it's an ObjectId
                 if "_id" in doc:
                     doc["_id"] = str(doc["_id"])
+                # Motor returns naive datetimes; re-attach UTC for correct serialization
+                if isinstance(doc.get("timestamp"), datetime) and doc["timestamp"].tzinfo is None:
+                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=timezone.utc)
                 events.append(doc)
 
             logger.debug(f"DocumentDB READ: Found {len(events)} audit events")
@@ -192,6 +195,9 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
                 # Convert _id to string if it's an ObjectId
                 if "_id" in doc:
                     doc["_id"] = str(doc["_id"])
+                # Motor returns naive datetimes; re-attach UTC for correct serialization
+                if isinstance(doc.get("timestamp"), datetime) and doc["timestamp"].tzinfo is None:
+                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=timezone.utc)
                 logger.debug(f"DocumentDB READ: Found audit event with request_id={doc.get('request_id')}")
             else:
                 logger.debug("DocumentDB READ: Audit event not found")
