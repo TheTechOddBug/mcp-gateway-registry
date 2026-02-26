@@ -190,11 +190,23 @@ async def _create_standard_indexes(
         # Default 7 days (604800 seconds), configurable via AUDIT_LOG_MONGODB_TTL_DAYS
         ttl_days = int(os.getenv("AUDIT_LOG_MONGODB_TTL_DAYS", "7"))
         ttl_seconds = ttl_days * 24 * 60 * 60
-        await collection.create_index(
-            [("timestamp", ASCENDING)],
-            expireAfterSeconds=ttl_seconds,
-            name="timestamp_ttl"
-        )
+        try:
+            await collection.create_index(
+                [("timestamp", ASCENDING)],
+                expireAfterSeconds=ttl_seconds,
+                name="timestamp_ttl"
+            )
+        except OperationFailure as e:
+            if e.code == 85:  # IndexOptionsConflict
+                logger.info(f"TTL index options changed for {full_name}, recreating index...")
+                await collection.drop_index("timestamp_ttl")
+                await collection.create_index(
+                    [("timestamp", ASCENDING)],
+                    expireAfterSeconds=ttl_seconds,
+                    name="timestamp_ttl"
+                )
+            else:
+                raise
         logger.info(f"Created indexes for {full_name} (TTL: {ttl_days} days)")
 
     elif collection_name == COLLECTION_SKILLS:
