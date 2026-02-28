@@ -3644,3 +3644,33 @@ class RegistryClient:
         result = response.json()
         logger.info(f"Virtual server rating: {result.get('num_stars')} stars")
         return result
+
+
+def _format_tool_result(
+    tool: ToolSearchResult,
+) -> Dict[str, Any]:
+    """
+    Format a tool search result for display to the agent.
+
+    The search API returns inputSchema directly, so no additional server lookup is needed.
+
+    Args:
+        tool: Tool search result
+
+    Returns:
+        Formatted tool information dict
+    """
+    result = {
+        "tool_name": tool.tool_name,
+        "server_path": tool.server_path,
+        "server_name": tool.server_name,
+        "description": tool.description or "No description available",
+        "relevance_score": tool.relevance_score,
+        "supported_transports": ["streamable_http"],
+    }
+
+    # Use inputSchema from search result if available
+    if tool.inputSchema:
+        result["tool_schema"] = tool.inputSchema
+
+    return result

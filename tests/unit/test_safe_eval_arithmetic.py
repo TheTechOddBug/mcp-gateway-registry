@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+import importlib.util
 
 # agents/ is a standalone script directory, not an installed package.
 # Add it to sys.path so that `from registry_client import ...` inside
@@ -10,6 +11,16 @@ from unittest.mock import MagicMock
 _AGENTS_DIR = str(Path(__file__).resolve().parents[2] / "agents")
 if _AGENTS_DIR not in sys.path:
     sys.path.insert(0, _AGENTS_DIR)
+
+# IMPORTANT: Pre-load agents/registry_client.py into sys.modules as 'registry_client'
+# before agents/agent.py tries to import it. This ensures pytest-cov doesn't
+# resolve the import to api/registry_client.py (which lacks _format_tool_result).
+if "registry_client" not in sys.modules:
+    _registry_client_path = Path(__file__).resolve().parents[2] / "agents" / "registry_client.py"
+    _spec = importlib.util.spec_from_file_location("registry_client", _registry_client_path)
+    _registry_client = importlib.util.module_from_spec(_spec)
+    sys.modules["registry_client"] = _registry_client
+    _spec.loader.exec_module(_registry_client)
 
 # The root conftest installs a MockFaissModule into sys.modules["faiss"] that
 # lacks a __spec__ attribute. When agents.agent imports langchain_anthropic,
