@@ -268,3 +268,22 @@ class DocumentDBServerRepository(ServerRepositoryBase):
         except Exception as e:
             logger.error(f"Failed to update server state in DocumentDB: {e}", exc_info=True)
             return False
+
+    async def count(self) -> int:
+        """Get total count of servers.
+
+        Returns:
+            Total number of servers in the repository.
+        """
+        logger.debug(
+            f"DocumentDB COUNT: Counting servers in collection '{self._collection_name}'"
+        )
+        collection = await self._get_collection()
+
+        try:
+            count = await collection.count_documents({})
+            logger.debug(f"DocumentDB COUNT: Found {count} servers")
+            return count
+        except Exception as e:
+            logger.error(f"Error counting servers in DocumentDB: {e}", exc_info=True)
+            return 0

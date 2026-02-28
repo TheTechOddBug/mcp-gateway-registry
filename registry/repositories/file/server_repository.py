@@ -318,3 +318,11 @@ class FileServerRepository(ServerRepositoryBase):
         logger.info(f"Toggled '{server_name}' ({path}) to {enabled}")
 
         return True
+
+    async def count(self) -> int:
+        """Get total count of servers.
+
+        Returns:
+            Total number of servers in the repository.
+        """
+        return len(self._servers)

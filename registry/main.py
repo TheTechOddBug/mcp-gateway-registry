@@ -39,6 +39,7 @@ from registry.api.virtual_server_routes import router as virtual_server_router
 from registry.api.internal_routes import router as internal_router
 from registry.health.routes import router as health_router
 from registry.audit.routes import router as audit_router
+from registry.api.system_routes import router as system_router, set_server_start_time
 
 # Import auth dependencies
 from registry.auth.dependencies import (
@@ -70,6 +71,13 @@ from registry.audit import AuditLogger, add_audit_middleware
 
 # Import version
 from registry.version import __version__
+
+# Import datetime for uptime tracking
+from datetime import datetime, timezone
+from typing import Optional
+
+
+# Server start time tracking moved to registry/api/system_routes.py
 
 
 # Configure logging with file and console handlers
@@ -160,9 +168,17 @@ def _initialize_deployment_metrics() -> None:
     ).set(1)
 
 
+# Stats and deployment detection functions moved to registry/api/system_routes.py
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle management."""
+    # Record server start time for uptime tracking
+    server_start_time = datetime.now(timezone.utc)
+    set_server_start_time(server_start_time)
+    logger.info(f"Server started at: {server_start_time.isoformat()}")
+
     logger.info("🚀 Starting MCP Gateway Registry...")
 
     # Validate and potentially correct mode combination
@@ -497,6 +513,7 @@ if settings.audit_log_enabled:
     )
 
 # Register API routers with /api prefix
+app.include_router(system_router, tags=["System"])  # /api/version, /api/stats
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(servers_router, prefix="/api", tags=["Server Management"])
 app.include_router(agent_router, prefix="/api", tags=["Agent Management"])
@@ -601,10 +618,7 @@ async def health_check():
 
 
 # Version endpoint for UI
-@app.get("/api/version")
-async def get_version():
-    """Get application version."""
-    return {"version": __version__}
+# System endpoints (version, stats) moved to registry/api/system_routes.py
 
 
 # Serve React static files
