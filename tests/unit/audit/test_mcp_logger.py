@@ -5,11 +5,10 @@ Validates: Requirements 9.3, 9.5
 """
 
 import json
-import os
-import tempfile
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.audit.mcp_logger import MCPLogger
 from registry.audit.models import Identity, MCPServer

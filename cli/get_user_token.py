@@ -29,8 +29,6 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Optional
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,7 +41,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_ENTRA_LOGIN_BASE_URL = "https://login.microsoftonline.com"
 
 
-def _get_env_or_error(name: str, default: Optional[str] = None) -> str:
+def _get_env_or_error(name: str, default: str | None = None) -> str:
     """Get environment variable or raise error if not set.
 
     Args:
@@ -62,7 +60,7 @@ def _get_env_or_error(name: str, default: Optional[str] = None) -> str:
     return value
 
 
-def _initiate_device_code_flow(tenant_id: str, client_id: str, scope: Optional[str] = None) -> dict:
+def _initiate_device_code_flow(tenant_id: str, client_id: str, scope: str | None = None) -> dict:
     """Initiate device code flow.
 
     Args:
@@ -294,7 +292,7 @@ Environment Variables:
 
             print(f"\nToken saved to: {args.output}")
             print(f"Token expires in: {token_data.get('expires_in', 'unknown')} seconds")
-            print(f"\nUsage:")
+            print("\nUsage:")
             print(
                 f"  uv run python api/registry_management.py --token-file {args.output} --registry-url http://localhost list"
             )

@@ -1,6 +1,5 @@
 """Unit tests for skill service YAML frontmatter parsing."""
 
-import pytest
 import re
 
 

@@ -1,8 +1,8 @@
 import logging
 import secrets
+from datetime import UTC
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Tuple
 
 from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = "mcp_gateway_session"
     session_max_age_seconds: int = 60 * 60 * 8  # 8 hours
     session_cookie_secure: bool = False  # Set to True in production with HTTPS
-    session_cookie_domain: Optional[str] = None  # e.g., ".example.com" for cross-subdomain sharing
+    session_cookie_domain: str | None = None  # e.g., ".example.com" for cross-subdomain sharing
     auth_server_url: str = "http://localhost:8888"
     auth_server_external_url: str = "http://localhost:8888"  # External URL for OAuth redirects
     auth_provider: str = "cognito"  # Auth provider: cognito, keycloak, entra, github
@@ -62,10 +62,10 @@ class Settings(BaseSettings):
     # LiteLLM-specific settings (only used when embeddings_provider='litellm')
     # For Bedrock: Set to None and configure AWS credentials via standard methods
     # (IAM roles, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars, or ~/.aws/credentials)
-    embeddings_api_key: Optional[str] = None
-    embeddings_secret_key: Optional[str] = None
-    embeddings_api_base: Optional[str] = None
-    embeddings_aws_region: Optional[str] = "us-east-1"
+    embeddings_api_key: str | None = None
+    embeddings_secret_key: str | None = None
+    embeddings_api_base: str | None = None
+    embeddings_aws_region: str | None = "us-east-1"
 
     # Health check settings
     health_check_interval_seconds: int = (
@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     skill_scanner_ai_defense_api_key: str = ""  # Optional Cisco AI Defense API key
 
     # Federation settings
-    registry_id: Optional[str] = None  # Unique identifier for this registry instance in federation
+    registry_id: str | None = None  # Unique identifier for this registry instance in federation
     federation_static_token_auth_enabled: bool = False  # Enable federation static token auth
     federation_static_token: str = ""  # Federation static token for peer registry access
     workday_token_url: str = Field(
@@ -162,12 +162,12 @@ class Settings(BaseSettings):
     documentdb_host: str = "localhost"
     documentdb_port: int = 27017
     documentdb_database: str = "mcp_registry"
-    documentdb_username: Optional[str] = None
-    documentdb_password: Optional[str] = None
+    documentdb_username: str | None = None
+    documentdb_password: str | None = None
     documentdb_use_tls: bool = True
     documentdb_tls_ca_file: str = "global-bundle.pem"
     documentdb_use_iam: bool = False
-    documentdb_replica_set: Optional[str] = None
+    documentdb_replica_set: str | None = None
     documentdb_read_preference: str = "secondaryPreferred"
     documentdb_direct_connection: bool = False  # Set to True only for single-node MongoDB (tests)
 
@@ -336,7 +336,7 @@ class EmbeddingConfig:
             - created_at: Current timestamp in ISO format
             - indexing_strategy: Search strategy (currently "hybrid")
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         model_name = self.settings.embeddings_model_name
 
@@ -355,7 +355,7 @@ class EmbeddingConfig:
             "model_family": self.model_family,
             "dimensions": self.settings.embeddings_model_dimensions,
             "version": version,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "indexing_strategy": "hybrid",
         }
 
@@ -365,7 +365,7 @@ logger = logging.getLogger(__name__)
 
 def _validate_mode_combination(
     deployment_mode: DeploymentMode, registry_mode: RegistryMode
-) -> Tuple[DeploymentMode, RegistryMode, bool]:
+) -> tuple[DeploymentMode, RegistryMode, bool]:
     """
     Validate and potentially correct deployment/registry mode combination.
 
@@ -391,23 +391,18 @@ def _print_config_warning_banner(
     corrected_registry: RegistryMode,
 ) -> None:
     """Print conspicuous warning banner for invalid configuration."""
-    banner = """
+    banner = f"""
 ================================================================================
 WARNING: Invalid configuration detected!
 
-DEPLOYMENT_MODE={original_deploy} is incompatible with REGISTRY_MODE={original_reg}
+DEPLOYMENT_MODE={original_deployment.value} is incompatible with REGISTRY_MODE={original_registry.value}
 Skills do not require gateway integration.
 
 Auto-converting to:
-  DEPLOYMENT_MODE={corrected_deploy}
-  REGISTRY_MODE={corrected_reg}
+  DEPLOYMENT_MODE={corrected_deployment.value}
+  REGISTRY_MODE={corrected_registry.value}
 ================================================================================
-""".format(
-        original_deploy=original_deployment.value,
-        original_reg=original_registry.value,
-        corrected_deploy=corrected_deployment.value,
-        corrected_reg=corrected_registry.value,
-    )
+"""
     logger.warning(banner)
     print(banner)
 

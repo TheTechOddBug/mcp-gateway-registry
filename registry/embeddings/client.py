@@ -12,13 +12,8 @@ from abc import (
     abstractmethod,
 )
 from pathlib import Path
-from typing import (
-    List,
-    Optional,
-)
 
 import numpy as np
-
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +24,7 @@ class EmbeddingsClient(ABC):
     @abstractmethod
     def encode(
         self,
-        texts: List[str],
+        texts: list[str],
     ) -> np.ndarray:
         """
         Generate embeddings for a list of texts.
@@ -62,8 +57,8 @@ class SentenceTransformersClient(EmbeddingsClient):
     def __init__(
         self,
         model_name: str,
-        model_dir: Optional[Path] = None,
-        cache_dir: Optional[Path] = None,
+        model_dir: Path | None = None,
+        cache_dir: Path | None = None,
     ):
         """
         Initialize the SentenceTransformers client.
@@ -76,9 +71,9 @@ class SentenceTransformersClient(EmbeddingsClient):
         self.model_name = model_name
         self.model_dir = model_dir
         self.cache_dir = cache_dir
-        self._model: Optional["SentenceTransformer"] = None
-        self._dimension: Optional[int] = None
-        self._load_error: Optional[RuntimeError] = None
+        self._model: SentenceTransformer | None = None
+        self._dimension: int | None = None
+        self._load_error: RuntimeError | None = None
 
     def _load_model(self) -> None:
         """Load the sentence-transformers model."""
@@ -135,7 +130,7 @@ class SentenceTransformersClient(EmbeddingsClient):
 
     def encode(
         self,
-        texts: List[str],
+        texts: list[str],
     ) -> np.ndarray:
         """
         Generate embeddings using sentence-transformers.
@@ -180,10 +175,10 @@ class LiteLLMClient(EmbeddingsClient):
     def __init__(
         self,
         model_name: str,
-        api_key: Optional[str] = None,
-        api_base: Optional[str] = None,
-        aws_region: Optional[str] = None,
-        embedding_dimension: Optional[int] = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        aws_region: str | None = None,
+        embedding_dimension: int | None = None,
     ):
         """
         Initialize the LiteLLM client.
@@ -206,7 +201,7 @@ class LiteLLMClient(EmbeddingsClient):
         self.api_base = api_base
         self.aws_region = aws_region
         self._embedding_dimension = embedding_dimension
-        self._validated_dimension: Optional[int] = None
+        self._validated_dimension: int | None = None
 
         # Set environment variables for LiteLLM
         if self.api_key:
@@ -239,7 +234,7 @@ class LiteLLMClient(EmbeddingsClient):
 
     def encode(
         self,
-        texts: List[str],
+        texts: list[str],
     ) -> np.ndarray:
         """
         Generate embeddings using LiteLLM.
@@ -328,12 +323,12 @@ class LiteLLMClient(EmbeddingsClient):
 def create_embeddings_client(
     provider: str,
     model_name: str,
-    model_dir: Optional[Path] = None,
-    cache_dir: Optional[Path] = None,
-    api_key: Optional[str] = None,
-    api_base: Optional[str] = None,
-    aws_region: Optional[str] = None,
-    embedding_dimension: Optional[int] = None,
+    model_dir: Path | None = None,
+    cache_dir: Path | None = None,
+    api_key: str | None = None,
+    api_base: str | None = None,
+    aws_region: str | None = None,
+    embedding_dimension: int | None = None,
 ) -> EmbeddingsClient:
     """
     Factory function to create an embeddings client based on provider.

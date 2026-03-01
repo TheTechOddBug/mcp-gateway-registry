@@ -39,7 +39,7 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -641,6 +641,7 @@ def pytest_collection_modifyitems(config, items):
 def client_registry_only(mock_settings) -> Generator[Any, None, None]:
     """Test client with registry-only deployment mode."""
     from fastapi.testclient import TestClient
+
     from registry.core.config import DeploymentMode, RegistryMode
 
     object.__setattr__(mock_settings, "deployment_mode", DeploymentMode.REGISTRY_ONLY)
@@ -656,6 +657,7 @@ def client_registry_only(mock_settings) -> Generator[Any, None, None]:
 def client_skills_only(mock_settings) -> Generator[Any, None, None]:
     """Test client with skills-only registry mode."""
     from fastapi.testclient import TestClient
+
     from registry.core.config import DeploymentMode, RegistryMode
 
     object.__setattr__(mock_settings, "deployment_mode", DeploymentMode.REGISTRY_ONLY)

@@ -8,8 +8,8 @@ This includes file I/O operations, state management, and path conversions.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, Mock, mock_open, patch
+from typing import Any
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
@@ -47,7 +47,7 @@ def server_repository(mock_settings):
 
 
 @pytest.fixture
-def sample_server_dict() -> Dict[str, Any]:
+def sample_server_dict() -> dict[str, Any]:
     """Sample server data for testing."""
     return {
         "path": "/test-server",
@@ -159,7 +159,7 @@ class TestSaveToFile:
     ):
         """Test error handling when save fails."""
         # Arrange
-        with patch("builtins.open", side_effect=IOError("Disk full")):
+        with patch("builtins.open", side_effect=OSError("Disk full")):
             # Act
             result = await server_repository._save_to_file(sample_server_dict)
 
@@ -201,7 +201,7 @@ class TestSaveState:
         # Arrange
         server_repository._state = {"/test": True}
 
-        with patch("builtins.open", side_effect=IOError("Permission denied")):
+        with patch("builtins.open", side_effect=OSError("Permission denied")):
             # Act - should not raise exception
             await server_repository._save_state()
 

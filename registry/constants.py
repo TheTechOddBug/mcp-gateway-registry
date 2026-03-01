@@ -4,7 +4,7 @@ Constants and enums for the MCP Gateway Registry.
 
 import os
 from enum import Enum
-from typing import List
+
 from pydantic import BaseModel
 
 
@@ -21,7 +21,7 @@ class HealthStatus(str, Enum):
     UNKNOWN = "unknown"
 
     @classmethod
-    def get_healthy_statuses(cls) -> List[str]:
+    def get_healthy_statuses(cls) -> list[str]:
         """Get list of statuses that should be considered healthy for nginx inclusion."""
         return [cls.HEALTHY, cls.HEALTHY_AUTH_EXPIRED]
 
@@ -77,7 +77,7 @@ class RegistryConstants(BaseModel):
 
     # Server settings
     DEFAULT_TRANSPORT: str = TransportType.STREAMABLE_HTTP
-    SUPPORTED_TRANSPORTS: List[str] = [TransportType.STREAMABLE_HTTP, TransportType.SSE]
+    SUPPORTED_TRANSPORTS: list[str] = [TransportType.STREAMABLE_HTTP, TransportType.SSE]
 
     # Anthropic Registry API constants
     ANTHROPIC_API_VERSION: str = "v0.1"

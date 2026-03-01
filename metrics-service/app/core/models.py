@@ -16,17 +16,17 @@ class MetricType(StrEnum):
 
 class Metric(BaseModel):
     type: MetricType
-    timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    timestamp: datetime | None = Field(default_factory=datetime.utcnow)
     value: float
-    duration_ms: Optional[float] = None
+    duration_ms: float | None = None
     dimensions: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MetricRequest(BaseModel):
     service: str = Field(..., max_length=50)
-    version: Optional[str] = Field(None, max_length=20)
-    instance_id: Optional[str] = Field(None, max_length=50)
+    version: str | None = Field(None, max_length=20)
+    instance_id: str | None = Field(None, max_length=50)
     metrics: List[Metric]
 
 

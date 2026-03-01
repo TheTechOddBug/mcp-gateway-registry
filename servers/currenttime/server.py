@@ -2,12 +2,13 @@
 This server provides an interface to get the current time in a specified timezone using the timeapi.io API.
 """
 
-import os
 import argparse
 import logging
+import os
+from typing import Annotated
+
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
-from typing import Annotated
 
 # Configure logging
 logging.basicConfig(
@@ -80,6 +81,7 @@ The user's location is: {location}
 
 
 from datetime import datetime
+
 import pytz
 
 

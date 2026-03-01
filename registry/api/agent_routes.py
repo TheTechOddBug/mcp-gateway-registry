@@ -8,33 +8,33 @@ Based on: docs/design/a2a-protocol-integration.md
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Annotated, Dict, List, Optional, Any
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
+import httpx
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Request,
     status,
-    Query,
 )
 from fastapi.responses import JSONResponse
-import httpx
+from pydantic import BaseModel
 
-from ..auth.dependencies import nginx_proxied_auth, SCOPES_CONFIG
 from ..audit import set_audit_action
-from ..services.agent_service import agent_service
+from ..auth.dependencies import nginx_proxied_auth
+from ..core.config import settings
+from ..repositories.factory import get_search_repository
+from ..repositories.interfaces import SearchRepositoryBase
 from ..schemas.agent_models import (
     AgentCard,
     AgentInfo,
     AgentProvider,
     AgentRegistrationRequest,
 )
-from pydantic import BaseModel
-from ..core.config import settings
-from ..repositories.factory import get_search_repository
-from ..repositories.interfaces import SearchRepositoryBase
+from ..services.agent_service import agent_service
 from ..utils.request_utils import get_client_ip
 
 
@@ -78,8 +78,8 @@ async def _perform_agent_security_scan_on_registration(
     Returns:
         bool: True if agent should remain enabled, False if disabled due to scan
     """
-    from ..services.agent_scanner import agent_scanner_service
     from ..repositories.factory import get_search_repository
+    from ..services.agent_scanner import agent_scanner_service
 
     scan_config = agent_scanner_service.get_scan_config()
     if not (scan_config.enabled and scan_config.scan_on_registration):
@@ -146,8 +146,8 @@ class RatingRequest(BaseModel):
 
 
 def _normalize_path(
-    path: Optional[str],
-    agent_name: Optional[str] = None,
+    path: str | None,
+    agent_name: str | None = None,
 ) -> str:
     """
     Normalize agent path format.
@@ -182,7 +182,7 @@ def _normalize_path(
 def _check_agent_permission(
     permission: str,
     agent_name: str,
-    user_context: Dict[str, Any],
+    user_context: dict[str, Any],
 ) -> None:
     """
     Check if user has permission for agent operation.
@@ -212,7 +212,7 @@ def _check_agent_permission(
         )
 
 
-def _has_delete_agent_permission(user_context: Dict[str, Any], agent_path: str) -> bool:
+def _has_delete_agent_permission(user_context: dict[str, Any], agent_path: str) -> bool:
     """
     Check if user has permission to delete an agent.
 
@@ -252,9 +252,9 @@ def _has_delete_agent_permission(user_context: Dict[str, Any], agent_path: str) 
 
 
 def _filter_agents_by_access(
-    agents: List[AgentCard],
-    user_context: Dict[str, Any],
-) -> List[AgentCard]:
+    agents: list[AgentCard],
+    user_context: dict[str, Any],
+) -> list[AgentCard]:
     """
     Filter agents based on user access permissions.
 
@@ -467,9 +467,9 @@ async def register_agent(
 @router.get("/agents")
 async def list_agents(
     request: Request,
-    query: Optional[str] = Query(None, description="Search query string"),
+    query: str | None = Query(None, description="Search query string"),
     enabled_only: bool = Query(False, description="Show only enabled agents"),
-    visibility: Optional[str] = Query(None, description="Filter by visibility"),
+    visibility: str | None = Query(None, description="Filter by visibility"),
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
 ):
     """
@@ -602,13 +602,13 @@ async def check_agent_health(
     detail = None
     status_code = None
     response_time_ms = None
-    start_time = datetime.now(timezone.utc)
+    start_time = datetime.now(UTC)
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.get(ping_url)
         status_code = response.status_code
-        response_time_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+        response_time_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
         if response.status_code == 200:
             status_label = "healthy"
         else:
@@ -624,7 +624,7 @@ async def check_agent_health(
         status_label = "unhealthy"
         detail = f"Unexpected health check error: {exc}"
 
-    last_checked_iso = datetime.now(timezone.utc).isoformat()
+    last_checked_iso = datetime.now(UTC).isoformat()
 
     logger.info(f"Agent health check for {path} ({ping_url}) completed with status {status_label}")
 
@@ -1050,8 +1050,8 @@ async def delete_agent(
 
 @router.post("/agents/discover")
 async def discover_agents_by_skills(
-    skills: List[str],
-    tags: Optional[List[str]] = None,
+    skills: list[str],
+    tags: list[str] | None = None,
     max_results: int = Query(10, ge=1, le=100),
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
 ):

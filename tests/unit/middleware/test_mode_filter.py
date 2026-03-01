@@ -4,17 +4,15 @@ Unit tests for registry mode filter middleware.
 Tests the endpoint filtering logic based on REGISTRY_MODE setting.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from registry.core.config import RegistryMode
 from registry.middleware.mode_filter import (
-    _is_path_allowed,
     _get_path_category,
-    ALWAYS_ALLOWED_PREFIXES,
-    SKILLS_MODE_ALLOWED_PREFIXES,
+    _is_path_allowed,
 )
-
 
 # =============================================================================
 # TEST CLASS: Path Allowed Logic
@@ -192,11 +190,12 @@ class TestMiddlewareIntegration:
         """Middleware should return 403 for disabled endpoints."""
         mock_settings.registry_mode = RegistryMode.SKILLS_ONLY
 
-        from registry.middleware.mode_filter import RegistryModeMiddleware
-        from starlette.testclient import TestClient
         from starlette.applications import Starlette
         from starlette.responses import PlainTextResponse
         from starlette.routing import Route
+        from starlette.testclient import TestClient
+
+        from registry.middleware.mode_filter import RegistryModeMiddleware
 
         async def api_servers(request):
             return PlainTextResponse("ok")
@@ -223,11 +222,12 @@ class TestMiddlewareIntegration:
         """Middleware should allow enabled endpoints."""
         mock_settings.registry_mode = RegistryMode.SKILLS_ONLY
 
-        from registry.middleware.mode_filter import RegistryModeMiddleware
-        from starlette.testclient import TestClient
         from starlette.applications import Starlette
         from starlette.responses import PlainTextResponse
         from starlette.routing import Route
+        from starlette.testclient import TestClient
+
+        from registry.middleware.mode_filter import RegistryModeMiddleware
 
         async def api_skills(request):
             return PlainTextResponse("ok")

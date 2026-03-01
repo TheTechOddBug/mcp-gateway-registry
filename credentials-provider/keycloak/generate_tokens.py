@@ -4,16 +4,16 @@ Generate OAuth2 access tokens for MCP agents using Keycloak
 Python version of generate-agent-token.sh with batch processing capabilities
 """
 
+import argparse
+import glob
+import json
+import logging
 import os
 import sys
-import json
+from datetime import UTC, datetime
+from typing import Any
+
 import requests
-import argparse
-import logging
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
-import glob
-from pathlib import Path
 
 
 class Colors:
@@ -56,7 +56,7 @@ class TokenGenerator:
         """Print warning message"""
         print(f"{Colors.YELLOW}[WARNING]{Colors.NC} {message}")
 
-    def load_agent_config(self, agent_name: str, oauth_tokens_dir: str) -> Optional[Dict[str, Any]]:
+    def load_agent_config(self, agent_name: str, oauth_tokens_dir: str) -> dict[str, Any] | None:
         """Load agent configuration from JSON file"""
         config_file = os.path.join(oauth_tokens_dir, f"{agent_name}.json")
 
@@ -67,7 +67,7 @@ class TokenGenerator:
         self.log(f"Loading config from: {config_file}")
 
         try:
-            with open(config_file, "r") as f:
+            with open(config_file) as f:
                 config = json.load(f)
             return config
         except json.JSONDecodeError as e:
@@ -79,7 +79,7 @@ class TokenGenerator:
 
     def get_token_from_keycloak(
         self, client_id: str, client_secret: str, keycloak_url: str, realm: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Request access token from Keycloak"""
         token_url = f"{keycloak_url}/realms/{realm}/protocol/openid-connect/token"
 
@@ -125,7 +125,7 @@ class TokenGenerator:
     def save_token_files(
         self,
         agent_name: str,
-        token_data: Dict[str, Any],
+        token_data: dict[str, Any],
         client_id: str,
         client_secret: str,
         keycloak_url: str,
@@ -140,11 +140,11 @@ class TokenGenerator:
         os.makedirs(oauth_tokens_dir, exist_ok=True)
 
         # Generate timestamps
-        generated_at = datetime.now(timezone.utc).isoformat()
+        generated_at = datetime.now(UTC).isoformat()
         expires_at = None
         if expires_in:
-            expiry_timestamp = datetime.now(timezone.utc).timestamp() + expires_in
-            expires_at = datetime.fromtimestamp(expiry_timestamp, timezone.utc).isoformat()
+            expiry_timestamp = datetime.now(UTC).timestamp() + expires_in
+            expires_at = datetime.fromtimestamp(expiry_timestamp, UTC).isoformat()
 
         # Save .env file
         env_file = os.path.join(oauth_tokens_dir, f"{agent_name}.env")
@@ -287,7 +287,7 @@ class TokenGenerator:
             agent_name, token_data, client_id, client_secret, keycloak_url, realm, oauth_tokens_dir
         )
 
-    def find_agent_configs(self, oauth_tokens_dir: str) -> List[str]:
+    def find_agent_configs(self, oauth_tokens_dir: str) -> list[str]:
         """Find all agent-{}.json files, excluding agent-{}-token.json files"""
         if not os.path.exists(oauth_tokens_dir):
             self.warning(f"OAuth tokens directory not found: {oauth_tokens_dir}")

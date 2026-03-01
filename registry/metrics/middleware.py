@@ -4,10 +4,12 @@ FastAPI middleware for registry metrics collection.
 Tracks registry operations, request headers, and API usage patterns.
 """
 
-import time
-import logging
 import asyncio
-from typing import Callable, Dict, Any
+import logging
+import time
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -31,7 +33,7 @@ class RegistryMetricsMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.metrics_client = create_metrics_client(service_name=service_name)
 
-    def extract_operation_info(self, request: Request) -> Dict[str, Any]:
+    def extract_operation_info(self, request: Request) -> dict[str, Any]:
         """Extract operation type and resource information from the request."""
         path = request.url.path
         method = request.method
@@ -218,7 +220,7 @@ class RegistryMetricsMiddleware(BaseHTTPMiddleware):
             logger.debug(f"Failed to emit registry metric: {e}")
 
     async def _emit_headers_metric(
-        self, path: str, method: str, headers_info: Dict[str, Any], status_code: int
+        self, path: str, method: str, headers_info: dict[str, Any], status_code: int
     ):
         """Emit custom metric with request header information for nginx config analysis."""
         try:

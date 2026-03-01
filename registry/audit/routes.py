@@ -15,8 +15,8 @@ import io
 import logging
 import re
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/audit", tags=["Audit Logs"])
 
 # Singleton repository instance
-_audit_repository: Optional[DocumentDBAuditRepository] = None
+_audit_repository: DocumentDBAuditRepository | None = None
 
 
 def get_audit_repository() -> DocumentDBAuditRepository:
@@ -41,7 +41,7 @@ def get_audit_repository() -> DocumentDBAuditRepository:
     return _audit_repository
 
 
-def require_admin(user_context: Dict[str, Any] = Depends(enhanced_auth)) -> Dict[str, Any]:
+def require_admin(user_context: dict[str, Any] = Depends(enhanced_auth)) -> dict[str, Any]:
     """
     Dependency that requires admin access for audit endpoints.
 
@@ -80,9 +80,9 @@ class AuditEventSummary(BaseModel):
     path: str
     status_code: int
     duration_ms: float
-    operation: Optional[str] = None
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
+    operation: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
 
 
 class AuditEventsResponse(BaseModel):
@@ -91,23 +91,23 @@ class AuditEventsResponse(BaseModel):
     total: int = Field(description="Total number of matching events")
     limit: int = Field(description="Maximum events per page")
     offset: int = Field(description="Number of events skipped")
-    events: List[Dict[str, Any]] = Field(description="List of audit events")
+    events: list[dict[str, Any]] = Field(description="List of audit events")
 
 
 class AuditEventDetail(BaseModel):
     """Full audit event detail."""
 
-    event: Dict[str, Any] = Field(description="Complete audit event record")
+    event: dict[str, Any] = Field(description="Complete audit event record")
 
 
 class AuditFilterOptions(BaseModel):
     """Available filter values for audit log dropdowns."""
 
-    usernames: List[str] = Field(
+    usernames: list[str] = Field(
         default_factory=list,
         description="Distinct usernames found in audit events",
     )
-    server_names: List[str] = Field(
+    server_names: list[str] = Field(
         default_factory=list,
         description="Distinct MCP server names (MCP stream only)",
     )
@@ -140,7 +140,7 @@ class UserActivityItem(BaseModel):
 
     username: str = Field(description="Username")
     total: int = Field(description="Total requests by this user")
-    operations: List[UsageSummaryItem] = Field(
+    operations: list[UsageSummaryItem] = Field(
         default_factory=list,
         description="Top operations for this user",
     )
@@ -150,19 +150,19 @@ class AuditStatisticsResponse(BaseModel):
     """Aggregated audit statistics."""
 
     total_events: int = Field(description="Total events in time range")
-    top_users: List[UsageSummaryItem] = Field(
+    top_users: list[UsageSummaryItem] = Field(
         default_factory=list,
         description="Top 10 users by event count",
     )
-    top_servers: List[UsageSummaryItem] = Field(
+    top_servers: list[UsageSummaryItem] = Field(
         default_factory=list,
         description="Top 10 MCP servers (MCP stream only)",
     )
-    top_operations: List[UsageSummaryItem] = Field(
+    top_operations: list[UsageSummaryItem] = Field(
         default_factory=list,
         description="Top 10 operations by event count",
     )
-    activity_timeline: List[TimeSeriesBucket] = Field(
+    activity_timeline: list[TimeSeriesBucket] = Field(
         default_factory=list,
         description="Daily event counts for the time range",
     )
@@ -170,7 +170,7 @@ class AuditStatisticsResponse(BaseModel):
         default_factory=StatusDistribution,
         description="Distribution of HTTP status codes",
     )
-    user_activity: List[UserActivityItem] = Field(
+    user_activity: list[UserActivityItem] = Field(
         default_factory=list,
         description="Per-user breakdown of top operations",
     )
@@ -178,16 +178,16 @@ class AuditStatisticsResponse(BaseModel):
 
 def _build_query(
     stream: str,
-    from_time: Optional[datetime],
-    to_time: Optional[datetime],
-    username: Optional[str],
-    operation: Optional[str],
-    resource_type: Optional[str],
-    resource_id: Optional[str],
-    status_min: Optional[int],
-    status_max: Optional[int],
-    auth_decision: Optional[str],
-) -> Dict[str, Any]:
+    from_time: datetime | None,
+    to_time: datetime | None,
+    username: str | None,
+    operation: str | None,
+    resource_type: str | None,
+    resource_id: str | None,
+    status_min: int | None,
+    status_max: int | None,
+    auth_decision: str | None,
+) -> dict[str, Any]:
     """
     Build MongoDB query from filter parameters.
 
@@ -211,7 +211,7 @@ def _build_query(
         "registry_api": "registry_api_access",
         "mcp_access": "mcp_server_access",
     }
-    query: Dict[str, Any] = {"log_type": log_type_map.get(stream, stream)}
+    query: dict[str, Any] = {"log_type": log_type_map.get(stream, stream)}
 
     # Time range filter
     if from_time or to_time:
@@ -281,7 +281,7 @@ def _build_query(
 
 @router.get("/filter-options", response_model=AuditFilterOptions)
 async def get_filter_options(
-    user_context: Annotated[Dict[str, Any], Depends(require_admin)],
+    user_context: Annotated[dict[str, Any], Depends(require_admin)],
     stream: str = Query(
         "registry_api",
         pattern="^(registry_api|mcp_access)$",
@@ -302,7 +302,7 @@ async def get_filter_options(
 
     usernames = await repository.distinct("identity.username", query)
 
-    server_names: List[str] = []
+    server_names: list[str] = []
     if stream == "mcp_access":
         server_names = await repository.distinct("mcp_server.name", query)
 
@@ -320,7 +320,7 @@ async def get_filter_options(
 
 @router.get("/statistics", response_model=AuditStatisticsResponse)
 async def get_statistics(
-    user_context: Annotated[Dict[str, Any], Depends(require_admin)],
+    user_context: Annotated[dict[str, Any], Depends(require_admin)],
     stream: str = Query(
         "registry_api",
         pattern="^(registry_api|mcp_access)$",
@@ -332,7 +332,7 @@ async def get_statistics(
         le=30,
         description="Number of days to include in statistics",
     ),
-    username: Optional[str] = Query(
+    username: str | None = Query(
         None,
         description="Filter statistics to a specific username",
     ),
@@ -345,8 +345,8 @@ async def get_statistics(
         "mcp_access": "mcp_server_access",
     }
     log_type = log_type_map.get(stream, stream)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    base_match: Dict[str, Any] = {"log_type": log_type, "timestamp": {"$gte": cutoff}}
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    base_match: dict[str, Any] = {"log_type": log_type, "timestamp": {"$gte": cutoff}}
 
     if username:
         escaped_username = re.escape(username)
@@ -359,7 +359,7 @@ async def get_statistics(
 
     # Status distribution pipeline differs by stream
     if stream == "mcp_access":
-        status_pipeline: List[Dict[str, Any]] = [
+        status_pipeline: list[dict[str, Any]] = [
             {"$match": base_match},
             {"$group": {"_id": "$mcp_response.status", "count": {"$sum": 1}}},
         ]
@@ -572,51 +572,51 @@ async def get_statistics(
 
 @router.get("/events", response_model=AuditEventsResponse)
 async def get_audit_events(
-    user_context: Annotated[Dict[str, Any], Depends(require_admin)],
+    user_context: Annotated[dict[str, Any], Depends(require_admin)],
     stream: str = Query(
         "registry_api",
         pattern="^(registry_api|mcp_access)$",
         description="Log stream type",
     ),
-    from_time: Optional[datetime] = Query(
+    from_time: datetime | None = Query(
         None,
         alias="from",
         description="Start of time range (ISO 8601)",
     ),
-    to_time: Optional[datetime] = Query(
+    to_time: datetime | None = Query(
         None,
         alias="to",
         description="End of time range (ISO 8601)",
     ),
-    username: Optional[str] = Query(
+    username: str | None = Query(
         None,
         description="Filter by username",
     ),
-    operation: Optional[str] = Query(
+    operation: str | None = Query(
         None,
         description="Filter by operation type",
     ),
-    resource_type: Optional[str] = Query(
+    resource_type: str | None = Query(
         None,
         description="Filter by resource type",
     ),
-    resource_id: Optional[str] = Query(
+    resource_id: str | None = Query(
         None,
         description="Filter by resource ID",
     ),
-    status_min: Optional[int] = Query(
+    status_min: int | None = Query(
         None,
         ge=100,
         le=599,
         description="Minimum HTTP status code",
     ),
-    status_max: Optional[int] = Query(
+    status_max: int | None = Query(
         None,
         ge=100,
         le=599,
         description="Maximum HTTP status code",
     ),
-    auth_decision: Optional[str] = Query(
+    auth_decision: str | None = Query(
         None,
         pattern="^(ALLOW|DENY|NOT_REQUIRED)$",
         description="Filter by authorization decision",
@@ -699,12 +699,12 @@ async def get_audit_events(
 @router.get("/events/{request_id}")
 async def get_audit_event(
     request_id: str,
-    user_context: Annotated[Dict[str, Any], Depends(require_admin)],
-    log_type: Optional[str] = Query(
+    user_context: Annotated[dict[str, Any], Depends(require_admin)],
+    log_type: str | None = Query(
         default=None,
         description="Filter by log type: registry_api_access or mcp_server_access",
     ),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get audit events by request_id.
 
@@ -722,7 +722,7 @@ async def get_audit_event(
     repository = get_audit_repository()
 
     try:
-        query: Dict[str, Any] = {"request_id": request_id}
+        query: dict[str, Any] = {"request_id": request_id}
         if log_type is not None:
             query["log_type"] = log_type
 
@@ -748,7 +748,7 @@ async def get_audit_event(
         )
 
 
-def _generate_jsonl(events: List[Dict[str, Any]]):
+def _generate_jsonl(events: list[dict[str, Any]]):
     """Generate JSONL output from events."""
     import json
 
@@ -759,7 +759,7 @@ def _generate_jsonl(events: List[Dict[str, Any]]):
         yield json.dumps(event) + "\n"
 
 
-def _generate_csv(events: List[Dict[str, Any]]):
+def _generate_csv(events: list[dict[str, Any]]):
     """Generate CSV output from events."""
     if not events:
         yield ""
@@ -826,7 +826,7 @@ def _generate_csv(events: List[Dict[str, Any]]):
 
 @router.get("/export")
 async def export_audit_events(
-    user_context: Annotated[Dict[str, Any], Depends(require_admin)],
+    user_context: Annotated[dict[str, Any], Depends(require_admin)],
     format: str = Query(
         "jsonl",
         pattern="^(jsonl|csv)$",
@@ -837,45 +837,45 @@ async def export_audit_events(
         pattern="^(registry_api|mcp_access)$",
         description="Log stream type",
     ),
-    from_time: Optional[datetime] = Query(
+    from_time: datetime | None = Query(
         None,
         alias="from",
         description="Start of time range (ISO 8601)",
     ),
-    to_time: Optional[datetime] = Query(
+    to_time: datetime | None = Query(
         None,
         alias="to",
         description="End of time range (ISO 8601)",
     ),
-    username: Optional[str] = Query(
+    username: str | None = Query(
         None,
         description="Filter by username",
     ),
-    operation: Optional[str] = Query(
+    operation: str | None = Query(
         None,
         description="Filter by operation type",
     ),
-    resource_type: Optional[str] = Query(
+    resource_type: str | None = Query(
         None,
         description="Filter by resource type",
     ),
-    resource_id: Optional[str] = Query(
+    resource_id: str | None = Query(
         None,
         description="Filter by resource ID",
     ),
-    status_min: Optional[int] = Query(
+    status_min: int | None = Query(
         None,
         ge=100,
         le=599,
         description="Minimum HTTP status code",
     ),
-    status_max: Optional[int] = Query(
+    status_max: int | None = Query(
         None,
         ge=100,
         le=599,
         description="Maximum HTTP status code",
     ),
-    auth_decision: Optional[str] = Query(
+    auth_decision: str | None = Query(
         None,
         pattern="^(ALLOW|DENY|NOT_REQUIRED)$",
         description="Filter by authorization decision",
@@ -926,7 +926,7 @@ async def export_audit_events(
         )
 
         # Generate timestamp for filename
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         filename = f"audit-export-{timestamp}.{format}"
 
         if format == "jsonl":

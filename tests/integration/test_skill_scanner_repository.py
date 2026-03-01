@@ -10,7 +10,8 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.repositories.file.skill_security_scan_repository import (
     FileSkillSecurityScanRepository,

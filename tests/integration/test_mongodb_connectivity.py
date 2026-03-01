@@ -8,8 +8,6 @@ without complex fixture dependencies.
 import pytest
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from registry.core.config import Settings
-
 
 @pytest.mark.integration
 @pytest.mark.asyncio

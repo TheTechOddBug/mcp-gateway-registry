@@ -15,13 +15,12 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Add parent directory to path to import registry_client
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.registry_client import RegistryClient
-
 
 # Configure logging
 logging.basicConfig(
@@ -42,7 +41,7 @@ def _load_token_from_file(
     Returns:
         Access token string
     """
-    with open(token_file, "r") as f:
+    with open(token_file) as f:
         token_data = json.load(f)
         access_token = token_data.get("access_token")
         if not access_token:
@@ -52,7 +51,7 @@ def _load_token_from_file(
 
 def _get_registry_client(
     base_url: str,
-    token_file: Optional[str] = None,
+    token_file: str | None = None,
 ) -> RegistryClient:
     """Create and return a configured RegistryClient.
 
@@ -92,7 +91,7 @@ def _handle_service_add(
     client = _get_registry_client(args.base_url, args.token_file)
 
     # Load config from file
-    with open(args.config_path, "r") as f:
+    with open(args.config_path) as f:
         config = json.load(f)
 
     result = client.register_server(config)

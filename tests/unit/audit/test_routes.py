@@ -4,15 +4,15 @@ Unit tests for Audit API routes.
 Validates: Requirements 7.1, 7.2, 7.5, 7.6
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.audit.routes import _build_query, _generate_csv, _generate_jsonl, require_admin
-
 
 # =============================================================================
 # Property 11: Admin-Only Audit API Access
@@ -70,7 +70,7 @@ class TestBuildQuery:
 
     def test_with_filters(self):
         """Build query with multiple filters."""
-        from_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        from_time = datetime(2025, 1, 1, tzinfo=UTC)
         query = _build_query(
             stream="registry_api",
             from_time=from_time,
@@ -110,7 +110,7 @@ class TestExportFormats:
         """Generate CSV from events."""
         events = [
             {
-                "timestamp": datetime(2025, 1, 15, tzinfo=timezone.utc),
+                "timestamp": datetime(2025, 1, 15, tzinfo=UTC),
                 "request_id": "req-1",
                 "identity": {"username": "admin"},
                 "request": {"method": "GET", "path": "/api/test"},

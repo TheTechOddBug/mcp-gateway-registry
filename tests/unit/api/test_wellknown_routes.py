@@ -247,8 +247,9 @@ class TestWellKnownMcpServersEndpoint:
             patch("registry.api.wellknown_routes.health_service", mock_health_service),
             patch("registry.api.wellknown_routes.settings", mock_settings),
         ):
-            from registry.api.wellknown_routes import router
             from fastapi import FastAPI
+
+            from registry.api.wellknown_routes import router
 
             app = FastAPI()
             app.include_router(router, prefix="/.well-known")
@@ -284,8 +285,9 @@ class TestWellKnownMcpServersEndpoint:
             patch("registry.api.wellknown_routes.health_service", mock_health_service),
             patch("registry.api.wellknown_routes.settings", mock_settings),
         ):
-            from registry.api.wellknown_routes import router
             from fastapi import FastAPI
+
+            from registry.api.wellknown_routes import router
 
             app = FastAPI()
             app.include_router(router, prefix="/.well-known")
@@ -320,8 +322,9 @@ class TestWellKnownMcpServersEndpoint:
             patch("registry.api.wellknown_routes.health_service", mock_health_service),
             patch("registry.api.wellknown_routes.settings", mock_settings),
         ):
-            from registry.api.wellknown_routes import router
             from fastapi import FastAPI
+
+            from registry.api.wellknown_routes import router
 
             app = FastAPI()
             app.include_router(router, prefix="/.well-known")
@@ -374,8 +377,9 @@ class TestWellKnownMcpServersEndpoint:
             patch("registry.api.wellknown_routes.health_service", mock_health_service),
             patch("registry.api.wellknown_routes.settings", mock_settings),
         ):
-            from registry.api.wellknown_routes import router
             from fastapi import FastAPI
+
+            from registry.api.wellknown_routes import router
 
             app = FastAPI()
             app.include_router(router, prefix="/.well-known")

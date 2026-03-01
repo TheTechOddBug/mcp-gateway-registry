@@ -22,8 +22,8 @@ class Migration:
         name: str,
         up_sql: str,
         down_sql: str = None,
-        python_up: Optional[Callable] = None,
-        python_down: Optional[Callable] = None,
+        python_up: Callable | None = None,
+        python_down: Callable | None = None,
     ):
         self.version = version
         self.name = name
@@ -489,7 +489,7 @@ class MigrationManager:
             logger.error(f"Database connection error during rollback: {e}")
             return False
 
-    async def migrate_up(self, target_version: Optional[int] = None) -> bool:
+    async def migrate_up(self, target_version: int | None = None) -> bool:
         """Apply all pending migrations up to target version."""
         current_version = await self.get_current_version()
         target_version = target_version or max(m.version for m in self.migrations)

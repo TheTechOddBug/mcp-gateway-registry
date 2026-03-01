@@ -12,19 +12,14 @@ import logging
 import os
 import sys
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
-from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
 
 import requests
-
 
 # Configure logging
 logging.basicConfig(
@@ -62,9 +57,9 @@ def _get_token_from_entra(
     client_id: str,
     client_secret: str,
     tenant_id: str,
-    scope: Optional[str] = None,
+    scope: str | None = None,
     verbose: bool = False,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Request access token from Microsoft Entra ID using client credentials."""
     login_base_url = os.environ.get(
         "ENTRA_LOGIN_BASE_URL",
@@ -137,7 +132,7 @@ def _get_token_from_entra(
 
 def _save_token_file(
     identity_name: str,
-    token_data: Dict[str, Any],
+    token_data: dict[str, Any],
     client_id: str,
     tenant_id: str,
     scope: str,
@@ -149,13 +144,13 @@ def _save_token_file(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at = datetime.now(UTC).isoformat()
     expires_at = None
     if expires_in:
-        expiry_timestamp = datetime.now(timezone.utc).timestamp() + expires_in
+        expiry_timestamp = datetime.now(UTC).timestamp() + expires_in
         expires_at = datetime.fromtimestamp(
             expiry_timestamp,
-            timezone.utc,
+            UTC,
         ).isoformat()
 
     token_json = {
@@ -197,14 +192,14 @@ def _save_token_file(
 
 def _load_identities_file(
     file_path: str,
-) -> Optional[List[Dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Load identities from JSON file."""
     if not os.path.exists(file_path):
         print(f"{Colors.RED}[ERROR]{Colors.NC} Identities file not found: {file_path}")
         return None
 
     try:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             identities = json.load(f)
 
         if not isinstance(identities, list):

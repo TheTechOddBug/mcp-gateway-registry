@@ -2,14 +2,9 @@
 
 import json
 import logging
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-)
-from strands import Agent, tool
+
 from dependencies import get_db_manager, get_registry_client, get_remote_agent_cache
+from strands import Agent, tool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,7 +69,7 @@ def check_prices(
 @tool
 def get_recommendations(
     max_price: float,
-    preferred_airlines: Optional[List[str]] = None,
+    preferred_airlines: list[str] | None = None,
 ) -> str:
     """Get flight recommendations based on customer preferences."""
     logger.info(
@@ -102,8 +97,8 @@ def create_trip_plan(
     departure_city: str,
     arrival_city: str,
     departure_date: str,
-    return_date: Optional[str] = None,
-    budget: Optional[float] = None,
+    return_date: str | None = None,
+    budget: float | None = None,
 ) -> str:
     """Create and save a trip planning record."""
     logger.info(

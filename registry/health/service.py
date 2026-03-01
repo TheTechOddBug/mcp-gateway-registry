@@ -1,17 +1,17 @@
-import json
 import asyncio
+import json
 import logging
 import os
-import httpx
-from datetime import datetime, timezone
-from typing import Dict, Set, Optional, Tuple
-from fastapi import WebSocket, WebSocketDisconnect
-from collections import defaultdict, deque
+from datetime import UTC, datetime
 from time import time
+
+import httpx
+from fastapi import WebSocket
+
+from registry.constants import HealthStatus
 
 from ..core.config import settings
 from ..core.endpoint_utils import get_endpoint_url_from_server_info
-from registry.constants import HealthStatus
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +20,18 @@ class HighPerformanceWebSocketManager:
     """High-performance WebSocket manager for 400-1000+ concurrent connections."""
 
     def __init__(self):
-        self.connections: Set[WebSocket] = set()
-        self.connection_metadata: Dict[WebSocket, Dict] = {}
+        self.connections: set[WebSocket] = set()
+        self.connection_metadata: dict[WebSocket, dict] = {}
 
         # Rate limiting and batching
-        self.pending_updates: Dict[str, Dict] = {}  # service_path -> latest_data
+        self.pending_updates: dict[str, dict] = {}  # service_path -> latest_data
         self.last_broadcast_time = 0
         self.min_broadcast_interval = settings.websocket_broadcast_interval_ms / 1000.0
         self.max_batch_size = settings.websocket_max_batch_size
 
         # Connection health tracking
-        self.failed_connections: Set[WebSocket] = set()
-        self.cleanup_task: Optional[asyncio.Task] = None
+        self.failed_connections: set[WebSocket] = set()
+        self.cleanup_task: asyncio.Task | None = None
 
         # Performance metrics
         self.broadcast_count = 0
@@ -86,7 +86,7 @@ class HighPerformanceWebSocketManager:
             await self.remove_connection(websocket)
 
     async def broadcast_update(
-        self, service_path: Optional[str] = None, health_data: Optional[Dict] = None
+        self, service_path: str | None = None, health_data: dict | None = None
     ):
         """High-performance broadcasting with batching and rate limiting."""
         if not self.connections:
@@ -122,7 +122,7 @@ class HighPerformanceWebSocketManager:
             await self._send_to_connections_optimized(broadcast_data)
             self.last_broadcast_time = current_time
 
-    async def _send_to_connections_optimized(self, data: Dict):
+    async def _send_to_connections_optimized(self, data: dict):
         """Optimized concurrent sending with automatic cleanup."""
         if not self.connections:
             return
@@ -141,7 +141,7 @@ class HighPerformanceWebSocketManager:
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Track failed connections
-            for conn, result in zip(chunk, results):
+            for conn, result in zip(chunk, results, strict=False):
                 if isinstance(result, Exception):
                     self.failed_connections.add(conn)
                     self.failed_send_count += 1
@@ -160,7 +160,7 @@ class HighPerformanceWebSocketManager:
                 connection.send_text(message), timeout=settings.websocket_send_timeout_seconds
             )
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return TimeoutError("Send timeout")
         except Exception as e:
             return e
@@ -176,7 +176,7 @@ class HighPerformanceWebSocketManager:
 
         logger.info(f"Cleaned up {failed_count} failed WebSocket connections")
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get performance statistics."""
         return {
             "active_connections": len(self.connections),
@@ -191,17 +191,17 @@ class HealthMonitoringService:
     """Optimized health monitoring service for high-scale WebSocket operations."""
 
     def __init__(self):
-        self.server_health_status: Dict[str, str] = {}
-        self.server_last_check_time: Dict[str, datetime] = {}
+        self.server_health_status: dict[str, str] = {}
+        self.server_last_check_time: dict[str, datetime] = {}
 
         # High-performance WebSocket manager
         self.websocket_manager = HighPerformanceWebSocketManager()
 
         # Background task management
-        self.health_check_task: Optional[asyncio.Task] = None
+        self.health_check_task: asyncio.Task | None = None
 
         # Performance optimizations
-        self._cached_health_data: Dict = {}
+        self._cached_health_data: dict = {}
         self._cache_timestamp = 0
         self._cache_ttl = settings.websocket_cache_ttl_seconds
 
@@ -281,7 +281,7 @@ class HealthMonitoringService:
         # This method is kept for compatibility but delegates to the optimized manager
         await self.websocket_manager._send_initial_status_optimized(websocket)
 
-    async def broadcast_health_update(self, service_path: Optional[str] = None):
+    async def broadcast_health_update(self, service_path: str | None = None):
         """Broadcast health status updates to all connected WebSocket clients."""
         if not self.websocket_manager.connections:
             return
@@ -298,7 +298,7 @@ class HealthMonitoringService:
             # Full update - use cached data
             await self.websocket_manager.broadcast_update()
 
-    async def _get_cached_health_data(self) -> Dict:
+    async def _get_cached_health_data(self) -> dict:
         """Get cached health data to avoid expensive operations during WebSocket sends."""
         current_time = time()
 
@@ -319,7 +319,7 @@ class HealthMonitoringService:
         self._cache_timestamp = current_time
         return data
 
-    def get_websocket_stats(self) -> Dict:
+    def get_websocket_stats(self) -> dict:
         """Get WebSocket performance statistics."""
         return self.websocket_manager.get_stats()
 
@@ -340,8 +340,9 @@ class HealthMonitoringService:
 
     async def _perform_health_checks(self):
         """Perform health checks on all enabled services."""
-        from ..services.server_service import server_service
         import httpx
+
+        from ..services.server_service import server_service
 
         enabled_services = await server_service.get_enabled_services()
         if not enabled_services:
@@ -401,10 +402,9 @@ class HealthMonitoringService:
                 )
 
     async def _check_single_service(
-        self, client: httpx.AsyncClient, service_path: str, server_info: Dict
+        self, client: httpx.AsyncClient, service_path: str, server_info: dict
     ) -> bool:
         """Check a single service and return True if status changed."""
-        from ..services.server_service import server_service
 
         proxy_pass_url = server_info.get("proxy_pass_url")
         previous_status = self.server_health_status.get(service_path, HealthStatus.UNKNOWN)
@@ -459,14 +459,14 @@ class HealthMonitoringService:
 
         # Update status and timestamp
         self.server_health_status[service_path] = new_status
-        self.server_last_check_time[service_path] = datetime.now(timezone.utc)
+        self.server_last_check_time[service_path] = datetime.now(UTC)
 
         # Return True if status changed
         return previous_status != new_status
 
     def _build_headers_for_server(
-        self, server_info: Dict, include_session_id: bool = False
-    ) -> Dict[str, str]:
+        self, server_info: dict, include_session_id: bool = False
+    ) -> dict[str, str]:
         """
         Build HTTP headers for server requests by merging default headers with server-specific headers.
 
@@ -526,8 +526,8 @@ class HealthMonitoringService:
         return headers
 
     async def _initialize_mcp_session(
-        self, client: httpx.AsyncClient, endpoint: str, headers: Dict[str, str]
-    ) -> Optional[str]:
+        self, client: httpx.AsyncClient, endpoint: str, headers: dict[str, str]
+    ) -> str | None:
         """
         Initialize an MCP session and retrieve the session ID from the server.
 
@@ -640,7 +640,7 @@ class HealthMonitoringService:
             return False
 
     async def _check_server_endpoint_transport_aware(
-        self, client: httpx.AsyncClient, proxy_pass_url: str, server_info: Dict
+        self, client: httpx.AsyncClient, proxy_pass_url: str, server_info: dict
     ) -> tuple[bool, str]:
         """Check server endpoint using transport-aware logic.
 
@@ -673,7 +673,7 @@ class HealthMonitoringService:
                 # For SSE endpoints, use a shorter timeout since they start streaming immediately
                 if proxy_pass_url.endswith("/sse") or "/sse/" in proxy_pass_url:
                     logger.info(
-                        f"[TRACE] Detected SSE endpoint in URL, using SSE-specific handling"
+                        "[TRACE] Detected SSE endpoint in URL, using SSE-specific handling"
                     )
                     timeout = httpx.Timeout(connect=5.0, read=2.0, write=5.0, pool=5.0)
                     try:
@@ -681,7 +681,7 @@ class HealthMonitoringService:
                             proxy_pass_url, headers=headers, follow_redirects=True, timeout=timeout
                         )
                         return self._is_mcp_endpoint_healthy(response)
-                    except (httpx.TimeoutException, asyncio.TimeoutError) as e:
+                    except (TimeoutError, httpx.TimeoutException) as e:
                         # For SSE endpoints, timeout while reading streaming response is normal after getting 200 OK
                         logger.debug(
                             f"SSE endpoint {proxy_pass_url} timed out while streaming (expected): {e}"
@@ -701,7 +701,7 @@ class HealthMonitoringService:
                         return False, f"unhealthy: {type(e).__name__}"
                 else:
                     logger.info(
-                        f"[TRACE] Detected MCP endpoint in URL, using standard HTTP handling"
+                        "[TRACE] Detected MCP endpoint in URL, using standard HTTP handling"
                     )
                     response = await client.get(
                         proxy_pass_url, headers=headers, follow_redirects=True
@@ -715,7 +715,7 @@ class HealthMonitoringService:
                         if await self._try_ping_without_auth(client, proxy_pass_url):
                             return True, HealthStatus.HEALTHY
                         else:
-                            return False, f"unhealthy: auth failed and ping without auth failed"
+                            return False, "unhealthy: auth failed and ping without auth failed"
 
                     if self._is_mcp_endpoint_healthy(response):
                         return True, HealthStatus.HEALTHY
@@ -738,7 +738,7 @@ class HealthMonitoringService:
 
         # Try streamable-http first (default preference)
         if "streamable-http" in supported_transports:
-            logger.info(f"[TRACE] Trying streamable-http transport")
+            logger.info("[TRACE] Trying streamable-http transport")
             # Build base headers without session ID
             headers = self._build_headers_for_server(server_info, include_session_id=False)
 
@@ -810,7 +810,7 @@ class HealthMonitoringService:
                             HealthStatus.HEALTHY,
                         )  # TODO: Change back to HEALTHY_AUTH_EXPIRED
                     else:
-                        return False, f"unhealthy: auth failed and ping without auth failed"
+                        return False, "unhealthy: auth failed and ping without auth failed"
 
                 # Check normal health status
                 if self._is_mcp_endpoint_healthy_streamable(response):
@@ -828,7 +828,7 @@ class HealthMonitoringService:
 
         # Fallback to SSE
         if "sse" in supported_transports:
-            logger.info(f"[TRACE] Trying SSE transport")
+            logger.info("[TRACE] Trying SSE transport")
             try:
                 # Resolve SSE endpoint URL using centralized utility
                 # Priority: explicit sse_endpoint > URL detection > append /sse
@@ -843,7 +843,7 @@ class HealthMonitoringService:
                 )
                 if self._is_mcp_endpoint_healthy(response):
                     return True, HealthStatus.HEALTHY
-            except (httpx.TimeoutException, asyncio.TimeoutError) as e:
+            except (TimeoutError, httpx.TimeoutException) as e:
                 # For SSE endpoints, timeout while reading streaming response is normal after getting 200 OK
                 logger.info(
                     f"SSE endpoint {sse_endpoint} timed out while streaming (expected): {e}"
@@ -864,7 +864,7 @@ class HealthMonitoringService:
 
         # If no specific transports, try default streamable-http then sse
         if not supported_transports or supported_transports == []:
-            logger.info(f"[TRACE] No specific transports defined, trying defaults")
+            logger.info("[TRACE] No specific transports defined, trying defaults")
             headers = self._build_headers_for_server(server_info)
 
             # Resolve default streamable-http endpoint using centralized utility
@@ -905,7 +905,7 @@ class HealthMonitoringService:
                 )
                 if self._is_mcp_endpoint_healthy(response):
                     return True, HealthStatus.HEALTHY
-            except (httpx.TimeoutException, asyncio.TimeoutError) as e:
+            except (TimeoutError, httpx.TimeoutException) as e:
                 # For SSE endpoints, timeout while reading streaming response is normal after getting 200 OK
                 logger.info(
                     f"SSE endpoint {sse_endpoint} timed out while streaming (expected): {e}"
@@ -926,7 +926,7 @@ class HealthMonitoringService:
 
         return False, "unhealthy: all transport checks failed"
 
-    def _mask_sensitive_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+    def _mask_sensitive_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """
         Mask sensitive authentication headers for logging.
 
@@ -1115,7 +1115,7 @@ class HealthMonitoringService:
                                         current_mcp_version
                                     )
                                     updated_server_info["mcp_server_version_updated_at"] = (
-                                        datetime.now(timezone.utc).isoformat()
+                                        datetime.now(UTC).isoformat()
                                     )
                                 updated_server_info["mcp_server_version"] = new_ver
                                 logger.info(
@@ -1150,7 +1150,7 @@ class HealthMonitoringService:
         except Exception as e:
             logger.warning(f"Failed to fetch tools for {service_path}: {e}")
 
-    async def get_all_health_status(self) -> Dict:
+    async def get_all_health_status(self) -> dict:
         """Get health status for all services."""
         from ..services.server_service import server_service
 
@@ -1166,8 +1166,9 @@ class HealthMonitoringService:
         self, service_path: str
     ) -> tuple[str, datetime | None]:
         """Perform an immediate health check for a single service."""
-        from ..services.server_service import server_service
         import httpx
+
+        from ..services.server_service import server_service
 
         server_info = await server_service.get_server_info(service_path)
         if not server_info:
@@ -1176,7 +1177,7 @@ class HealthMonitoringService:
         proxy_pass_url = server_info.get("proxy_pass_url")
 
         # Record check time
-        last_checked_time = datetime.now(timezone.utc)
+        last_checked_time = datetime.now(UTC)
         self.server_last_check_time[service_path] = last_checked_time
 
         if not proxy_pass_url:
@@ -1269,13 +1270,12 @@ class HealthMonitoringService:
 
         return current_status, last_checked_time
 
-    def _get_service_health_data(self, service_path: str, server_info: Dict = None) -> Dict:
+    def _get_service_health_data(self, service_path: str, server_info: dict = None) -> dict:
         """Get health data for a specific service - legacy method, use _get_service_health_data_fast for better performance."""
         return self._get_service_health_data_fast(service_path, server_info or {})
 
-    def _get_service_health_data_fast(self, service_path: str, server_info: Dict) -> Dict:
+    def _get_service_health_data_fast(self, service_path: str, server_info: dict) -> dict:
         """Get health data for a specific service - optimized version."""
-        from ..services.server_service import server_service
 
         # Quick enabled check from server_info
         is_enabled = server_info.get("is_enabled", False)

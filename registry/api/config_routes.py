@@ -3,15 +3,16 @@
 import json
 import logging
 import time
+from datetime import UTC
 from enum import Enum
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from ..auth.dependencies import enhanced_auth
-from ..core.config import settings, DeploymentMode, RegistryMode
-from ..core.metrics import CONFIG_VIEW_REQUESTS, CONFIG_EXPORT_REQUESTS
+from ..core.config import DeploymentMode, RegistryMode, settings
+from ..core.metrics import CONFIG_EXPORT_REQUESTS, CONFIG_VIEW_REQUESTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,7 +21,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Rate limiting state (in-memory sliding window, per-user)
 # ---------------------------------------------------------------------------
-_rate_limit_cache: Dict[str, List[float]] = {}
+_rate_limit_cache: dict[str, list[float]] = {}
 RATE_LIMIT_REQUESTS = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
 
@@ -29,7 +30,7 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 # Configuration group definitions — 11 groups, ordered 1-11
 # Each field tuple: (settings_attr_name, display_label, is_sensitive)
 # ---------------------------------------------------------------------------
-CONFIG_GROUPS: Dict[str, Dict[str, Any]] = {
+CONFIG_GROUPS: dict[str, dict[str, Any]] = {
     "deployment": {
         "title": "Deployment Mode",
         "order": 1,
@@ -201,7 +202,7 @@ def _format_value(
     field_name: str,
     value: Any,
     is_sensitive: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Format a configuration value for the API response.
 
     Returns dict with keys: raw, display, is_masked, unit.
@@ -288,12 +289,12 @@ def _check_rate_limit(user_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Response cache (60-second TTL)
 # ---------------------------------------------------------------------------
-_config_cache: Dict[str, Any] = {}
+_config_cache: dict[str, Any] = {}
 _config_cache_time: float = 0
 CONFIG_CACHE_TTL_SECONDS = 60
 
 
-def _get_cached_config_response() -> Dict[str, Any]:
+def _get_cached_config_response() -> dict[str, Any]:
     """Return cached config response, rebuilding if TTL has expired."""
     global _config_cache, _config_cache_time
 
@@ -306,7 +307,7 @@ def _get_cached_config_response() -> Dict[str, Any]:
     return _config_cache
 
 
-def _build_config_response() -> Dict[str, Any]:
+def _build_config_response() -> dict[str, Any]:
     """Build the full configuration response with grouped settings."""
     groups = []
 
@@ -360,7 +361,7 @@ def _build_config_response() -> Dict[str, Any]:
 async def get_full_config(
     request: Request,
     user_context: Annotated[dict, Depends(enhanced_auth)],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get full configuration with grouped parameters."""
     if not user_context.get("is_admin", False):
         raise HTTPException(
@@ -390,18 +391,23 @@ async def get_full_config(
     audit_logger = getattr(request.app.state, "audit_logger", None)
     if audit_logger:
         try:
-            from ..audit.models import (
-                RegistryApiAccessRecord,
-                Identity,
-                Request as AuditRequest,
-                Response as AuditResponse,
-                Action,
-            )
-            from datetime import datetime, timezone
             import uuid
+            from datetime import datetime
+
+            from ..audit.models import (
+                Action,
+                Identity,
+                RegistryApiAccessRecord,
+            )
+            from ..audit.models import (
+                Request as AuditRequest,
+            )
+            from ..audit.models import (
+                Response as AuditResponse,
+            )
 
             record = RegistryApiAccessRecord(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 request_id=str(uuid.uuid4()),
                 identity=Identity(
                     username=username,
@@ -438,7 +444,7 @@ async def get_full_config(
     summary="Get registry configuration",
     description="Returns the current deployment mode, registry mode, and enabled features",
 )
-async def get_config() -> Dict[str, Any]:
+async def get_config() -> dict[str, Any]:
     """Get current registry configuration."""
     return {
         "deployment_mode": settings.deployment_mode.value,
@@ -510,9 +516,9 @@ def _export_as_json(include_sensitive: bool = False) -> str:
 
     Uses json.dumps with default=str for non-serialisable types.
     """
-    config: Dict[str, Dict[str, Any]] = {}
+    config: dict[str, dict[str, Any]] = {}
     for group_id, group_def in CONFIG_GROUPS.items():
-        group_config: Dict[str, Any] = {}
+        group_config: dict[str, Any] = {}
         for field_name, _display_name, is_sensitive in group_def["fields"]:
             value = _get_field_value(field_name)
             sensitive = is_sensitive or _is_sensitive_field(field_name)
@@ -705,18 +711,23 @@ async def export_config(
     audit_logger = getattr(request.app.state, "audit_logger", None)
     if audit_logger:
         try:
-            from ..audit.models import (
-                RegistryApiAccessRecord,
-                Identity,
-                Request as AuditRequest,
-                Response as AuditResponse,
-                Action,
-            )
-            from datetime import datetime, timezone
             import uuid
+            from datetime import datetime
+
+            from ..audit.models import (
+                Action,
+                Identity,
+                RegistryApiAccessRecord,
+            )
+            from ..audit.models import (
+                Request as AuditRequest,
+            )
+            from ..audit.models import (
+                Response as AuditResponse,
+            )
 
             record = RegistryApiAccessRecord(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 request_id=str(uuid.uuid4()),
                 identity=Identity(
                     username=username,

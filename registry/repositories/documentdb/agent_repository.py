@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
@@ -11,7 +11,6 @@ from ...schemas.agent_models import AgentCard
 from ..interfaces import AgentRepositoryBase
 from .client import get_collection_name, get_documentdb_client
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +18,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
     """DocumentDB implementation of agent repository."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("mcp_agents")
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
@@ -43,7 +42,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
     async def get(
         self,
         path: str,
-    ) -> Optional[AgentCard]:
+    ) -> AgentCard | None:
         """Get agent by path."""
         collection = await self._get_collection()
 
@@ -58,7 +57,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
             logger.error(f"Error getting agent '{path}' from DocumentDB: {e}", exc_info=True)
             return None
 
-    async def list_all(self) -> List[AgentCard]:
+    async def list_all(self) -> list[AgentCard]:
         """List all agents."""
         collection = await self._get_collection()
 
@@ -112,7 +111,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
     async def update(
         self,
         path: str,
-        updates: Dict[str, Any],
+        updates: dict[str, Any],
     ) -> AgentCard:
         """Update an existing agent."""
         existing_agent = await self.get(path)
@@ -177,7 +176,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
     async def get_state(
         self,
         path: str = None,
-    ) -> Dict[str, List[str]] | bool:
+    ) -> dict[str, list[str]] | bool:
         """Get agent state."""
         if path is None:
             collection = await self._get_collection()
@@ -235,7 +234,7 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
 
     async def save_state(
         self,
-        state: Dict[str, List[str]],
+        state: dict[str, list[str]],
     ) -> None:
         """Save agent state (compatibility method for file repository interface)."""
         logger.debug(

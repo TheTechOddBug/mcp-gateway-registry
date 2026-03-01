@@ -14,10 +14,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.services.skill_scanner import SkillScannerService
-
 
 VALID_SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 VALID_ANALYZERS = ["static", "behavioral", "llm", "meta", "virustotal", "ai-defense"]

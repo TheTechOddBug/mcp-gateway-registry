@@ -2,15 +2,13 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
-from ...core.config import settings
 from ..interfaces import ServerRepositoryBase
 from .client import get_collection_name, get_documentdb_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
     """DocumentDB implementation of server repository."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("mcp_servers")
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
@@ -43,7 +41,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
     async def get(
         self,
         path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get server by path."""
         logger.debug(
             f"DocumentDB READ: Getting server with path='{path}' from collection '{self._collection_name}'"
@@ -64,7 +62,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
             logger.error(f"Error getting server '{path}' from DocumentDB: {e}", exc_info=True)
             return None
 
-    async def list_all(self) -> Dict[str, Dict[str, Any]]:
+    async def list_all(self) -> dict[str, dict[str, Any]]:
         """List all servers."""
         logger.debug(
             f"DocumentDB READ: Listing all servers from collection '{self._collection_name}'"
@@ -89,7 +87,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
     async def list_by_source(
         self,
         source: str,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """List all servers from a specific federation source.
 
         Args:
@@ -122,7 +120,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
 
     async def create(
         self,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> bool:
         """Create a new server."""
         path = server_info["path"]
@@ -155,7 +153,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
     async def update(
         self,
         path: str,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> bool:
         """Update an existing server."""
         logger.debug(

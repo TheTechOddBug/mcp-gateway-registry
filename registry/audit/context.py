@@ -5,7 +5,6 @@ This module provides helper functions for setting audit action context
 in route handlers, which is then captured by the AuditMiddleware.
 """
 
-from typing import Optional
 
 from fastapi import Request
 
@@ -14,8 +13,8 @@ def set_audit_action(
     request: Request,
     operation: str,
     resource_type: str,
-    resource_id: Optional[str] = None,
-    description: Optional[str] = None,
+    resource_id: str | None = None,
+    description: str | None = None,
 ) -> None:
     """
     Set audit action context on the request for the AuditMiddleware.
@@ -47,8 +46,8 @@ def set_audit_action(
 def set_audit_authorization(
     request: Request,
     decision: str,
-    required_permission: Optional[str] = None,
-    evaluated_scopes: Optional[list] = None,
+    required_permission: str | None = None,
+    evaluated_scopes: list | None = None,
 ) -> None:
     """
     Set authorization decision context on the request for the AuditMiddleware.

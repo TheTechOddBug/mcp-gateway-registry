@@ -8,17 +8,17 @@ from either DocumentDB or YAML file backends.
 import asyncio
 import logging
 import os
-import yaml
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
+import yaml
 
 logger = logging.getLogger(__name__)
 
 
 async def load_scopes_from_repository(
     max_retries: int = 5, initial_delay: float = 2.0
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Load scopes configuration from repository with retry logic.
 
@@ -122,7 +122,7 @@ async def load_scopes_from_repository(
     return {"group_mappings": {}}
 
 
-def load_scopes_from_yaml(scopes_path: Optional[str] = None) -> Dict[str, Any]:
+def load_scopes_from_yaml(scopes_path: str | None = None) -> dict[str, Any]:
     """
     Load scopes configuration from YAML file.
 
@@ -151,7 +151,7 @@ def load_scopes_from_yaml(scopes_path: Optional[str] = None) -> Dict[str, Any]:
             logger.warning(f"Scopes config file not found at {scopes_file}")
             return {"group_mappings": {}}
 
-        with open(scopes_file, "r") as f:
+        with open(scopes_file) as f:
             config = yaml.safe_load(f)
             logger.info(
                 f"Loaded scopes from YAML with "
@@ -164,7 +164,7 @@ def load_scopes_from_yaml(scopes_path: Optional[str] = None) -> Dict[str, Any]:
         return {"group_mappings": {}}
 
 
-async def reload_scopes_config(storage_backend: Optional[str] = None) -> Dict[str, Any]:
+async def reload_scopes_config(storage_backend: str | None = None) -> dict[str, Any]:
     """
     Reload scopes configuration from configured backend (async version).
 

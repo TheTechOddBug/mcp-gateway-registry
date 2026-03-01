@@ -12,23 +12,18 @@ import logging
 from datetime import datetime
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
 
 from motor.motor_asyncio import AsyncIOMotorCollection
-
 from pymongo.errors import DuplicateKeyError
 
 from ...exceptions import (
     SkillAlreadyExistsError,
     SkillServiceError,
 )
-from ..interfaces import SkillRepositoryBase
 from ...schemas.skill_models import SkillCard
+from ..interfaces import SkillRepositoryBase
 from .client import get_collection_name, get_documentdb_client
-
 
 # Configure logging
 logging.basicConfig(
@@ -40,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 def _skill_to_document(
     skill: SkillCard,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Convert SkillCard to MongoDB document."""
     doc = skill.model_dump(mode="json")
     doc["_id"] = skill.path
@@ -48,7 +43,7 @@ def _skill_to_document(
 
 
 def _document_to_skill(
-    doc: Dict[str, Any],
+    doc: dict[str, Any],
 ) -> SkillCard:
     """Convert MongoDB document to SkillCard."""
     doc_copy = dict(doc)
@@ -60,7 +55,7 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
     """MongoDB implementation for skill storage."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("agent_skills")
         self._indexes_created = False
 
@@ -107,7 +102,7 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
     async def get(
         self,
         path: str,
-    ) -> Optional[SkillCard]:
+    ) -> SkillCard | None:
         """Get a skill by path."""
         await self.ensure_indexes()
         collection = await self._get_collection()
@@ -120,7 +115,7 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
         self,
         skip: int = 0,
         limit: int = 100,
-    ) -> List[SkillCard]:
+    ) -> list[SkillCard]:
         """List all skills with pagination.
 
         Args:
@@ -144,15 +139,15 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
     async def list_filtered(
         self,
         include_disabled: bool = False,
-        tag: Optional[str] = None,
-        visibility: Optional[str] = None,
-        registry_name: Optional[str] = None,
-    ) -> List[SkillCard]:
+        tag: str | None = None,
+        visibility: str | None = None,
+        registry_name: str | None = None,
+    ) -> list[SkillCard]:
         """List skills with database-level filtering."""
         await self.ensure_indexes()
         collection = await self._get_collection()
 
-        query: Dict[str, Any] = {}
+        query: dict[str, Any] = {}
 
         if not include_disabled:
             query["is_enabled"] = True
@@ -198,8 +193,8 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
     async def update(
         self,
         path: str,
-        updates: Dict[str, Any],
-    ) -> Optional[SkillCard]:
+        updates: dict[str, Any],
+    ) -> SkillCard | None:
         """Update a skill."""
         await self.ensure_indexes()
         collection = await self._get_collection()
@@ -260,8 +255,8 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
 
     async def create_many(
         self,
-        skills: List[SkillCard],
-    ) -> List[SkillCard]:
+        skills: list[SkillCard],
+    ) -> list[SkillCard]:
         """Create multiple skills in single operation."""
         await self.ensure_indexes()
         collection = await self._get_collection()
@@ -281,7 +276,7 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
 
     async def update_many(
         self,
-        updates: Dict[str, Dict[str, Any]],
+        updates: dict[str, dict[str, Any]],
     ) -> int:
         """Update multiple skills by path, return count."""
         await self.ensure_indexes()

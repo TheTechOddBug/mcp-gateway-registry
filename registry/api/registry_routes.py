@@ -9,7 +9,7 @@ Spec: https://raw.githubusercontent.com/modelcontextprotocol/registry/refs/heads
 """
 
 import logging
-from typing import Annotated, Optional
+from typing import Annotated
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,7 +23,6 @@ from ..services.transform_service import (
     transform_to_server_list,
     transform_to_server_response,
 )
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,9 +44,9 @@ router = APIRouter(
     description="Returns a paginated list of all registered MCP servers that the authenticated user can access.",
 )
 async def list_servers(
-    cursor: Annotated[Optional[str], Query(description="Pagination cursor")] = None,
+    cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
     limit: Annotated[
-        Optional[int], Query(description="Maximum number of items", ge=1, le=1000)
+        int | None, Query(description="Maximum number of items", ge=1, le=1000)
     ] = None,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
 ) -> ServerList:

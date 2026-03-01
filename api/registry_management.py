@@ -226,55 +226,25 @@ import os
 import subprocess  # nosec B404
 import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from registry_client import (
-    RegistryClient,
-    InternalServiceRegistration,
-    ServerListResponse,
-    ToggleResponse,
-    GroupListResponse,
-    AgentRegistration,
     AgentProvider,
-    AgentVisibility,
-    Skill,
-    AgentListResponse,
-    AgentDetail,
-    AgentToggleResponse,
-    AgentDiscoveryResponse,
-    AgentSemanticDiscoveryResponse,
-    RatingResponse,
-    RatingInfoResponse,
-    AgentSecurityScanResponse,
+    AgentRegistration,
     AgentRescanResponse,
+    AgentSecurityScanResponse,
+    AgentVisibility,
     AnthropicServerList,
     AnthropicServerResponse,
-    M2MAccountRequest,
-    HumanUserRequest,
-    UserSummary,
-    UserListResponse,
-    UserDeleteResponse,
-    M2MAccountResponse,
-    GroupCreateRequest,
-    GroupSummary,
-    GroupDeleteResponse,
+    InternalServiceRegistration,
+    RatingInfoResponse,
+    RatingResponse,
+    RegistryClient,
+    Skill,
     SkillRegistrationRequest,
-    SkillCard,
-    SkillListResponse,
-    SkillHealthResponse,
-    SkillContentResponse,
-    SkillSearchResponse,
-    SkillToggleResponse,
-    SkillRatingResponse,
-    SkillSecurityScanResponse,
-    SkillRescanResponse,
     ToolMapping,
     ToolScopeOverride,
     VirtualServerCreateRequest,
-    VirtualServerConfig,
-    VirtualServerListResponse,
-    VirtualServerToggleResponse,
-    VirtualServerDeleteResponse,
 )
 
 # Configure logging
@@ -285,7 +255,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _get_registry_url(cli_value: Optional[str] = None) -> str:
+def _get_registry_url(cli_value: str | None = None) -> str:
     """
     Get registry URL from command-line argument or environment variable.
 
@@ -314,7 +284,7 @@ def _get_registry_url(cli_value: Optional[str] = None) -> str:
 
 def _mask_sensitive_fields(
     data: Any,
-    fields_to_mask: Optional[List[str]] = None,
+    fields_to_mask: list[str] | None = None,
 ) -> Any:
     """
     Mask sensitive fields in response data for safe logging/printing.
@@ -374,7 +344,7 @@ def _get_token_script() -> str:
     return script_path
 
 
-def _get_jwt_token(aws_region: Optional[str] = None, keycloak_url: Optional[str] = None) -> str:
+def _get_jwt_token(aws_region: str | None = None, keycloak_url: str | None = None) -> str:
     """
     Retrieve JWT token using get-m2m-token.sh script.
 
@@ -423,7 +393,7 @@ def _get_jwt_token(aws_region: Optional[str] = None, keycloak_url: Optional[str]
         raise RuntimeError(f"Token retrieval error: {e}") from e
 
 
-def _load_json_config(config_path: str) -> Dict[str, Any]:
+def _load_json_config(config_path: str) -> dict[str, Any]:
     """
     Load JSON configuration file.
 
@@ -442,7 +412,7 @@ def _load_json_config(config_path: str) -> Dict[str, Any]:
     if not config_file.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    with open(config_file, "r") as f:
+    with open(config_file) as f:
         config = json.load(f)
 
     logger.debug(f"Loaded configuration from {config_path}")
@@ -482,7 +452,7 @@ def _create_client(args: argparse.Namespace) -> RegistryClient:
 
         # Try to parse as JSON first (token files from generate-agent-token.sh or UI)
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 token_data = json.load(f)
             # Extract access_token - handle multiple JSON formats:
             # Format 1: {"access_token": "..."} (from generate-agent-token.sh)
@@ -882,7 +852,7 @@ def cmd_import_group(args: argparse.Namespace) -> int:
 
     try:
         # Read JSON file
-        with open(args.file, "r") as f:
+        with open(args.file) as f:
             group_definition = json.load(f)
 
         # Validate required field
@@ -963,7 +933,7 @@ def cmd_list_groups(args: argparse.Namespace) -> int:
         # Summary
         total_keycloak = len(response.keycloak_groups)
         total_scopes = len(response.scopes_groups)
-        print(f"\n=== Summary ===")
+        print("\n=== Summary ===")
         print(f"Total Keycloak groups: {total_keycloak}")
         print(f"Total Scopes groups: {total_scopes}")
         print(f"Synchronized: {len(response.synchronized)}")
@@ -1193,7 +1163,7 @@ def cmd_rescan(args: argparse.Namespace) -> int:
             logger.info(f"  Status: {safety_status}")
             logger.info(f"  Scan timestamp: {response.scan_timestamp}")
             logger.info(f"  Analyzers used: {', '.join(response.analyzers_used)}")
-            logger.info(f"\n  Severity counts:")
+            logger.info("\n  Severity counts:")
             logger.info(f"    Critical: {response.critical_issues}")
             logger.info(f"    High: {response.high_severity}")
             logger.info(f"    Medium: {response.medium_severity}")
@@ -1496,7 +1466,7 @@ def cmd_agent_register(args: argparse.Namespace) -> int:
             logger.error(f"Config file not found: {config_path}")
             return 1
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = json.load(f)
 
         # Convert skills list of dicts to Skill objects
@@ -1607,7 +1577,7 @@ def cmd_agent_register(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.error(f"Agent registration failed: {e}")
-        logger.debug(f"Full error details:", exc_info=True)
+        logger.debug("Full error details:", exc_info=True)
         return 1
 
 
@@ -1710,7 +1680,7 @@ def cmd_agent_update(args: argparse.Namespace) -> int:
             logger.error(f"Config file not found: {config_path}")
             return 1
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = json.load(f)
 
         # Convert skills list of dicts to Skill objects
@@ -1796,7 +1766,7 @@ def cmd_agent_update(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.error(f"Agent update failed: {e}")
-        logger.debug(f"Full error details:", exc_info=True)
+        logger.debug("Full error details:", exc_info=True)
         return 1
 
 
@@ -2038,7 +2008,7 @@ def cmd_agent_rescan(args: argparse.Namespace) -> int:
             logger.info(f"  Status: {safety_status}")
             logger.info(f"  Scan timestamp: {response.scan_timestamp}")
             logger.info(f"  Analyzers used: {', '.join(response.analyzers_used)}")
-            logger.info(f"\n  Severity counts:")
+            logger.info("\n  Severity counts:")
             logger.info(f"    Critical: {response.critical_issues}")
             logger.info(f"    High: {response.high_severity}")
             logger.info(f"    Medium: {response.medium_severity}")
@@ -2584,7 +2554,7 @@ def cmd_anthropic_get_server(args: argparse.Namespace) -> int:
         print(f"Website: {server.websiteUrl or 'N/A'}")
 
         if server.repository:
-            print(f"\nRepository:")
+            print("\nRepository:")
             print(f"  URL: {server.repository.url}")
             print(f"  Source: {server.repository.source}")
             if server.repository.id:
@@ -2601,11 +2571,11 @@ def cmd_anthropic_get_server(args: argparse.Namespace) -> int:
                     print(f"     Runtime: {package.runtimeHint}")
 
         if server.meta:
-            print(f"\nMetadata:")
+            print("\nMetadata:")
             print(json.dumps(server.meta, indent=2))
 
         if result.meta:
-            print(f"\nRegistry Metadata:")
+            print("\nRegistry Metadata:")
             print(json.dumps(result.meta, indent=2))
 
         return 0
@@ -2680,7 +2650,7 @@ def cmd_user_create_m2m(args: argparse.Namespace) -> int:
             else None,
         )
 
-        logger.info(f"M2M account created successfully\n")
+        logger.info("M2M account created successfully\n")
         print(f"Client ID: {result.client_id}")
         print(f"Client Secret: {result.client_secret}")
         print(f"Groups: {', '.join(result.groups)}")
@@ -2718,7 +2688,7 @@ def cmd_user_create_human(args: argparse.Namespace) -> int:
             password=args.password if hasattr(args, "password") and args.password else None,
         )
 
-        logger.info(f"User created successfully\n")
+        logger.info("User created successfully\n")
         print(f"Username: {result.username}")
         print(f"User ID: {result.id}")
         print(f"Email: {result.email or 'N/A'}")
@@ -2890,7 +2860,7 @@ def cmd_federation_save(args: argparse.Namespace) -> int:
         client = _create_client(args)
 
         # Load config from file
-        with open(args.config, "r") as f:
+        with open(args.config) as f:
             config_data = json.load(f)
 
         response = client.save_federation_config(config=config_data, config_id=args.config_id)
@@ -3091,7 +3061,7 @@ def cmd_federation_sync(args: argparse.Namespace) -> int:
         else:
             # Formatted output
             logger.info(f"Federation sync completed: {response.get('message')}")
-            print(f"\nSync Results:")
+            print("\nSync Results:")
             print(f"  Config ID: {response.get('config_id')}")
             print(f"  Total Synced: {response.get('total_synced', 0)}")
 
@@ -3174,7 +3144,7 @@ def cmd_peer_add(args: argparse.Namespace) -> int:
     try:
         client = _create_client(args)
 
-        with open(args.config, "r") as f:
+        with open(args.config) as f:
             config_data = json.load(f)
 
         # Override federation_token from CLI arg if provided
@@ -3257,7 +3227,7 @@ def cmd_peer_update(args: argparse.Namespace) -> int:
     try:
         client = _create_client(args)
 
-        with open(args.config, "r") as f:
+        with open(args.config) as f:
             config_data = json.load(f)
 
         # Override federation_token from CLI arg if provided
@@ -3372,7 +3342,7 @@ def cmd_peer_sync(args: argparse.Namespace) -> int:
         # SyncResult has 'error_message' (singular), not 'errors' (plural)
         error_msg = response.get("error_message")
         if error_msg:
-            print(f"\n  Error:")
+            print("\n  Error:")
             print(f"    {error_msg}")
 
         return 0 if success else 1
@@ -3401,7 +3371,7 @@ def cmd_peer_sync_all(args: argparse.Namespace) -> int:
             return 0
 
         results = response if isinstance(response, list) else response.get("results", [])
-        print(f"\nSync All Peers Results:")
+        print("\nSync All Peers Results:")
         print(f"  Total peers synced: {len(results)}")
 
         for result in results:
@@ -3605,7 +3575,7 @@ def cmd_vs_create(args: argparse.Namespace) -> int:
         client = _create_client(args)
 
         # Load config from file
-        with open(args.config, "r") as f:
+        with open(args.config) as f:
             config_data = json.load(f)
 
         # Build tool mappings
@@ -3756,7 +3726,7 @@ def cmd_vs_get(args: argparse.Namespace) -> int:
             print(f"      Backend: {mapping.backend_server_path}{version_info}")
 
         if result.tool_scope_overrides:
-            print(f"\n  Tool Scope Overrides:")
+            print("\n  Tool Scope Overrides:")
             for override in result.tool_scope_overrides:
                 print(f"    - {override.tool_alias}: {', '.join(override.required_scopes)}")
 
@@ -3785,7 +3755,7 @@ def cmd_vs_update(args: argparse.Namespace) -> int:
         client = _create_client(args)
 
         # Load config from file
-        with open(args.config, "r") as f:
+        with open(args.config) as f:
             config_data = json.load(f)
 
         # Build tool mappings

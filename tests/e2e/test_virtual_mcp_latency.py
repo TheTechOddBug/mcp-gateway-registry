@@ -20,10 +20,6 @@ import urllib.error
 import urllib.request
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
 )
 
 logging.basicConfig(
@@ -60,7 +56,7 @@ def _refresh_token() -> str:
         logger.error("Token refresh failed: %s", result.stderr)
         raise RuntimeError(f"Token refresh failed: {result.stderr}")
 
-    with open(token_path, "r") as f:
+    with open(token_path) as f:
         token_data = json.load(f)
 
     access_token = token_data.get("access_token")
@@ -73,7 +69,7 @@ def _refresh_token() -> str:
 
 def _parse_sse_response(
     raw_body: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Parse an SSE or plain JSON response body.
 
     SSE responses have lines like:
@@ -112,10 +108,10 @@ def _parse_sse_response(
 
 def _send_mcp_request(
     url: str,
-    payload: Dict[str, Any],
-    token: Optional[str] = None,
-    session_id: Optional[str] = None,
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    payload: dict[str, Any],
+    token: str | None = None,
+    session_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Send an MCP JSON-RPC request and return (parsed_response, session_id).
 
     Args:
@@ -164,8 +160,8 @@ def _send_mcp_request(
 
 def _initialize_session(
     url: str,
-    token: Optional[str] = None,
-) -> Optional[str]:
+    token: str | None = None,
+) -> str | None:
     """Send an MCP initialize request and return the session ID."""
     payload = {
         "jsonrpc": "2.0",
@@ -204,10 +200,10 @@ def _initialize_session(
 
 def _timed_request(
     url: str,
-    payload: Dict[str, Any],
-    token: Optional[str] = None,
-    session_id: Optional[str] = None,
-) -> Tuple[float, Optional[Dict[str, Any]]]:
+    payload: dict[str, Any],
+    token: str | None = None,
+    session_id: str | None = None,
+) -> tuple[float, dict[str, Any] | None]:
     """Send an MCP request and return (elapsed_ms, parsed_response)."""
     start = time.perf_counter()
     resp, _ = _send_mcp_request(url, payload, token=token, session_id=session_id)
@@ -218,12 +214,12 @@ def _timed_request(
 def _run_benchmark(
     label: str,
     url: str,
-    payload: Dict[str, Any],
-    token: Optional[str] = None,
-    session_id: Optional[str] = None,
+    payload: dict[str, Any],
+    token: str | None = None,
+    session_id: str | None = None,
     warmup: int = WARMUP_ITERATIONS,
     iterations: int = MEASURED_ITERATIONS,
-) -> Optional[Dict[str, float]]:
+) -> dict[str, float] | None:
     """Run a benchmark: warmup + measured iterations.
 
     Returns dict with min, max, mean, median, p95, p99 in ms,
@@ -240,7 +236,7 @@ def _run_benchmark(
             logger.debug("  warmup %d/%d: %.1f ms", i + 1, warmup, elapsed)
 
     # Measured iterations
-    latencies: List[float] = []
+    latencies: list[float] = []
     failures = 0
     for i in range(iterations):
         elapsed, resp = _timed_request(url, payload, token=token, session_id=session_id)
@@ -291,9 +287,9 @@ def _run_benchmark(
 
 
 def _compute_overhead(
-    virtual_stats: Dict[str, float],
-    direct_stats: Dict[str, float],
-) -> Dict[str, float]:
+    virtual_stats: dict[str, float],
+    direct_stats: dict[str, float],
+) -> dict[str, float]:
     """Compute overhead = virtual - direct for each stat."""
     return {
         key: virtual_stats[key] - direct_stats[key]
@@ -302,7 +298,7 @@ def _compute_overhead(
 
 
 def _print_table(
-    rows: List[Tuple[str, Optional[Dict[str, float]]]],
+    rows: list[tuple[str, dict[str, float] | None]],
 ) -> None:
     """Print a formatted results table."""
     header = (
@@ -336,7 +332,7 @@ def _print_table(
     print()
 
 
-def _build_method_configs() -> List[Dict[str, Any]]:
+def _build_method_configs() -> list[dict[str, Any]]:
     """Build the list of method benchmark configurations.
 
     Returns a list of dicts, each with:
@@ -482,7 +478,7 @@ def main() -> None:
     }
 
     method_configs = _build_method_configs()
-    table_rows: List[Tuple[str, Optional[Dict[str, float]]]] = []
+    table_rows: list[tuple[str, dict[str, float] | None]] = []
 
     for config in method_configs:
         method_name = config["name"]
@@ -515,7 +511,7 @@ def main() -> None:
             # Compute overhead
             if virtual_stats and direct_stats:
                 overhead = _compute_overhead(virtual_stats, direct_stats)
-                table_rows.append((f"  overhead", overhead))
+                table_rows.append(("  overhead", overhead))
             else:
                 table_rows.append(("  overhead", None))
         else:
@@ -538,7 +534,7 @@ def main() -> None:
 
 
 def _print_results_table(
-    rows: List[Tuple[str, Optional[Dict[str, float]]]],
+    rows: list[tuple[str, dict[str, float] | None]],
 ) -> None:
     """Print formatted results table with visual grouping."""
     header = (

@@ -11,7 +11,6 @@ Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fer
 
 import logging
 import os
-from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -26,7 +25,7 @@ PLAINTEXT_FIELD: str = "federation_token"
 ENCRYPTED_FIELD: str = "federation_token_encrypted"
 
 
-def _get_fernet() -> Optional[Fernet]:
+def _get_fernet() -> Fernet | None:
     """Get a Fernet instance from the FEDERATION_ENCRYPTION_KEY env var.
 
     Returns:
@@ -76,7 +75,7 @@ def encrypt_federation_token(
 
 def decrypt_federation_token(
     encrypted_token: str,
-) -> Optional[str]:
+) -> str | None:
     """Decrypt a federation token from storage.
 
     Args:

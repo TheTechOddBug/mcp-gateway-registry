@@ -3,8 +3,8 @@ Cognito utilities for token generation and AWS Cognito operations.
 """
 
 import logging
+
 import requests
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +14,9 @@ def generate_token(
     client_secret: str,
     user_pool_id: str,
     region: str,
-    scopes: List[str] = None,
+    scopes: list[str] = None,
     domain: str = None,
-) -> Dict:
+) -> dict:
     """
     Generate a token using the client credentials flow
 
@@ -59,7 +59,7 @@ def generate_token(
         response.raise_for_status()
 
         token_data = response.json()
-        logger.info(f"Successfully obtained client credentials token")
+        logger.info("Successfully obtained client credentials token")
         return token_data
 
     except Exception as e:

@@ -17,8 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 VIRTUAL_SERVER_ENDPOINT = "http://localhost/virtual/e2e-multi-backend/mcp"
@@ -52,7 +51,7 @@ def _refresh_token() -> str:
     if result.returncode != 0:
         raise RuntimeError(f"Token refresh failed (exit {result.returncode}):\n{result.stderr}")
 
-    with open(TOKEN_FILE, "r") as f:
+    with open(TOKEN_FILE) as f:
         token_data = json.load(f)
 
     access_token = token_data.get("access_token")
@@ -64,8 +63,8 @@ def _refresh_token() -> str:
 
 def _build_headers(
     token: str,
-    session_id: Optional[str] = None,
-) -> Dict[str, str]:
+    session_id: str | None = None,
+) -> dict[str, str]:
     """Build HTTP headers for MCP requests."""
     headers = {
         "Content-Type": "application/json",
@@ -80,7 +79,7 @@ def _build_headers(
 def _parse_response(
     raw: str,
     content_type: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Parse a response that may be JSON or SSE format.
 
     Returns:
@@ -95,10 +94,10 @@ def _parse_response(
 
 
 def _send_request(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     token: str,
-    session_id: Optional[str] = None,
-) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    session_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
     """Send a JSON-RPC request to the virtual MCP endpoint.
 
     Returns:
@@ -138,9 +137,9 @@ def _send_request(
 def _send_raw_http(
     method: str,
     token: str,
-    session_id: Optional[str] = None,
-    body: Optional[bytes] = None,
-) -> Tuple[int, str, Dict[str, str]]:
+    session_id: str | None = None,
+    body: bytes | None = None,
+) -> tuple[int, str, dict[str, str]]:
     """Send a raw HTTP request (GET/DELETE/POST) and return status, body, headers.
 
     Returns:
@@ -175,9 +174,9 @@ class VirtualMCPProtocolTests:
 
     def __init__(self) -> None:
         self._token: str = ""
-        self._session_id: Optional[str] = None
+        self._session_id: str | None = None
         self._request_id: int = 0
-        self._results: List[Tuple[str, bool, str]] = []
+        self._results: list[tuple[str, bool, str]] = []
 
     def _next_id(self) -> int:
         self._request_id += 1

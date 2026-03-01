@@ -136,6 +136,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)
@@ -156,6 +157,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)
@@ -176,6 +178,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)
@@ -196,6 +199,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)
@@ -216,6 +220,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)
@@ -236,6 +241,7 @@ class TestGetIAMManagerFactory:
 
         # Need to reimport to pick up the new env var
         import importlib
+
         import registry.utils.iam_manager as iam_module
 
         importlib.reload(iam_module)

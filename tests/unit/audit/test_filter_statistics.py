@@ -7,13 +7,9 @@ endpoints, plus the repository distinct() and aggregate() methods.
 Validates: Issue #572
 """
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from registry.repositories.audit_repository import DocumentDBAuditRepository
-
 
 # =============================================================================
 # Repository: distinct() method

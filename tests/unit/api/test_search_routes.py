@@ -106,7 +106,6 @@ def mock_server_and_agent_service_db_calls():
     # Mock get_agent_info method to return agent info based on path
     async def get_agent_info(path: str):
         # Return mock agent card for known paths
-        from registry.schemas.agent_models import AgentCard
         from tests.fixtures.factories import AgentCardFactory
 
         if "code-reviewer" in path:

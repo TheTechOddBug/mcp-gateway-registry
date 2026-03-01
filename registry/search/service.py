@@ -1,22 +1,20 @@
-import json
 import asyncio
+import json
 import logging
-from datetime import datetime
 import re
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime
+from typing import Any
 
 import faiss
 import numpy as np
 from pydantic import HttpUrl
 
 from ..core.config import settings
-from ..core.schemas import ServerInfo
-from ..schemas.agent_models import AgentCard
 from ..embeddings import (
     EmbeddingsClient,
     create_embeddings_client,
 )
+from ..schemas.agent_models import AgentCard
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +38,9 @@ class FaissService:
     """Service for managing FAISS vector database operations."""
 
     def __init__(self):
-        self.embedding_model: Optional[EmbeddingsClient] = None
-        self.faiss_index: Optional[faiss.IndexIDMap] = None
-        self.metadata_store: Dict[str, Dict[str, Any]] = {}
+        self.embedding_model: EmbeddingsClient | None = None
+        self.faiss_index: faiss.IndexIDMap | None = None
+        self.metadata_store: dict[str, dict[str, Any]] = {}
         self.next_id_counter: int = 0
 
     async def initialize(self):
@@ -111,7 +109,7 @@ class FaissService:
                 self.faiss_index = faiss.read_index(str(settings.faiss_index_path))
 
                 logger.info(f"Loading FAISS metadata from {settings.faiss_metadata_path}")
-                with open(settings.faiss_metadata_path, "r") as f:
+                with open(settings.faiss_metadata_path) as f:
                     loaded_metadata = json.load(f)
                     self.metadata_store = loaded_metadata.get("metadata", {})
                     self.next_id_counter = loaded_metadata.get("next_id", 0)
@@ -175,7 +173,7 @@ class FaissService:
         except Exception as e:
             logger.error(f"Error saving FAISS data: {e}", exc_info=True)
 
-    def _get_text_for_embedding(self, server_info: Dict[str, Any]) -> str:
+    def _get_text_for_embedding(self, server_info: dict[str, Any]) -> str:
         """Prepare text string from server info (including tools and metadata) for embedding."""
         name = server_info.get("server_name", "")
         description = server_info.get("description", "")
@@ -261,7 +259,7 @@ class FaissService:
         return "\n".join(text_parts)
 
     async def add_or_update_service(
-        self, service_path: str, server_info: Dict[str, Any], is_enabled: bool = False
+        self, service_path: str, server_info: dict[str, Any], is_enabled: bool = False
     ):
         """Add or update a service in the FAISS index."""
         if self.embedding_model is None or self.faiss_index is None:
@@ -528,7 +526,7 @@ class FaissService:
         self,
         query: str,
         max_results: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search for agents in the FAISS index."""
         results = await self.search_mixed(
             query=query,
@@ -540,7 +538,7 @@ class FaissService:
     async def add_or_update_entity(
         self,
         entity_path: str,
-        entity_info: Dict[str, Any],
+        entity_info: dict[str, Any],
         entity_type: str,
         is_enabled: bool = False,
     ) -> None:
@@ -575,10 +573,10 @@ class FaissService:
     async def search_entities(
         self,
         query: str,
-        entity_types: Optional[List[str]] = None,
+        entity_types: list[str] | None = None,
         enabled_only: bool = False,
         max_results: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Wrapper method for searching entities.
 
@@ -593,7 +591,7 @@ class FaissService:
             max_results=max_results,
         )
 
-        combined: List[Dict[str, Any]] = []
+        combined: list[dict[str, Any]] = []
         requested = set(entity_types)
 
         if "agents" in results and "a2a_agent" in requested:
@@ -693,7 +691,7 @@ class FaissService:
     def _calculate_keyword_boost(
         self,
         query: str,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> float:
         """Calculate keyword match boost for hybrid search.
 
@@ -822,8 +820,8 @@ class FaissService:
     def _extract_matching_tools(
         self,
         query: str,
-        server_info: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
+        server_info: dict[str, Any],
+    ) -> list[dict[str, Any]]:
         """Extract tool matches using keyword overlap and server name matching.
 
         When the query contains the server name (e.g., "context7"), all tools
@@ -908,7 +906,7 @@ class FaissService:
             for token in tokens
         )
 
-        matches: List[Tuple[float, Dict[str, Any]]] = []
+        matches: list[tuple[float, dict[str, Any]]] = []
         for tool in tools:
             tool_name = tool.get("name", "")
             parsed_description = tool.get("parsed_description", {}) or {}
@@ -982,9 +980,9 @@ class FaissService:
     async def search_mixed(
         self,
         query: str,
-        entity_types: Optional[List[str]] = None,
+        entity_types: list[str] | None = None,
         max_results: int = 20,
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         """
         Run a semantic search across MCP servers, their tools, and A2A agents.
 
@@ -1030,11 +1028,11 @@ class FaissService:
 
         id_to_path = {entry.get("id"): path for path, entry in self.metadata_store.items()}
 
-        server_results: List[Dict[str, Any]] = []
-        tool_results: List[Dict[str, Any]] = []
-        agent_results: List[Dict[str, Any]] = []
+        server_results: list[dict[str, Any]] = []
+        tool_results: list[dict[str, Any]] = []
+        agent_results: list[dict[str, Any]] = []
 
-        for distance, faiss_id in zip(distance_row, id_row):
+        for distance, faiss_id in zip(distance_row, id_row, strict=False):
             if faiss_id == -1:
                 continue
 
@@ -1061,7 +1059,7 @@ class FaissService:
                     or server_info.get("path")
                 )
 
-                matching_tools: List[Dict[str, Any]] = []
+                matching_tools: list[dict[str, Any]] = []
                 if "tool" in entity_filter:
                     matching_tools = self._extract_matching_tools(query, server_info)[:5]
 

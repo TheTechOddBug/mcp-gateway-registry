@@ -13,14 +13,13 @@ the get-m2m-token.sh script.
 
 import json
 import logging
-import subprocess  # nosec B404
-from typing import Optional, List, Dict, Any, Union
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
 from urllib.parse import quote
 
 import requests
-from pydantic import BaseModel, Field, HttpUrl, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Configure logging
 logging.basicConfig(
@@ -46,9 +45,9 @@ class ServiceRegistration(BaseModel):
     description: str = Field(..., description="Service description")
     path: str = Field(..., description="Service path")
     proxy_pass_url: str = Field(..., description="Proxy pass URL")
-    tags: Optional[str] = Field(None, description="Comma-separated tags")
-    num_tools: Optional[int] = Field(None, description="Number of tools")
-    license: Optional[str] = Field(None, description="License type")
+    tags: str | None = Field(None, description="Comma-separated tags")
+    num_tools: int | None = Field(None, description="Number of tools")
+    license: str | None = Field(None, description="License type")
 
 
 class InternalServiceRegistration(BaseModel):
@@ -57,28 +56,28 @@ class InternalServiceRegistration(BaseModel):
     service_path: str = Field(
         ..., alias="path", description="Service path (e.g., /cloudflare-docs)"
     )
-    name: Optional[str] = Field(None, description="Service name")
-    description: Optional[str] = Field(None, description="Service description")
-    proxy_pass_url: Optional[str] = Field(None, description="Proxy pass URL")
-    version: Optional[str] = Field(None, description="Server version (e.g., v1.0.0, v2.0.0)")
-    status: Optional[str] = Field(None, description="Version status (stable, beta, deprecated)")
-    auth_provider: Optional[str] = Field(None, description="Authentication provider")
-    auth_scheme: Optional[str] = Field(
+    name: str | None = Field(None, description="Service name")
+    description: str | None = Field(None, description="Service description")
+    proxy_pass_url: str | None = Field(None, description="Proxy pass URL")
+    version: str | None = Field(None, description="Server version (e.g., v1.0.0, v2.0.0)")
+    status: str | None = Field(None, description="Version status (stable, beta, deprecated)")
+    auth_provider: str | None = Field(None, description="Authentication provider")
+    auth_scheme: str | None = Field(
         None, description="Authentication scheme (e.g., 'bearer', 'api_key', 'none')"
     )
-    supported_transports: Optional[List[str]] = Field(None, description="Supported transports")
-    headers: Optional[Dict[str, str]] = Field(None, description="Custom headers")
-    tool_list_json: Optional[str] = Field(None, description="Tool list as JSON string")
-    tags: Optional[List[str]] = Field(None, description="Categorization tags")
-    overwrite: Optional[bool] = Field(False, description="Overwrite if exists")
-    mcp_endpoint: Optional[str] = Field(
+    supported_transports: list[str] | None = Field(None, description="Supported transports")
+    headers: dict[str, str] | None = Field(None, description="Custom headers")
+    tool_list_json: str | None = Field(None, description="Tool list as JSON string")
+    tags: list[str] | None = Field(None, description="Categorization tags")
+    overwrite: bool | None = Field(False, description="Overwrite if exists")
+    mcp_endpoint: str | None = Field(
         None,
         description="Full URL for the MCP streamable-http endpoint (overrides proxy_pass_url + /mcp)",
     )
-    sse_endpoint: Optional[str] = Field(
+    sse_endpoint: str | None = Field(
         None, description="Full URL for the SSE endpoint (overrides proxy_pass_url + /sse)"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default_factory=dict,
         description="Additional custom metadata for organization, compliance, or integration purposes",
     )
@@ -106,13 +105,13 @@ class ServerDetail(BaseModel):
     is_enabled: bool = Field(..., description="Whether service is enabled")
     num_tools: int = Field(..., description="Number of tools")
     health_status: str = Field(..., description="Health status")
-    last_health_check: Optional[datetime] = Field(None, description="Last health check timestamp")
+    last_health_check: datetime | None = Field(None, description="Last health check timestamp")
 
 
 class ServerListResponse(BaseModel):
     """Server list response model."""
 
-    servers: List[Server] = Field(..., description="List of servers")
+    servers: list[Server] = Field(..., description="List of servers")
 
 
 class ServiceResponse(BaseModel):
@@ -135,15 +134,15 @@ class ErrorResponse(BaseModel):
     """Error response model."""
 
     detail: str = Field(..., description="Error detail message")
-    error_code: Optional[str] = Field(None, description="Error code")
-    request_id: Optional[str] = Field(None, description="Request ID")
+    error_code: str | None = Field(None, description="Error code")
+    request_id: str | None = Field(None, description="Request ID")
 
 
 class SecurityScanResult(BaseModel):
     """Security scan result model."""
 
-    analysis_results: Dict[str, Any] = Field(..., description="Analysis results by analyzer")
-    tool_results: List[Dict[str, Any]] = Field(..., description="Detailed tool scan results")
+    analysis_results: dict[str, Any] = Field(..., description="Analysis results by analyzer")
+    tool_results: list[dict[str, Any]] = Field(..., description="Detailed tool scan results")
 
 
 class RescanResponse(BaseModel):
@@ -157,19 +156,19 @@ class RescanResponse(BaseModel):
     high_severity: int = Field(..., description="Number of high severity issues")
     medium_severity: int = Field(..., description="Number of medium severity issues")
     low_severity: int = Field(..., description="Number of low severity issues")
-    analyzers_used: List[str] = Field(..., description="Analyzers used in scan")
+    analyzers_used: list[str] = Field(..., description="Analyzers used in scan")
     scan_failed: bool = Field(..., description="Whether scan failed")
-    error_message: Optional[str] = Field(None, description="Error message if scan failed")
-    raw_output: Optional[Dict[str, Any]] = Field(None, description="Raw scan output")
+    error_message: str | None = Field(None, description="Error message if scan failed")
+    raw_output: dict[str, Any] | None = Field(None, description="Raw scan output")
 
 
 class AgentSecurityScanResponse(BaseModel):
     """Agent security scan results response model."""
 
-    analysis_results: Dict[str, Any] = Field(
+    analysis_results: dict[str, Any] = Field(
         default_factory=dict, description="Analysis results by analyzer"
     )
-    scan_results: Dict[str, Any] = Field(
+    scan_results: dict[str, Any] = Field(
         default_factory=dict, description="Scan results and metadata"
     )
 
@@ -185,50 +184,50 @@ class AgentRescanResponse(BaseModel):
     high_severity: int = Field(..., description="Number of high severity issues")
     medium_severity: int = Field(..., description="Number of medium severity issues")
     low_severity: int = Field(..., description="Number of low severity issues")
-    analyzers_used: List[str] = Field(..., description="Analyzers used in scan")
+    analyzers_used: list[str] = Field(..., description="Analyzers used in scan")
     scan_failed: bool = Field(..., description="Whether scan failed")
-    error_message: Optional[str] = Field(None, description="Error message if scan failed")
-    output_file: Optional[str] = Field(None, description="Path to scan output file")
+    error_message: str | None = Field(None, description="Error message if scan failed")
+    output_file: str | None = Field(None, description="Path to scan output file")
 
 
 class SkillSecurityScanResponse(BaseModel):
     """Skill security scan results response model."""
 
     skill_path: str = Field(..., description="Skill path")
-    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    skill_md_url: str | None = Field(None, description="Skill SKILL.md URL")
     scan_timestamp: str = Field(..., description="Scan timestamp")
     is_safe: bool = Field(..., description="Whether skill is safe")
     critical_issues: int = Field(default=0, description="Number of critical issues")
     high_severity: int = Field(default=0, description="Number of high severity issues")
     medium_severity: int = Field(default=0, description="Number of medium severity issues")
     low_severity: int = Field(default=0, description="Number of low severity issues")
-    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
-    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    analyzers_used: list[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
     scan_failed: bool = Field(default=False, description="Whether scan failed")
-    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+    error_message: str | None = Field(None, description="Error message if scan failed")
 
 
 class SkillRescanResponse(BaseModel):
     """Skill rescan response model."""
 
     skill_path: str = Field(..., description="Skill path")
-    skill_md_url: Optional[str] = Field(None, description="Skill SKILL.md URL")
+    skill_md_url: str | None = Field(None, description="Skill SKILL.md URL")
     scan_timestamp: str = Field(..., description="Scan timestamp")
     is_safe: bool = Field(..., description="Whether skill is safe")
     critical_issues: int = Field(default=0, description="Number of critical issues")
     high_severity: int = Field(default=0, description="Number of high severity issues")
     medium_severity: int = Field(default=0, description="Number of medium severity issues")
     low_severity: int = Field(default=0, description="Number of low severity issues")
-    analyzers_used: List[str] = Field(default_factory=list, description="Analyzers used in scan")
-    raw_output: Dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
+    analyzers_used: list[str] = Field(default_factory=list, description="Analyzers used in scan")
+    raw_output: dict[str, Any] = Field(default_factory=dict, description="Raw scanner output")
     scan_failed: bool = Field(default=False, description="Whether scan failed")
-    error_message: Optional[str] = Field(None, description="Error message if scan failed")
+    error_message: str | None = Field(None, description="Error message if scan failed")
 
 
 class GroupListResponse(BaseModel):
     """Group list response model."""
 
-    groups: List[Dict[str, Any]] = Field(..., description="List of groups")
+    groups: list[dict[str, Any]] = Field(..., description="List of groups")
     total: int = Field(..., description="Total number of groups")
 
 
@@ -279,34 +278,34 @@ class SecurityScheme(BaseModel):
     """
 
     type: SecuritySchemeType = Field(..., description="Security scheme type")
-    scheme: Optional[str] = Field(
+    scheme: str | None = Field(
         None,
         description="HTTP auth scheme: basic, bearer, digest",
     )
-    in_: Optional[str] = Field(
+    in_: str | None = Field(
         None,
         alias="in",
         description="API key location: header, query, cookie",
     )
-    name: Optional[str] = Field(
+    name: str | None = Field(
         None,
         description="Name of header/query/cookie for API key",
     )
-    bearer_format: Optional[str] = Field(
+    bearer_format: str | None = Field(
         None,
         alias="bearerFormat",
         description="Bearer token format hint (e.g., JWT)",
     )
-    flows: Optional[Dict[str, Any]] = Field(
+    flows: dict[str, Any] | None = Field(
         None,
         description="OAuth2 flows configuration",
     )
-    openid_connect_url: Optional[str] = Field(
+    openid_connect_url: str | None = Field(
         None,
         alias="openIdConnectUrl",
         description="OpenID Connect discovery URL",
     )
-    description: Optional[str] = Field(None, description="Security scheme description")
+    description: str | None = Field(None, description="Security scheme description")
 
     class Config:
         populate_by_name = True  # Allow both snake_case and camelCase on input
@@ -321,15 +320,15 @@ class Skill(BaseModel):
     id: str = Field(..., description="Unique skill identifier")
     name: str = Field(..., description="Human-readable skill name")
     description: str = Field(..., description="Detailed skill description")
-    tags: List[str] = Field(default_factory=list, description="Skill categorization tags")
-    examples: Optional[List[str]] = Field(None, description="Usage scenarios and examples")
-    input_modes: Optional[List[str]] = Field(
+    tags: list[str] = Field(default_factory=list, description="Skill categorization tags")
+    examples: list[str] | None = Field(None, description="Usage scenarios and examples")
+    input_modes: list[str] | None = Field(
         None, alias="inputModes", description="Skill-specific input MIME types"
     )
-    output_modes: Optional[List[str]] = Field(
+    output_modes: list[str] | None = Field(
         None, alias="outputModes", description="Skill-specific output MIME types"
     )
-    security: Optional[List[Dict[str, List[str]]]] = Field(
+    security: list[dict[str, list[str]]] | None = Field(
         None, description="Skill-level security requirements"
     )
 
@@ -353,74 +352,74 @@ class AgentRegistration(BaseModel):
     description: str = Field(..., description="Agent description")
     url: str = Field(..., description="Agent endpoint URL (HTTP or HTTPS)")
     version: str = Field(..., description="Agent version")
-    capabilities: Dict[str, Any] = Field(
+    capabilities: dict[str, Any] = Field(
         default_factory=dict, description="Feature declarations (e.g., {'streaming': true})"
     )
-    default_input_modes: List[str] = Field(
+    default_input_modes: list[str] = Field(
         default_factory=lambda: ["text/plain"],
         alias="defaultInputModes",
         description="Supported input MIME types",
     )
-    default_output_modes: List[str] = Field(
+    default_output_modes: list[str] = Field(
         default_factory=lambda: ["text/plain"],
         alias="defaultOutputModes",
         description="Supported output MIME types",
     )
-    skills: List[Skill] = Field(default_factory=list, description="Agent capabilities (skills)")
+    skills: list[Skill] = Field(default_factory=list, description="Agent capabilities (skills)")
 
     # Optional A2A fields
-    preferred_transport: Optional[str] = Field(
+    preferred_transport: str | None = Field(
         "JSONRPC",
         alias="preferredTransport",
         description="Preferred transport protocol: JSONRPC, GRPC, HTTP+JSON",
     )
-    provider: Optional[Provider] = Field(
+    provider: Provider | None = Field(
         None, description="Agent provider information per A2A spec"
     )
-    icon_url: Optional[str] = Field(None, alias="iconUrl", description="Agent icon URL")
-    documentation_url: Optional[str] = Field(
+    icon_url: str | None = Field(None, alias="iconUrl", description="Agent icon URL")
+    documentation_url: str | None = Field(
         None, alias="documentationUrl", description="Documentation URL"
     )
-    security_schemes: Dict[str, SecurityScheme] = Field(
+    security_schemes: dict[str, SecurityScheme] = Field(
         default_factory=dict,
         alias="securitySchemes",
         description="Supported authentication methods",
     )
-    security: Optional[List[Dict[str, List[str]]]] = Field(
+    security: list[dict[str, list[str]]] | None = Field(
         None, description="Security requirements array"
     )
-    supports_authenticated_extended_card: Optional[bool] = Field(
+    supports_authenticated_extended_card: bool | None = Field(
         None,
         alias="supportsAuthenticatedExtendedCard",
         description="Supports extended card with auth",
     )
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     # MCP Gateway Registry extensions (optional - not part of A2A spec)
-    path: Optional[str] = Field(
+    path: str | None = Field(
         None,
         description="Registry path (e.g., /agents/my-agent). Optional - auto-generated if not provided.",
     )
-    tags: List[str] = Field(default_factory=list, description="Categorization tags")
+    tags: list[str] = Field(default_factory=list, description="Categorization tags")
     is_enabled: bool = Field(
         False, alias="isEnabled", description="Whether agent is enabled in registry"
     )
     num_stars: int = Field(0, ge=0, alias="numStars", description="Community rating")
     license: str = Field("N/A", description="License information")
-    registered_at: Optional[datetime] = Field(
+    registered_at: datetime | None = Field(
         None, alias="registeredAt", description="Registration timestamp"
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         None, alias="updatedAt", description="Last update timestamp"
     )
-    registered_by: Optional[str] = Field(
+    registered_by: str | None = Field(
         None, alias="registeredBy", description="Username who registered agent"
     )
     visibility: str = Field("public", description="public, private, or group-restricted")
-    allowed_groups: List[str] = Field(
+    allowed_groups: list[str] = Field(
         default_factory=list, alias="allowedGroups", description="Groups with access"
     )
-    signature: Optional[str] = Field(None, description="JWS signature for card integrity")
+    signature: str | None = Field(None, description="JWS signature for card integrity")
     trust_level: str = Field(
         "unverified", alias="trustLevel", description="unverified, community, verified, trusted"
     )
@@ -436,7 +435,7 @@ class AgentCard(BaseModel):
     path: str = Field(..., description="Agent path")
     url: str = Field(..., description="Agent URL")
     num_skills: int = Field(..., description="Number of skills")
-    registered_at: Optional[datetime] = Field(None, description="Registration timestamp")
+    registered_at: datetime | None = Field(None, description="Registration timestamp")
     is_enabled: bool = Field(..., description="Whether agent is enabled")
 
 
@@ -456,15 +455,15 @@ class SkillDetail(BaseModel):
     id: str = Field(..., description="Unique skill identifier")
     name: str = Field(..., description="Human-readable skill name")
     description: str = Field(..., description="Detailed skill description")
-    tags: List[str] = Field(default_factory=list, description="Skill categorization tags")
-    examples: Optional[List[str]] = Field(None, description="Usage scenarios and examples")
-    input_modes: Optional[List[str]] = Field(
+    tags: list[str] = Field(default_factory=list, description="Skill categorization tags")
+    examples: list[str] | None = Field(None, description="Usage scenarios and examples")
+    input_modes: list[str] | None = Field(
         None, alias="inputModes", description="Skill-specific input MIME types"
     )
-    output_modes: Optional[List[str]] = Field(
+    output_modes: list[str] | None = Field(
         None, alias="outputModes", description="Skill-specific output MIME types"
     )
-    security: Optional[List[Dict[str, List[str]]]] = Field(
+    security: list[dict[str, list[str]]] | None = Field(
         None, description="Skill-level security requirements"
     )
 
@@ -486,72 +485,72 @@ class AgentDetail(BaseModel):
     description: str = Field(..., description="Agent description")
     url: str = Field(..., description="Agent endpoint URL")
     version: str = Field(..., description="Agent version")
-    capabilities: Dict[str, Any] = Field(
+    capabilities: dict[str, Any] = Field(
         default_factory=dict, description="Feature declarations (e.g., {'streaming': true})"
     )
-    default_input_modes: List[str] = Field(
+    default_input_modes: list[str] = Field(
         default_factory=lambda: ["text/plain"],
         alias="defaultInputModes",
         description="Supported input MIME types",
     )
-    default_output_modes: List[str] = Field(
+    default_output_modes: list[str] = Field(
         default_factory=lambda: ["text/plain"],
         alias="defaultOutputModes",
         description="Supported output MIME types",
     )
-    skills: List[SkillDetail] = Field(
+    skills: list[SkillDetail] = Field(
         default_factory=list, description="Agent capabilities (skills)"
     )
 
     # Optional A2A fields
-    preferred_transport: Optional[str] = Field(
+    preferred_transport: str | None = Field(
         "JSONRPC",
         alias="preferredTransport",
         description="Preferred transport protocol: JSONRPC, GRPC, HTTP+JSON",
     )
-    provider: Optional[Provider] = Field(
+    provider: Provider | None = Field(
         None, description="Agent provider information per A2A spec"
     )
-    icon_url: Optional[str] = Field(None, alias="iconUrl", description="Agent icon URL")
-    documentation_url: Optional[str] = Field(
+    icon_url: str | None = Field(None, alias="iconUrl", description="Agent icon URL")
+    documentation_url: str | None = Field(
         None, alias="documentationUrl", description="Documentation URL"
     )
-    security_schemes: Dict[str, SecurityScheme] = Field(
+    security_schemes: dict[str, SecurityScheme] = Field(
         default_factory=dict,
         alias="securitySchemes",
         description="Supported authentication methods",
     )
-    security: Optional[List[Dict[str, List[str]]]] = Field(
+    security: list[dict[str, list[str]]] | None = Field(
         None, description="Security requirements array"
     )
-    supports_authenticated_extended_card: Optional[bool] = Field(
+    supports_authenticated_extended_card: bool | None = Field(
         None,
         alias="supportsAuthenticatedExtendedCard",
         description="Supports extended card with auth",
     )
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     # MCP Gateway Registry extensions (optional - not part of A2A spec)
-    path: Optional[str] = Field(None, description="Registry path")
-    tags: List[str] = Field(default_factory=list, description="Categorization tags")
+    path: str | None = Field(None, description="Registry path")
+    tags: list[str] = Field(default_factory=list, description="Categorization tags")
     is_enabled: bool = Field(False, alias="isEnabled", description="Whether agent is enabled")
     num_stars: int = Field(0, ge=0, alias="numStars", description="Community rating")
     license: str = Field("N/A", description="License information")
-    registered_at: Optional[datetime] = Field(
+    registered_at: datetime | None = Field(
         None, alias="registeredAt", description="Registration timestamp"
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         None, alias="updatedAt", description="Last update timestamp"
     )
-    registered_by: Optional[str] = Field(
+    registered_by: str | None = Field(
         None, alias="registeredBy", description="Username who registered agent"
     )
     visibility: str = Field("public", description="Visibility level")
-    allowed_groups: List[str] = Field(
+    allowed_groups: list[str] = Field(
         default_factory=list, alias="allowedGroups", description="Groups with access"
     )
     trust_level: str = Field("unverified", alias="trustLevel", description="Trust level")
-    signature: Optional[str] = Field(None, description="JWS signature for card integrity")
+    signature: str | None = Field(None, description="JWS signature for card integrity")
 
     class Config:
         populate_by_name = True  # Allow both snake_case and camelCase on input
@@ -567,8 +566,8 @@ class AgentListItem(BaseModel):
     description: str = Field(default="", description="Agent description")
     path: str = Field(..., description="Agent path")
     url: str = Field(..., description="Agent URL")
-    tags: List[str] = Field(default_factory=list, description="Categorization tags")
-    skills: List[str] = Field(default_factory=list, description="Skill names")
+    tags: list[str] = Field(default_factory=list, description="Categorization tags")
+    skills: list[str] = Field(default_factory=list, description="Skill names")
     num_skills: int = Field(default=0, alias="numSkills", description="Number of skills")
     num_stars: float = Field(
         default=0.0, alias="numStars", description="Average community rating (0.0-5.0)"
@@ -576,10 +575,10 @@ class AgentListItem(BaseModel):
     is_enabled: bool = Field(
         default=False, alias="isEnabled", description="Whether agent is enabled"
     )
-    provider: Optional[str] = Field(None, description="Agent provider")
+    provider: str | None = Field(None, description="Agent provider")
     streaming: bool = Field(default=False, description="Supports streaming")
     trust_level: str = Field(default="unverified", alias="trustLevel", description="Trust level")
-    sync_metadata: Optional[Dict[str, Any]] = Field(
+    sync_metadata: dict[str, Any] | None = Field(
         default=None,
         alias="syncMetadata",
         description="Federation sync metadata for items from peer registries",
@@ -592,7 +591,7 @@ class AgentListItem(BaseModel):
 class AgentListResponse(BaseModel):
     """Agent list response model."""
 
-    agents: List[AgentListItem] = Field(..., description="List of agents")
+    agents: list[AgentListItem] = Field(..., description="List of agents")
     total_count: int = Field(..., description="Total count of agents")
 
 
@@ -607,8 +606,8 @@ class AgentToggleResponse(BaseModel):
 class SkillDiscoveryRequest(BaseModel):
     """Skill-based discovery request model."""
 
-    skills: List[str] = Field(..., description="List of required skills")
-    tags: Optional[List[str]] = Field(None, description="Optional tag filters")
+    skills: list[str] = Field(..., description="List of required skills")
+    tags: list[str] | None = Field(None, description="Optional tag filters")
 
 
 class DiscoveredAgent(BaseModel):
@@ -617,13 +616,13 @@ class DiscoveredAgent(BaseModel):
     path: str = Field(..., description="Agent path")
     name: str = Field(..., description="Agent name")
     relevance_score: float = Field(..., description="Matching score (0.0 to 1.0)")
-    matching_skills: List[str] = Field(..., description="Matching skills")
+    matching_skills: list[str] = Field(..., description="Matching skills")
 
 
 class AgentDiscoveryResponse(BaseModel):
     """Agent discovery response model (skill-based)."""
 
-    agents: List[DiscoveredAgent] = Field(..., description="Discovered agents")
+    agents: list[DiscoveredAgent] = Field(..., description="Discovered agents")
 
 
 class SemanticDiscoveredAgent(BaseModel):
@@ -639,20 +638,20 @@ class SemanticDiscoveredAgent(BaseModel):
     relevance_score: float = Field(..., description="Semantic similarity score")
 
     # Agent metadata
-    tags: List[str] = Field(default_factory=list, description="Agent tags")
-    skills: List[Dict[str, Any]] = Field(default_factory=list, description="Agent skills")
-    provider: Optional[Dict[str, str]] = Field(None, description="Provider information")
-    capabilities: Dict[str, Any] = Field(default_factory=dict, description="Agent capabilities")
+    tags: list[str] = Field(default_factory=list, description="Agent tags")
+    skills: list[dict[str, Any]] = Field(default_factory=list, description="Agent skills")
+    provider: dict[str, str] | None = Field(None, description="Provider information")
+    capabilities: dict[str, Any] = Field(default_factory=dict, description="Agent capabilities")
     trust_level: str = Field("unverified", description="Trust level")
     num_stars: float = Field(0.0, description="Average rating")
-    version: Optional[str] = Field(None, description="Agent version")
+    version: str | None = Field(None, description="Agent version")
 
     # Security and authentication
-    security_schemes: Dict[str, Any] = Field(default_factory=dict, description="Security schemes")
+    security_schemes: dict[str, Any] = Field(default_factory=dict, description="Security schemes")
 
     # Timestamps
-    created_at: Optional[str] = Field(None, description="Creation timestamp")
-    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+    created_at: str | None = Field(None, description="Creation timestamp")
+    updated_at: str | None = Field(None, description="Last update timestamp")
 
     class Config:
         extra = "allow"  # Allow additional fields from API
@@ -661,17 +660,17 @@ class SemanticDiscoveredAgent(BaseModel):
 class AgentSemanticDiscoveryResponse(BaseModel):
     """Agent semantic discovery response model."""
 
-    agents: List[SemanticDiscoveredAgent] = Field(..., description="Semantically discovered agents")
+    agents: list[SemanticDiscoveredAgent] = Field(..., description="Semantically discovered agents")
 
 
 class MatchingToolResult(BaseModel):
     """Tool matching result with optional schema for display."""
 
     tool_name: str = Field(..., description="Tool name")
-    description: Optional[str] = Field(None, description="Tool description")
+    description: str | None = Field(None, description="Tool description")
     relevance_score: float = Field(0.0, ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Why this tool matched")
-    inputSchema: Optional[Dict[str, Any]] = Field(
+    match_context: str | None = Field(None, description="Why this tool matched")
+    inputSchema: dict[str, Any] | None = Field(
         None, description="JSON Schema for tool input parameters"
     )
 
@@ -680,11 +679,11 @@ class SyncMetadata(BaseModel):
     """Metadata for items synced from peer registries."""
 
     is_federated: bool = Field(False, description="Whether this is from a federated registry")
-    source_peer_id: Optional[str] = Field(None, description="Source peer registry ID")
-    synced_at: Optional[str] = Field(None, description="When item was synced")
-    original_path: Optional[str] = Field(None, description="Original path on source registry")
+    source_peer_id: str | None = Field(None, description="Source peer registry ID")
+    synced_at: str | None = Field(None, description="When item was synced")
+    original_path: str | None = Field(None, description="Original path on source registry")
     is_orphaned: bool = Field(False, description="Whether item is orphaned")
-    orphaned_at: Optional[str] = Field(None, description="When item became orphaned")
+    orphaned_at: str | None = Field(None, description="When item became orphaned")
     is_read_only: bool = Field(True, description="Whether item is read-only")
 
 
@@ -694,28 +693,28 @@ class SemanticDiscoveredServer(BaseModel):
     path: str = Field(..., description="Server path")
     server_name: str = Field(..., description="Server name")
     relevance_score: float = Field(..., description="Semantic similarity score")
-    description: Optional[str] = Field(None, description="Server description")
-    tags: List[str] = Field(default_factory=list, description="Server tags")
+    description: str | None = Field(None, description="Server description")
+    tags: list[str] = Field(default_factory=list, description="Server tags")
     num_tools: int = Field(0, description="Number of tools")
     is_enabled: bool = Field(False, description="Whether server is enabled")
-    match_context: Optional[str] = Field(None, description="Why this matched")
-    matching_tools: List[MatchingToolResult] = Field(
+    match_context: str | None = Field(None, description="Why this matched")
+    matching_tools: list[MatchingToolResult] = Field(
         default_factory=list, description="Matching tools"
     )
-    sync_metadata: Optional[SyncMetadata] = Field(
+    sync_metadata: SyncMetadata | None = Field(
         None, description="Sync metadata for federated items"
     )
     # Endpoint URL for agent connectivity (computed based on deployment mode)
-    endpoint_url: Optional[str] = Field(
+    endpoint_url: str | None = Field(
         None, description="URL for agents to connect to this MCP server"
     )
     # Raw endpoint fields (for advanced use cases)
-    proxy_pass_url: Optional[str] = Field(
+    proxy_pass_url: str | None = Field(
         None, description="Base URL for the MCP server backend (internal)"
     )
-    mcp_endpoint: Optional[str] = Field(None, description="Explicit streamable-http endpoint URL")
-    sse_endpoint: Optional[str] = Field(None, description="Explicit SSE endpoint URL")
-    supported_transports: List[str] = Field(
+    mcp_endpoint: str | None = Field(None, description="Explicit streamable-http endpoint URL")
+    sse_endpoint: str | None = Field(None, description="Explicit SSE endpoint URL")
+    supported_transports: list[str] = Field(
         default_factory=list, description="Supported transport types"
     )
 
@@ -726,12 +725,12 @@ class ToolSearchResult(BaseModel):
     server_path: str = Field(..., description="Parent server path")
     server_name: str = Field(..., description="Parent server name")
     tool_name: str = Field(..., description="Tool name")
-    description: Optional[str] = Field(None, description="Tool description")
-    inputSchema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for tool input")
+    description: str | None = Field(None, description="Tool description")
+    inputSchema: dict[str, Any] | None = Field(None, description="JSON Schema for tool input")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Why this tool matched")
+    match_context: str | None = Field(None, description="Why this tool matched")
     # Endpoint URL for the parent MCP server
-    endpoint_url: Optional[str] = Field(
+    endpoint_url: str | None = Field(
         None, description="URL for agents to connect to the parent MCP server"
     )
 
@@ -745,8 +744,8 @@ class AgentSearchResult(BaseModel):
 
     path: str = Field(..., description="Agent path for identification")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Why this agent matched")
-    agent_card: Dict[str, Any] = Field(..., description="Full agent card with all details")
+    match_context: str | None = Field(None, description="Why this agent matched")
+    agent_card: dict[str, Any] = Field(..., description="Full agent card with all details")
 
 
 class SkillSearchResult(BaseModel):
@@ -754,19 +753,19 @@ class SkillSearchResult(BaseModel):
 
     path: str = Field(..., description="Skill path")
     skill_name: str = Field(..., description="Skill name")
-    description: Optional[str] = Field(None, description="Skill description")
-    tags: List[str] = Field(default_factory=list, description="Skill tags")
-    skill_md_url: Optional[str] = Field(None, description="Skill markdown URL")
-    skill_md_raw_url: Optional[str] = Field(None, description="Skill markdown raw URL")
-    version: Optional[str] = Field(None, description="Skill version")
-    author: Optional[str] = Field(None, description="Skill author")
-    visibility: Optional[str] = Field(None, description="Visibility setting")
-    owner: Optional[str] = Field(None, description="Skill owner")
+    description: str | None = Field(None, description="Skill description")
+    tags: list[str] = Field(default_factory=list, description="Skill tags")
+    skill_md_url: str | None = Field(None, description="Skill markdown URL")
+    skill_md_raw_url: str | None = Field(None, description="Skill markdown raw URL")
+    version: str | None = Field(None, description="Skill version")
+    author: str | None = Field(None, description="Skill author")
+    visibility: str | None = Field(None, description="Visibility setting")
+    owner: str | None = Field(None, description="Skill owner")
     is_enabled: bool = Field(False, description="Whether skill is enabled")
     health_status: str = Field("unknown", description="Health status")
-    last_checked_time: Optional[str] = Field(None, description="Last health check time")
+    last_checked_time: str | None = Field(None, description="Last health check time")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Why this skill matched")
+    match_context: str | None = Field(None, description="Why this skill matched")
 
 
 class VirtualServerSearchResult(BaseModel):
@@ -774,19 +773,19 @@ class VirtualServerSearchResult(BaseModel):
 
     path: str = Field(..., description="Virtual server path")
     server_name: str = Field(..., description="Virtual server name")
-    description: Optional[str] = Field(None, description="Virtual server description")
-    tags: List[str] = Field(default_factory=list, description="Virtual server tags")
+    description: str | None = Field(None, description="Virtual server description")
+    tags: list[str] = Field(default_factory=list, description="Virtual server tags")
     num_tools: int = Field(0, description="Number of tools")
     backend_count: int = Field(0, description="Number of backend servers")
-    backend_paths: List[str] = Field(default_factory=list, description="Backend server paths")
+    backend_paths: list[str] = Field(default_factory=list, description="Backend server paths")
     is_enabled: bool = Field(False, description="Whether virtual server is enabled")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Why this matched")
-    matching_tools: List[MatchingToolResult] = Field(
+    match_context: str | None = Field(None, description="Why this matched")
+    matching_tools: list[MatchingToolResult] = Field(
         default_factory=list, description="Matching tools"
     )
     # Endpoint URL for agent connectivity
-    endpoint_url: Optional[str] = Field(
+    endpoint_url: str | None = Field(
         None, description="URL for agents to connect to this virtual MCP server"
     )
 
@@ -795,17 +794,17 @@ class ToolMapping(BaseModel):
     """Tool mapping for virtual MCP servers."""
 
     tool_name: str = Field(..., description="Original tool name on backend server")
-    alias: Optional[str] = Field(None, description="Renamed tool name in virtual server")
+    alias: str | None = Field(None, description="Renamed tool name in virtual server")
     backend_server_path: str = Field(..., description="Backend server path (e.g., /github)")
-    backend_version: Optional[str] = Field(None, description="Pin to specific backend version")
-    description_override: Optional[str] = Field(None, description="Override tool description")
+    backend_version: str | None = Field(None, description="Pin to specific backend version")
+    description_override: str | None = Field(None, description="Override tool description")
 
 
 class ToolScopeOverride(BaseModel):
     """Per-tool scope override for access control."""
 
     tool_alias: str = Field(..., description="Tool alias or name")
-    required_scopes: List[str] = Field(
+    required_scopes: list[str] = Field(
         default_factory=list, description="Required scopes for this tool"
     )
 
@@ -815,18 +814,18 @@ class VirtualServerCreateRequest(BaseModel):
 
     path: str = Field(..., description="Virtual server path (e.g., /virtual/dev-tools)")
     server_name: str = Field(..., description="Display name for the virtual server")
-    description: Optional[str] = Field(None, description="Virtual server description")
-    tool_mappings: List[ToolMapping] = Field(
+    description: str | None = Field(None, description="Virtual server description")
+    tool_mappings: list[ToolMapping] = Field(
         ..., min_length=1, description="Tool mappings (at least one)"
     )
-    required_scopes: List[str] = Field(
+    required_scopes: list[str] = Field(
         default_factory=list, description="Server-level required scopes"
     )
-    tool_scope_overrides: List[ToolScopeOverride] = Field(
+    tool_scope_overrides: list[ToolScopeOverride] = Field(
         default_factory=list, description="Per-tool scope overrides"
     )
-    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
-    supported_transports: List[str] = Field(
+    tags: list[str] = Field(default_factory=list, description="Tags for categorization")
+    supported_transports: list[str] = Field(
         default_factory=lambda: ["streamable-http"], description="Supported transports"
     )
     is_enabled: bool = Field(True, description="Whether to enable on creation")
@@ -837,30 +836,30 @@ class VirtualServerConfig(BaseModel):
 
     path: str = Field(..., description="Virtual server path")
     server_name: str = Field(..., description="Display name")
-    description: Optional[str] = Field(None, description="Description")
-    tool_mappings: List[ToolMapping] = Field(default_factory=list, description="Tool mappings")
-    required_scopes: List[str] = Field(default_factory=list, description="Server-level scopes")
-    tool_scope_overrides: List[ToolScopeOverride] = Field(
+    description: str | None = Field(None, description="Description")
+    tool_mappings: list[ToolMapping] = Field(default_factory=list, description="Tool mappings")
+    required_scopes: list[str] = Field(default_factory=list, description="Server-level scopes")
+    tool_scope_overrides: list[ToolScopeOverride] = Field(
         default_factory=list, description="Per-tool scope overrides"
     )
-    tags: List[str] = Field(default_factory=list, description="Tags")
-    supported_transports: List[str] = Field(
+    tags: list[str] = Field(default_factory=list, description="Tags")
+    supported_transports: list[str] = Field(
         default_factory=list, description="Supported transports"
     )
     is_enabled: bool = Field(False, description="Whether enabled")
     num_stars: float = Field(0.0, description="Average rating")
-    rating_details: List[Dict[str, Any]] = Field(
+    rating_details: list[dict[str, Any]] = Field(
         default_factory=list, description="Individual ratings"
     )
-    created_by: Optional[str] = Field(None, description="Creator username")
-    created_at: Optional[str] = Field(None, description="Creation timestamp")
-    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+    created_by: str | None = Field(None, description="Creator username")
+    created_at: str | None = Field(None, description="Creation timestamp")
+    updated_at: str | None = Field(None, description="Last update timestamp")
 
 
 class VirtualServerListResponse(BaseModel):
     """Response for listing virtual servers."""
 
-    virtual_servers: List[VirtualServerConfig] = Field(
+    virtual_servers: list[VirtualServerConfig] = Field(
         default_factory=list, description="Virtual servers"
     )
     total: int = Field(0, description="Total count")
@@ -886,13 +885,13 @@ class SemanticSearchResponse(BaseModel):
 
     query: str = Field(..., description="Search query")
     search_mode: str = Field("hybrid", description="Search mode: hybrid or lexical-only")
-    servers: List[SemanticDiscoveredServer] = Field(
+    servers: list[SemanticDiscoveredServer] = Field(
         default_factory=list, description="Matching servers"
     )
-    tools: List[ToolSearchResult] = Field(default_factory=list, description="Matching tools")
-    agents: List[AgentSearchResult] = Field(default_factory=list, description="Matching agents")
-    skills: List[SkillSearchResult] = Field(default_factory=list, description="Matching skills")
-    virtual_servers: List[VirtualServerSearchResult] = Field(
+    tools: list[ToolSearchResult] = Field(default_factory=list, description="Matching tools")
+    agents: list[AgentSearchResult] = Field(default_factory=list, description="Matching agents")
+    skills: list[SkillSearchResult] = Field(default_factory=list, description="Matching skills")
+    virtual_servers: list[VirtualServerSearchResult] = Field(
         default_factory=list, description="Matching virtual servers"
     )
     total_servers: int = Field(0, description="Total server count")
@@ -906,7 +905,7 @@ class ServerSemanticSearchResponse(BaseModel):
     """Server semantic search response model (legacy, use SemanticSearchResponse)."""
 
     query: str = Field(..., description="Search query")
-    servers: List[SemanticDiscoveredServer] = Field(
+    servers: list[SemanticDiscoveredServer] = Field(
         default_factory=list, description="Matching servers"
     )
 
@@ -935,7 +934,7 @@ class RatingInfoResponse(BaseModel):
     """Rating information response."""
 
     num_stars: float = Field(..., ge=0.0, le=5.0, description="Average rating (0.0 if no ratings)")
-    rating_details: List[RatingDetail] = Field(..., description="Individual ratings (max 100)")
+    rating_details: list[RatingDetail] = Field(..., description="Individual ratings (max 100)")
 
 
 # Anthropic Registry API Models (v0.1)
@@ -946,17 +945,17 @@ class AnthropicRepository(BaseModel):
 
     url: str = Field(..., description="Repository URL for browsing source code")
     source: str = Field(..., description="Repository hosting service identifier (e.g., 'github')")
-    id: Optional[str] = Field(None, description="Repository ID from hosting service")
-    subfolder: Optional[str] = Field(None, description="Path within monorepo")
+    id: str | None = Field(None, description="Repository ID from hosting service")
+    subfolder: str | None = Field(None, description="Path within monorepo")
 
 
 class AnthropicStdioTransport(BaseModel):
     """Standard I/O transport configuration (Anthropic Registry API)."""
 
     type: str = Field(default="stdio")
-    command: Optional[str] = Field(None, description="Command to execute")
-    args: Optional[List[str]] = Field(None, description="Command arguments")
-    env: Optional[Dict[str, str]] = Field(None, description="Environment variables")
+    command: str | None = Field(None, description="Command to execute")
+    args: list[str] | None = Field(None, description="Command arguments")
+    env: dict[str, str] | None = Field(None, description="Environment variables")
 
 
 class AnthropicStreamableHttpTransport(BaseModel):
@@ -964,7 +963,7 @@ class AnthropicStreamableHttpTransport(BaseModel):
 
     type: str = Field(default="streamable-http")
     url: str = Field(..., description="HTTP endpoint URL")
-    headers: Optional[Dict[str, str]] = Field(None, description="HTTP headers")
+    headers: dict[str, str] | None = Field(None, description="HTTP headers")
 
 
 class AnthropicSseTransport(BaseModel):
@@ -980,9 +979,9 @@ class AnthropicPackage(BaseModel):
     registryType: str = Field(..., description="Registry type (npm, pypi, oci, etc.)")
     identifier: str = Field(..., description="Package identifier or URL")
     version: str = Field(..., description="Specific package version")
-    registryBaseUrl: Optional[str] = Field(None, description="Base URL of package registry")
-    transport: Dict[str, Any] = Field(..., description="Transport configuration")
-    runtimeHint: Optional[str] = Field(None, description="Runtime hint (npx, uvx, docker, etc.)")
+    registryBaseUrl: str | None = Field(None, description="Base URL of package registry")
+    transport: dict[str, Any] = Field(..., description="Transport configuration")
+    runtimeHint: str | None = Field(None, description="Runtime hint (npx, uvx, docker, etc.)")
 
 
 class AnthropicServerDetail(BaseModel):
@@ -993,11 +992,11 @@ class AnthropicServerDetail(BaseModel):
     name: str = Field(..., description="Server name in reverse-DNS format")
     description: str = Field(..., description="Server description")
     version: str = Field(..., description="Server version")
-    title: Optional[str] = Field(None, description="Human-readable server name")
-    repository: Optional[AnthropicRepository] = Field(None, description="Repository information")
-    websiteUrl: Optional[str] = Field(None, description="Server website URL")
-    packages: Optional[List[AnthropicPackage]] = Field(None, description="Package distributions")
-    meta: Optional[Dict[str, Any]] = Field(
+    title: str | None = Field(None, description="Human-readable server name")
+    repository: AnthropicRepository | None = Field(None, description="Repository information")
+    websiteUrl: str | None = Field(None, description="Server website URL")
+    packages: list[AnthropicPackage] | None = Field(None, description="Package distributions")
+    meta: dict[str, Any] | None = Field(
         None, alias="_meta", serialization_alias="_meta", description="Extensible metadata"
     )
 
@@ -1008,7 +1007,7 @@ class AnthropicServerResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     server: AnthropicServerDetail = Field(..., description="Server details")
-    meta: Optional[Dict[str, Any]] = Field(
+    meta: dict[str, Any] | None = Field(
         None, alias="_meta", serialization_alias="_meta", description="Registry-managed metadata"
     )
 
@@ -1016,15 +1015,15 @@ class AnthropicServerResponse(BaseModel):
 class AnthropicPaginationMetadata(BaseModel):
     """Pagination information for server lists (Anthropic Registry API)."""
 
-    nextCursor: Optional[str] = Field(None, description="Cursor for next page")
-    count: Optional[int] = Field(None, description="Number of items in current page")
+    nextCursor: str | None = Field(None, description="Cursor for next page")
+    count: int | None = Field(None, description="Number of items in current page")
 
 
 class AnthropicServerList(BaseModel):
     """Response for server list queries (Anthropic Registry API)."""
 
-    servers: List[AnthropicServerResponse] = Field(..., description="List of servers")
-    metadata: Optional[AnthropicPaginationMetadata] = Field(None, description="Pagination info")
+    servers: list[AnthropicServerResponse] = Field(..., description="List of servers")
+    metadata: AnthropicPaginationMetadata | None = Field(None, description="Pagination info")
 
 
 class AnthropicErrorResponse(BaseModel):
@@ -1040,8 +1039,8 @@ class M2MAccountRequest(BaseModel):
     """Request model for creating M2M service account."""
 
     name: str = Field(..., min_length=1, description="Service account name/client ID")
-    groups: List[str] = Field(..., min_length=1, description="List of group names")
-    description: Optional[str] = Field(None, description="Account description")
+    groups: list[str] = Field(..., min_length=1, description="List of group names")
+    description: str | None = Field(None, description="Account description")
 
 
 class HumanUserRequest(BaseModel):
@@ -1051,8 +1050,8 @@ class HumanUserRequest(BaseModel):
     email: str = Field(..., description="Email address")
     first_name: str = Field(..., min_length=1, description="First name")
     last_name: str = Field(..., min_length=1, description="Last name")
-    groups: List[str] = Field(..., min_length=1, description="List of group names")
-    password: Optional[str] = Field(None, description="Initial password")
+    groups: list[str] = Field(..., min_length=1, description="List of group names")
+    password: str | None = Field(None, description="Initial password")
 
 
 class UserSummary(BaseModel):
@@ -1060,17 +1059,17 @@ class UserSummary(BaseModel):
 
     id: str = Field(..., description="User ID")
     username: str = Field(..., description="Username")
-    email: Optional[str] = Field(None, description="Email address")
-    firstName: Optional[str] = Field(None, description="First name")
-    lastName: Optional[str] = Field(None, description="Last name")
+    email: str | None = Field(None, description="Email address")
+    firstName: str | None = Field(None, description="First name")
+    lastName: str | None = Field(None, description="Last name")
     enabled: bool = Field(True, description="Whether user is enabled")
-    groups: List[str] = Field(default_factory=list, description="User groups")
+    groups: list[str] = Field(default_factory=list, description="User groups")
 
 
 class UserListResponse(BaseModel):
     """Response model for list users endpoint."""
 
-    users: List[UserSummary] = Field(default_factory=list, description="List of users")
+    users: list[UserSummary] = Field(default_factory=list, description="List of users")
     total: int = Field(..., description="Total number of users")
 
 
@@ -1086,16 +1085,16 @@ class M2MAccountResponse(BaseModel):
 
     client_id: str = Field(..., description="Client ID (app ID in Entra)")
     client_secret: str = Field(..., description="Client secret")
-    groups: List[str] = Field(default_factory=list, description="Assigned groups")
-    client_uuid: Optional[str] = Field(None, description="Client UUID (Entra app object ID)")
-    service_principal_id: Optional[str] = Field(None, description="Service principal ID (Entra)")
+    groups: list[str] = Field(default_factory=list, description="Assigned groups")
+    client_uuid: str | None = Field(None, description="Client UUID (Entra app object ID)")
+    service_principal_id: str | None = Field(None, description="Service principal ID (Entra)")
 
 
 class GroupCreateRequest(BaseModel):
     """Request model for creating a Keycloak group."""
 
     name: str = Field(..., min_length=1, description="Group name")
-    description: Optional[str] = Field(None, description="Group description")
+    description: str | None = Field(None, description="Group description")
 
 
 class GroupSummary(BaseModel):
@@ -1104,23 +1103,23 @@ class GroupSummary(BaseModel):
     id: str = Field(..., description="Group ID")
     name: str = Field(..., description="Group name")
     path: str = Field(..., description="Group path")
-    attributes: Optional[Dict[str, Any]] = Field(None, description="Group attributes")
+    attributes: dict[str, Any] | None = Field(None, description="Group attributes")
 
 
 class GroupSyncStatusResponse(BaseModel):
     """Response model for list groups endpoint with sync status."""
 
-    keycloak_groups: List[Dict[str, Any]] = Field(
+    keycloak_groups: list[dict[str, Any]] = Field(
         default_factory=list, description="Groups from Keycloak"
     )
-    scopes_groups: Dict[str, Any] = Field(
+    scopes_groups: dict[str, Any] = Field(
         default_factory=dict, description="Groups from scopes storage"
     )
-    synchronized: List[str] = Field(
+    synchronized: list[str] = Field(
         default_factory=list, description="Groups in both Keycloak and scopes"
     )
-    keycloak_only: List[str] = Field(default_factory=list, description="Groups only in Keycloak")
-    scopes_only: List[str] = Field(default_factory=list, description="Groups only in scopes")
+    keycloak_only: list[str] = Field(default_factory=list, description="Groups only in Keycloak")
+    scopes_only: list[str] = Field(default_factory=list, description="Groups only in scopes")
 
 
 class GroupDeleteResponse(BaseModel):
@@ -1140,10 +1139,10 @@ class SkillRegistrationRequest(BaseModel):
 
     name: str = Field(..., description="Skill name (lowercase alphanumeric with hyphens)")
     skill_md_url: str = Field(..., description="URL to SKILL.md file")
-    description: Optional[str] = Field(None, description="Skill description")
-    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
+    description: str | None = Field(None, description="Skill description")
+    tags: list[str] = Field(default_factory=list, description="Tags for categorization")
     visibility: str = Field(default="public", description="Visibility: public, private, group")
-    allowed_groups: List[str] = Field(
+    allowed_groups: list[str] = Field(
         default_factory=list, description="Groups for group visibility"
     )
 
@@ -1153,26 +1152,26 @@ class SkillCard(BaseModel):
 
     name: str = Field(..., description="Skill name")
     path: str = Field(..., description="Skill path (e.g., /skills/pdf-processing)")
-    description: Optional[str] = Field(None, description="Skill description")
+    description: str | None = Field(None, description="Skill description")
     skill_md_url: str = Field(..., description="URL to SKILL.md file")
-    skill_md_raw_url: Optional[str] = Field(None, description="Raw content URL")
-    version: Optional[str] = Field(None, description="Skill version")
-    author: Optional[str] = Field(None, description="Skill author")
+    skill_md_raw_url: str | None = Field(None, description="Raw content URL")
+    version: str | None = Field(None, description="Skill version")
+    author: str | None = Field(None, description="Skill author")
     visibility: str = Field(default="public", description="Visibility level")
     is_enabled: bool = Field(default=True, description="Whether skill is enabled")
-    tags: List[str] = Field(default_factory=list, description="Tags")
-    owner: Optional[str] = Field(None, description="Skill owner")
-    registry_name: Optional[str] = Field(None, description="Source registry")
+    tags: list[str] = Field(default_factory=list, description="Tags")
+    owner: str | None = Field(None, description="Skill owner")
+    registry_name: str | None = Field(None, description="Source registry")
     num_stars: float = Field(default=0, description="Average rating")
     health_status: str = Field(default="unknown", description="Health status")
-    created_at: Optional[str] = Field(None, description="Creation timestamp")
-    updated_at: Optional[str] = Field(None, description="Last update timestamp")
+    created_at: str | None = Field(None, description="Creation timestamp")
+    updated_at: str | None = Field(None, description="Last update timestamp")
 
 
 class SkillListResponse(BaseModel):
     """Response model for listing skills."""
 
-    skills: List[SkillCard] = Field(default_factory=list, description="List of skills")
+    skills: list[SkillCard] = Field(default_factory=list, description="List of skills")
     total_count: int = Field(0, description="Total number of skills")
 
 
@@ -1181,9 +1180,9 @@ class SkillHealthResponse(BaseModel):
 
     path: str = Field(..., description="Skill path")
     healthy: bool = Field(..., description="Whether SKILL.md is accessible")
-    status_code: Optional[int] = Field(None, description="HTTP status code")
-    error: Optional[str] = Field(None, description="Error message if unhealthy")
-    response_time_ms: Optional[float] = Field(None, description="Response time in ms")
+    status_code: int | None = Field(None, description="HTTP status code")
+    error: str | None = Field(None, description="Error message if unhealthy")
+    response_time_ms: float | None = Field(None, description="Response time in ms")
 
 
 class SkillContentResponse(BaseModel):
@@ -1197,7 +1196,7 @@ class SkillSearchResponse(BaseModel):
     """Response model for skill search."""
 
     query: str = Field(..., description="Search query")
-    skills: List[Dict[str, Any]] = Field(default_factory=list, description="Matching skills")
+    skills: list[dict[str, Any]] = Field(default_factory=list, description="Matching skills")
     total_count: int = Field(0, description="Total matches")
 
 
@@ -1212,7 +1211,7 @@ class SkillRatingResponse(BaseModel):
     """Response model for skill rating."""
 
     num_stars: float = Field(..., description="Average rating")
-    rating_details: List[Dict[str, Any]] = Field(
+    rating_details: list[dict[str, Any]] = Field(
         default_factory=list, description="Individual ratings"
     )
 
@@ -1245,7 +1244,7 @@ class RegistryClient:
         redacted_token = f"{token[:8]}..." if len(token) > 8 else "***"
         logger.info(f"Initialized RegistryClient for {self.registry_url} (token: {redacted_token})")
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """
         Get request headers with JWT token.
 
@@ -1258,8 +1257,8 @@ class RegistryClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> requests.Response:
         """
         Make HTTP request to the Registry API.
@@ -1350,7 +1349,7 @@ class RegistryClient:
         logger.info(f"Service registered successfully: {registration.service_path}")
         return ServiceResponse(**response.json())
 
-    def remove_service(self, service_path: str) -> Dict[str, Any]:
+    def remove_service(self, service_path: str) -> dict[str, Any]:
         """
         Remove a service from the registry.
 
@@ -1401,7 +1400,7 @@ class RegistryClient:
         auth_scheme: str,
         auth_credential: str = None,
         auth_header_name: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Update authentication credentials for a server.
 
@@ -1460,7 +1459,7 @@ class RegistryClient:
             logger.error(f"Raw response data: {json.dumps(response_data, indent=2, default=str)}")
             raise
 
-    def healthcheck(self) -> Dict[str, Any]:
+    def healthcheck(self) -> dict[str, Any]:
         """
         Perform health check on all services.
 
@@ -1478,7 +1477,7 @@ class RegistryClient:
         logger.info(f"Health check completed: {result.get('status', 'unknown')}")
         return result
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """
         Get registry configuration including deployment mode and features.
 
@@ -1500,7 +1499,7 @@ class RegistryClient:
         )
         return result
 
-    def add_server_to_groups(self, server_name: str, group_names: List[str]) -> Dict[str, Any]:
+    def add_server_to_groups(self, server_name: str, group_names: list[str]) -> dict[str, Any]:
         """
         Add a server to user groups.
 
@@ -1522,10 +1521,10 @@ class RegistryClient:
             data={"server_name": server_name, "group_names": ",".join(group_names)},
         )
 
-        logger.info(f"Server added to groups successfully")
+        logger.info("Server added to groups successfully")
         return response.json()
 
-    def remove_server_from_groups(self, server_name: str, group_names: List[str]) -> Dict[str, Any]:
+    def remove_server_from_groups(self, server_name: str, group_names: list[str]) -> dict[str, Any]:
         """
         Remove a server from user groups.
 
@@ -1547,12 +1546,12 @@ class RegistryClient:
             data={"server_name": server_name, "group_names": ",".join(group_names)},
         )
 
-        logger.info(f"Server removed from groups successfully")
+        logger.info("Server removed from groups successfully")
         return response.json()
 
     def create_group(
-        self, group_name: str, description: Optional[str] = None, create_in_idp: bool = False
-    ) -> Dict[str, Any]:
+        self, group_name: str, description: str | None = None, create_in_idp: bool = False
+    ) -> dict[str, Any]:
         """
         Create a new user group.
 
@@ -1584,7 +1583,7 @@ class RegistryClient:
 
     def delete_group(
         self, group_name: str, delete_from_idp: bool = False, force: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Delete a user group.
 
@@ -1614,7 +1613,7 @@ class RegistryClient:
         logger.info(f"Group deleted successfully: {group_name}")
         return response.json()
 
-    def import_group(self, group_definition: Dict[str, Any]) -> Dict[str, Any]:
+    def import_group(self, group_definition: dict[str, Any]) -> dict[str, Any]:
         """
         Import a complete group definition.
 
@@ -1679,7 +1678,7 @@ class RegistryClient:
         )
         return result
 
-    def get_group(self, group_name: str) -> Dict[str, Any]:
+    def get_group(self, group_name: str) -> dict[str, Any]:
         """
         Get full details of a specific group.
 
@@ -1729,9 +1728,9 @@ class RegistryClient:
 
     def list_agents(
         self,
-        query: Optional[str] = None,
+        query: str | None = None,
         enabled_only: bool = False,
-        visibility: Optional[str] = None,
+        visibility: str | None = None,
     ) -> AgentListResponse:
         """
         List all agents with optional filtering.
@@ -1853,7 +1852,7 @@ class RegistryClient:
         return result
 
     def discover_agents_by_skills(
-        self, skills: List[str], tags: Optional[List[str]] = None, max_results: int = 10
+        self, skills: list[str], tags: list[str] | None = None, max_results: int = 10
     ) -> AgentDiscoveryResponse:
         """
         Discover agents by required skills.
@@ -1942,7 +1941,7 @@ class RegistryClient:
         return result
 
     def semantic_search(
-        self, query: str, entity_types: Optional[List[str]] = None, max_results: int = 10
+        self, query: str, entity_types: list[str] | None = None, max_results: int = 10
     ) -> SemanticSearchResponse:
         """
         Comprehensive semantic search across all entity types.
@@ -1962,7 +1961,7 @@ class RegistryClient:
         """
         logger.info(f"Semantic search: {query} (entity_types={entity_types})")
 
-        request_data: Dict[str, Any] = {"query": query, "max_results": max_results}
+        request_data: dict[str, Any] = {"query": query, "max_results": max_results}
         if entity_types:
             request_data["entity_types"] = entity_types
 
@@ -2201,7 +2200,7 @@ class RegistryClient:
     # Anthropic Registry API Methods (v0.1)
 
     def anthropic_list_servers(
-        self, cursor: Optional[str] = None, limit: Optional[int] = None
+        self, cursor: str | None = None, limit: int | None = None
     ) -> AnthropicServerList:
         """
         List all MCP servers using the Anthropic Registry API format (v0.1).
@@ -2374,7 +2373,7 @@ class RegistryClient:
 
     # Management API Methods (IAM/User Management)
 
-    def list_users(self, search: Optional[str] = None, limit: int = 500) -> UserListResponse:
+    def list_users(self, search: str | None = None, limit: int = 500) -> UserListResponse:
         """
         List Keycloak users (admin only).
 
@@ -2420,7 +2419,7 @@ class RegistryClient:
             raise
 
     def create_m2m_account(
-        self, name: str, groups: List[str], description: Optional[str] = None
+        self, name: str, groups: list[str], description: str | None = None
     ) -> M2MAccountResponse:
         """
         Create a machine-to-machine service account.
@@ -2456,8 +2455,8 @@ class RegistryClient:
         email: str,
         first_name: str,
         last_name: str,
-        groups: List[str],
-        password: Optional[str] = None,
+        groups: list[str],
+        password: str | None = None,
     ) -> UserSummary:
         """
         Create a human user account in Keycloak.
@@ -2540,7 +2539,7 @@ class RegistryClient:
         logger.info(f"Retrieved {result.total} Keycloak groups")
         return result
 
-    def create_keycloak_group(self, name: str, description: Optional[str] = None) -> GroupSummary:
+    def create_keycloak_group(self, name: str, description: str | None = None) -> GroupSummary:
         """
         Create a new Keycloak group (admin only).
 
@@ -2591,7 +2590,7 @@ class RegistryClient:
         logger.info(f"Group deleted successfully: {name}")
         return result
 
-    def get_federation_config(self, config_id: str = "default") -> Dict[str, Any]:
+    def get_federation_config(self, config_id: str = "default") -> dict[str, Any]:
         """
         Get federation configuration by ID.
 
@@ -2607,7 +2606,7 @@ class RegistryClient:
         logger.info(f"Getting federation config: {config_id}")
 
         response = self._make_request(
-            method="GET", endpoint=f"/api/federation/config", params={"config_id": config_id}
+            method="GET", endpoint="/api/federation/config", params={"config_id": config_id}
         )
 
         result = response.json()
@@ -2615,8 +2614,8 @@ class RegistryClient:
         return result
 
     def save_federation_config(
-        self, config: Dict[str, Any], config_id: str = "default"
-    ) -> Dict[str, Any]:
+        self, config: dict[str, Any], config_id: str = "default"
+    ) -> dict[str, Any]:
         """
         Create or update federation configuration.
 
@@ -2643,7 +2642,7 @@ class RegistryClient:
         logger.info(f"Federation config saved successfully: {config_id}")
         return result
 
-    def delete_federation_config(self, config_id: str = "default") -> Dict[str, str]:
+    def delete_federation_config(self, config_id: str = "default") -> dict[str, str]:
         """
         Delete federation configuration.
 
@@ -2666,7 +2665,7 @@ class RegistryClient:
         logger.info(f"Federation config deleted successfully: {config_id}")
         return result
 
-    def list_federation_configs(self) -> Dict[str, Any]:
+    def list_federation_configs(self) -> dict[str, Any]:
         """
         List all federation configurations.
 
@@ -2684,7 +2683,7 @@ class RegistryClient:
         logger.info(f"Retrieved {result.get('total', 0)} federation configs")
         return result
 
-    def add_anthropic_server(self, server_name: str, config_id: str = "default") -> Dict[str, Any]:
+    def add_anthropic_server(self, server_name: str, config_id: str = "default") -> dict[str, Any]:
         """
         Add Anthropic server to federation configuration.
 
@@ -2712,7 +2711,7 @@ class RegistryClient:
 
     def remove_anthropic_server(
         self, server_name: str, config_id: str = "default"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Remove Anthropic server from federation configuration.
 
@@ -2737,7 +2736,7 @@ class RegistryClient:
         logger.info(f"Anthropic server removed successfully: {server_name}")
         return result
 
-    def add_asor_agent(self, agent_id: str, config_id: str = "default") -> Dict[str, Any]:
+    def add_asor_agent(self, agent_id: str, config_id: str = "default") -> dict[str, Any]:
         """
         Add ASOR agent to federation configuration.
 
@@ -2763,7 +2762,7 @@ class RegistryClient:
         logger.info(f"ASOR agent added successfully: {agent_id}")
         return result
 
-    def remove_asor_agent(self, agent_id: str, config_id: str = "default") -> Dict[str, Any]:
+    def remove_asor_agent(self, agent_id: str, config_id: str = "default") -> dict[str, Any]:
         """
         Remove ASOR agent from federation configuration.
 
@@ -2788,8 +2787,8 @@ class RegistryClient:
         return result
 
     def sync_federation(
-        self, config_id: str = "default", source: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, config_id: str = "default", source: str | None = None
+    ) -> dict[str, Any]:
         """
         Trigger manual federation sync to import servers/agents.
 
@@ -2811,7 +2810,7 @@ class RegistryClient:
 
         response = self._make_request(
             method="POST",
-            endpoint=f"/api/federation/sync",
+            endpoint="/api/federation/sync",
             params={"config_id": config_id, **params},
         )
 
@@ -2823,7 +2822,7 @@ class RegistryClient:
     # Peer Federation Management Methods
     # ==========================================
 
-    def list_peers(self, enabled: Optional[bool] = None) -> Dict[str, Any]:
+    def list_peers(self, enabled: bool | None = None) -> dict[str, Any]:
         """
         List all configured peer registries.
 
@@ -2850,7 +2849,7 @@ class RegistryClient:
         logger.info(f"Retrieved {len(result) if isinstance(result, list) else 0} peers")
         return result
 
-    def add_peer(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def add_peer(self, config: dict[str, Any]) -> dict[str, Any]:
         """
         Add a new peer registry.
 
@@ -2872,7 +2871,7 @@ class RegistryClient:
         logger.info(f"Peer registry added successfully: {peer_id}")
         return result
 
-    def get_peer(self, peer_id: str) -> Dict[str, Any]:
+    def get_peer(self, peer_id: str) -> dict[str, Any]:
         """
         Get details of a specific peer registry.
 
@@ -2893,7 +2892,7 @@ class RegistryClient:
         logger.info(f"Retrieved peer registry: {peer_id}")
         return result
 
-    def update_peer(self, peer_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    def update_peer(self, peer_id: str, config: dict[str, Any]) -> dict[str, Any]:
         """
         Update an existing peer registry configuration.
 
@@ -2915,7 +2914,7 @@ class RegistryClient:
         logger.info(f"Peer registry updated successfully: {peer_id}")
         return result
 
-    def update_peer_token(self, peer_id: str, federation_token: str) -> Dict[str, Any]:
+    def update_peer_token(self, peer_id: str, federation_token: str) -> dict[str, Any]:
         """
         Update only the federation token for a peer registry.
 
@@ -2944,7 +2943,7 @@ class RegistryClient:
         logger.info(f"Federation token updated successfully for peer: {peer_id}")
         return result
 
-    def remove_peer(self, peer_id: str) -> Dict[str, Any]:
+    def remove_peer(self, peer_id: str) -> dict[str, Any]:
         """
         Remove a peer registry.
 
@@ -2970,7 +2969,7 @@ class RegistryClient:
         logger.info(f"Peer registry removed successfully: {peer_id}")
         return result
 
-    def sync_peer(self, peer_id: str) -> Dict[str, Any]:
+    def sync_peer(self, peer_id: str) -> dict[str, Any]:
         """
         Trigger sync from a specific peer registry.
 
@@ -2991,7 +2990,7 @@ class RegistryClient:
         logger.info(f"Peer sync completed: {peer_id}")
         return result
 
-    def sync_all_peers(self) -> Dict[str, Any]:
+    def sync_all_peers(self) -> dict[str, Any]:
         """
         Trigger sync from all enabled peer registries.
 
@@ -3009,7 +3008,7 @@ class RegistryClient:
         logger.info("All peer sync completed")
         return result
 
-    def get_peer_status(self, peer_id: str) -> Dict[str, Any]:
+    def get_peer_status(self, peer_id: str) -> dict[str, Any]:
         """
         Get sync status for a specific peer registry.
 
@@ -3030,7 +3029,7 @@ class RegistryClient:
         logger.info(f"Retrieved sync status for peer: {peer_id}")
         return result
 
-    def enable_peer(self, peer_id: str) -> Dict[str, Any]:
+    def enable_peer(self, peer_id: str) -> dict[str, Any]:
         """
         Enable a peer registry.
 
@@ -3051,7 +3050,7 @@ class RegistryClient:
         logger.info(f"Peer registry enabled: {peer_id}")
         return result
 
-    def disable_peer(self, peer_id: str) -> Dict[str, Any]:
+    def disable_peer(self, peer_id: str) -> dict[str, Any]:
         """
         Disable a peer registry.
 
@@ -3072,7 +3071,7 @@ class RegistryClient:
         logger.info(f"Peer registry disabled: {peer_id}")
         return result
 
-    def get_peer_connections(self) -> Dict[str, Any]:
+    def get_peer_connections(self) -> dict[str, Any]:
         """
         Get all federation connections across all peers.
 
@@ -3090,7 +3089,7 @@ class RegistryClient:
         logger.info("Retrieved peer connections")
         return result
 
-    def get_shared_resources(self) -> Dict[str, Any]:
+    def get_shared_resources(self) -> dict[str, Any]:
         """
         Get resource sharing summary across all peers.
 
@@ -3136,7 +3135,7 @@ class RegistryClient:
         return SkillCard(**result)
 
     def list_skills(
-        self, include_disabled: bool = False, tag: Optional[str] = None
+        self, include_disabled: bool = False, tag: str | None = None
     ) -> SkillListResponse:
         """
         List all Agent Skills.
@@ -3309,7 +3308,7 @@ class RegistryClient:
         logger.info(f"Retrieved skill content: {content_len} characters")
         return SkillContentResponse(**result)
 
-    def search_skills(self, query: str, tags: Optional[str] = None) -> SkillSearchResponse:
+    def search_skills(self, query: str, tags: str | None = None) -> SkillSearchResponse:
         """
         Search for skills by query.
 
@@ -3335,7 +3334,7 @@ class RegistryClient:
         logger.info(f"Found {result.get('total_count', 0)} skills matching '{query}'")
         return SkillSearchResponse(**result)
 
-    def rate_skill(self, path: str, rating: int) -> Dict[str, Any]:
+    def rate_skill(self, path: str, rating: int) -> dict[str, Any]:
         """
         Rate a skill (1-5 stars).
 
@@ -3465,7 +3464,7 @@ class RegistryClient:
     def list_virtual_servers(
         self,
         enabled_only: bool = False,
-        tag: Optional[str] = None,
+        tag: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> VirtualServerListResponse:
@@ -3593,7 +3592,7 @@ class RegistryClient:
         logger.info(f"Virtual server {action}d: {result.get('is_enabled')}")
         return VirtualServerToggleResponse(**result)
 
-    def rate_virtual_server(self, path: str, rating: int) -> Dict[str, Any]:
+    def rate_virtual_server(self, path: str, rating: int) -> dict[str, Any]:
         """
         Rate a virtual MCP server (1-5 stars).
 
@@ -3621,7 +3620,7 @@ class RegistryClient:
         logger.info(f"Virtual server rated: avg={result.get('average_rating')}")
         return result
 
-    def get_virtual_server_rating(self, path: str) -> Dict[str, Any]:
+    def get_virtual_server_rating(self, path: str) -> dict[str, Any]:
         """
         Get rating information for a virtual MCP server.
 
@@ -3648,7 +3647,7 @@ class RegistryClient:
 
 def _format_tool_result(
     tool: ToolSearchResult,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Format a tool search result for display to the agent.
 

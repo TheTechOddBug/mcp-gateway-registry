@@ -5,9 +5,10 @@ Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.audit.models import (
     SENSITIVE_QUERY_PARAMS,
@@ -67,7 +68,7 @@ class TestJSONLFormatValidity:
     @given(
         st.builds(
             RegistryApiAccessRecord,
-            timestamp=st.datetimes(timezones=st.just(timezone.utc)),
+            timestamp=st.datetimes(timezones=st.just(UTC)),
             request_id=st.uuids().map(str),
             identity=st.builds(
                 Identity,

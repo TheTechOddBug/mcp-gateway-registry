@@ -7,7 +7,6 @@ Tests for sync_peer, sync_all_peers, and storage methods
 Updated for async/repository pattern.
 """
 
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,7 +15,6 @@ from registry.schemas.agent_models import AgentCard
 from registry.schemas.peer_federation_schema import (
     PeerRegistryConfig,
     PeerSyncStatus,
-    SyncResult,
 )
 from registry.services.peer_federation_service import (
     PeerFederationService,

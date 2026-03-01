@@ -5,9 +5,6 @@ import logging
 import time
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
 
 import aiohttp
@@ -15,7 +12,6 @@ from pydantic import (
     BaseModel,
     Field,
 )
-
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -33,9 +29,9 @@ class MatchingTool(BaseModel):
     """
 
     tool_name: str = Field(..., description="Name of the matching tool")
-    description: Optional[str] = Field(None, description="Tool description")
+    description: str | None = Field(None, description="Tool description")
     relevance_score: float = Field(0.0, ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Match context")
+    match_context: str | None = Field(None, description="Match context")
 
 
 class ServerSearchResult(BaseModel):
@@ -43,13 +39,13 @@ class ServerSearchResult(BaseModel):
 
     path: str = Field(..., description="Server path in registry")
     server_name: str = Field(..., description="Server name")
-    description: Optional[str] = Field(None, description="Server description")
-    tags: List[str] = Field(default_factory=list, description="Server tags")
+    description: str | None = Field(None, description="Server description")
+    tags: list[str] = Field(default_factory=list, description="Server tags")
     num_tools: int = Field(0, description="Number of tools")
     is_enabled: bool = Field(False, description="Whether server is enabled")
     relevance_score: float = Field(0.0, ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Match context")
-    matching_tools: List[MatchingTool] = Field(
+    match_context: str | None = Field(None, description="Match context")
+    matching_tools: list[MatchingTool] = Field(
         default_factory=list, description="Tools matching the query"
     )
 
@@ -60,18 +56,18 @@ class ToolSearchResult(BaseModel):
     server_path: str = Field(..., description="Server path in registry")
     server_name: str = Field(..., description="Server name")
     tool_name: str = Field(..., description="Tool name")
-    description: Optional[str] = Field(None, description="Tool description")
-    inputSchema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for tool input")
+    description: str | None = Field(None, description="Tool description")
+    inputSchema: dict[str, Any] | None = Field(None, description="JSON Schema for tool input")
     relevance_score: float = Field(0.0, ge=0.0, le=1.0, description="Relevance score")
-    match_context: Optional[str] = Field(None, description="Match context")
+    match_context: str | None = Field(None, description="Match context")
 
 
 class SearchResponse(BaseModel):
     """Response from semantic search API."""
 
     query: str = Field(..., description="Original query")
-    servers: List[ServerSearchResult] = Field(default_factory=list, description="Matching servers")
-    tools: List[ToolSearchResult] = Field(default_factory=list, description="Matching tools")
+    servers: list[ServerSearchResult] = Field(default_factory=list, description="Matching servers")
+    tools: list[ToolSearchResult] = Field(default_factory=list, description="Matching tools")
     total_servers: int = Field(0, description="Total matching servers")
     total_tools: int = Field(0, description="Total matching tools")
 
@@ -82,10 +78,10 @@ class RegistryClient:
     def __init__(
         self,
         registry_url: str,
-        jwt_token: Optional[str] = None,
-        keycloak_url: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
+        jwt_token: str | None = None,
+        keycloak_url: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
         realm: str = "mcp-gateway",
     ) -> None:
         """
@@ -107,7 +103,7 @@ class RegistryClient:
         self.realm = realm
 
         # Token caching
-        self._cached_token: Optional[str] = None
+        self._cached_token: str | None = None
         self._token_expires_at: float = 0
 
         if jwt_token:
@@ -175,7 +171,7 @@ class RegistryClient:
         self,
         query: str,
         max_results: int = 10,
-        entity_types: Optional[List[str]] = None,
+        entity_types: list[str] | None = None,
     ) -> SearchResponse:
         """
         Search for MCP tools using semantic search.
@@ -241,7 +237,7 @@ class RegistryClient:
     async def get_server_info(
         self,
         server_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get detailed information about a specific MCP server.
 
@@ -302,7 +298,7 @@ class RegistryClient:
 
 def _format_tool_result(
     tool: ToolSearchResult,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Format a tool search result for display to the agent.
 
@@ -332,7 +328,7 @@ def _format_tool_result(
 
 def _format_server_result(
     server: ServerSearchResult,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Format a server search result for display to the agent.
 

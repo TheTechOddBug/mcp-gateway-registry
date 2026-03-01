@@ -7,13 +7,10 @@ when their configured interval has elapsed.
 
 import asyncio
 import logging
-from datetime import datetime
-from datetime import timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from registry.repositories.factory import get_peer_federation_repository
 from registry.services.peer_federation_service import PeerFederationService
-
 
 # Configure logging
 logging.basicConfig(
@@ -36,7 +33,7 @@ class PeerSyncScheduler:
     """
 
     def __init__(self):
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._running: bool = False
 
     async def start(self) -> None:
@@ -86,7 +83,7 @@ class PeerSyncScheduler:
                 return
 
             federation_service = PeerFederationService()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             for peer in peers:
                 # Skip disabled peers
@@ -156,7 +153,7 @@ class PeerSyncScheduler:
 
             # Ensure last_sync is timezone-aware
             if last_sync.tzinfo is None:
-                last_sync = last_sync.replace(tzinfo=timezone.utc)
+                last_sync = last_sync.replace(tzinfo=UTC)
 
             # Calculate time since last sync
             elapsed_minutes = (now - last_sync).total_seconds() / 60
@@ -169,7 +166,7 @@ class PeerSyncScheduler:
 
 
 # Global scheduler instance
-_scheduler: Optional[PeerSyncScheduler] = None
+_scheduler: PeerSyncScheduler | None = None
 
 
 def get_peer_sync_scheduler() -> PeerSyncScheduler:

@@ -48,43 +48,38 @@ Environment Variables:
     - ANTHROPIC_API_KEY: Required when using --provider anthropic
 """
 
-import asyncio
 import argparse
+import ast
+import asyncio
 import json
 import logging
-import ast
 import operator as _operator
 import os
 import re
 import sys
 import threading
 import time
-import yaml
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
-    Union,
 )
 from urllib.parse import (
-    urlparse,
     urljoin,
+    urlparse,
 )
 
 import httpx
 import mcp
+import yaml
 from langchain_anthropic import ChatAnthropic
 from langchain_aws import ChatBedrock
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-
 from registry_client import (
     RegistryClient,
     _format_tool_result,
@@ -101,7 +96,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global registry client instance (initialized in main)
-registry_client: Optional[RegistryClient] = None
+registry_client: RegistryClient | None = None
 
 
 class ProgressSpinner:
@@ -111,7 +106,7 @@ class ProgressSpinner:
 
     def __init__(self):
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def _spin(self) -> None:
         idx = 0
@@ -150,7 +145,7 @@ def print_step(
     print(f"  {icon} {step}")
 
 
-def load_server_config(config_file: str = "server_config.yml") -> Dict[str, Any]:
+def load_server_config(config_file: str = "server_config.yml") -> dict[str, Any]:
     """
     Load server configuration from YAML file.
 
@@ -172,7 +167,7 @@ def load_server_config(config_file: str = "server_config.yml") -> Dict[str, Any]
                 )
                 return {"servers": {}}
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f)
             logger.info(f"Loaded server config from: {config_path}")
             return config or {"servers": {}}
@@ -224,7 +219,7 @@ def resolve_env_vars(value: str, server_name: str = None) -> str:
     return resolved_value
 
 
-def get_server_headers(server_name: str, config: Dict[str, Any]) -> Dict[str, str]:
+def get_server_headers(server_name: str, config: dict[str, Any]) -> dict[str, str]:
     """
     Get server-specific headers from configuration with environment variable resolution.
 
@@ -390,7 +385,7 @@ _SAFE_UNARY_OPERATORS: dict = {
 }
 
 
-def _safe_eval_arithmetic(expression: str) -> Union[int, float]:
+def _safe_eval_arithmetic(expression: str) -> int | float:
     """Safely evaluate an arithmetic expression using AST node whitelisting.
 
     Only numeric literals and basic arithmetic operators are permitted.
@@ -408,7 +403,7 @@ def _safe_eval_arithmetic(expression: str) -> Union[int, float]:
         ZeroDivisionError: If the expression divides by zero.
     """
 
-    def _eval_node(node: ast.AST) -> Union[int, float]:
+    def _eval_node(node: ast.AST) -> int | float:
         if isinstance(node, ast.Expression):
             return _eval_node(node.body)
         if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
@@ -588,8 +583,8 @@ async def invoke_mcp_tool(
     mcp_registry_url: str,
     server_name: str,
     tool_name: str,
-    arguments: Dict[str, Any],
-    supported_transports: List[str] = None,
+    arguments: dict[str, Any],
+    supported_transports: list[str] = None,
     auth_provider: str = None,
 ) -> str:
     """
@@ -665,10 +660,10 @@ async def invoke_mcp_tool(
 
 
 def _add_egress_auth(
-    headers: Dict[str, str],
+    headers: dict[str, str],
     auth_provider: str,
     server_name: str,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Add egress authentication headers if available."""
     oauth_tokens_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".oauth-tokens"
@@ -684,7 +679,7 @@ def _add_egress_auth(
 
     for egress_file in egress_files:
         if os.path.exists(egress_file):
-            with open(egress_file, "r") as f:
+            with open(egress_file) as f:
                 egress_data = json.load(f)
 
             egress_token = egress_data.get("access_token")
@@ -705,9 +700,9 @@ def _add_egress_auth(
 
 async def _invoke_via_sse(
     server_url: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     tool_name: str,
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
 ) -> str:
     """Invoke tool via SSE transport."""
     async with sse_client(server_url, headers=headers) as (read, write):
@@ -719,9 +714,9 @@ async def _invoke_via_sse(
 
 async def _invoke_via_http(
     server_url: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     tool_name: str,
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
 ) -> str:
     """Invoke tool via streamable HTTP transport."""
     async with httpx.AsyncClient(headers=headers) as http_client:
@@ -745,7 +740,7 @@ def _format_tool_response(result: Any) -> str:
 
 
 # Get current UTC time (using timezone.utc to avoid deprecation warning)
-current_utc_time = str(datetime.now(timezone.utc))
+current_utc_time = str(datetime.now(UTC))
 
 
 # Global agent settings to store authentication details
@@ -753,7 +748,7 @@ class AgentSettings:
     """Stores authentication details for MCP tool invocation."""
 
     def __init__(self):
-        self.auth_token: Optional[str] = None
+        self.auth_token: str | None = None
         self.region: str = "us-east-1"
 
 
@@ -776,7 +771,7 @@ def load_system_prompt():
         # Get the directory where this Python file is located
         current_dir = os.path.dirname(__file__)
         system_prompt_path = os.path.join(current_dir, "system_prompt.txt")
-        with open(system_prompt_path, "r") as f:
+        with open(system_prompt_path) as f:
             return f.read()
     except Exception as e:
         print(f"Error loading system prompt: {e}")
@@ -791,7 +786,7 @@ def load_system_prompt():
 
 
 def print_agent_response(
-    response_dict: Dict[str, Any],
+    response_dict: dict[str, Any],
     verbose: bool = False,
 ) -> None:
     """
@@ -821,7 +816,7 @@ def print_agent_response(
             break
 
 
-def _print_verbose_messages(messages: List[Any]) -> None:
+def _print_verbose_messages(messages: list[Any]) -> None:
     """Print detailed message flow for debugging."""
     colors = {
         "SYSTEM": "\033[1;33m",
@@ -862,13 +857,13 @@ class InteractiveAgent:
         self.agent = agent
         self.system_prompt = system_prompt
         self.verbose = verbose
-        self.conversation_history: List[Dict[str, str]] = []
+        self.conversation_history: list[dict[str, str]] = []
 
     async def process_message(
         self,
         user_input: str,
         show_progress: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process a user message and return the agent's response."""
         messages = [{"role": "system", "content": self.system_prompt}]
         messages.extend(self.conversation_history)

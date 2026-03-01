@@ -1,7 +1,8 @@
 """Unit tests for virtual server nginx configuration generation."""
 
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 from registry.schemas.virtual_server_models import (
     ToolMapping,

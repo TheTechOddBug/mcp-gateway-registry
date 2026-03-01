@@ -11,7 +11,7 @@ import re
 def fix_test_file():
     file_path = "/home/ubuntu/mcp-gateway-registry-MAIN/tests/unit/api/test_server_routes.py"
 
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         content = f.read()
 
     # Pattern 1: Remove "with patch" blocks for admin users (single line)

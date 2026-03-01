@@ -8,7 +8,7 @@ returns multiple events.
 Related: GitHub issue #527
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,7 +34,7 @@ def _make_registry_record(
 ) -> RegistryApiAccessRecord:
     """Create a test RegistryApiAccessRecord."""
     return RegistryApiAccessRecord(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         request_id=request_id,
         identity=Identity(
             username="testuser",
@@ -58,7 +58,7 @@ def _make_mcp_record(
 ) -> MCPServerAccessRecord:
     """Create a test MCPServerAccessRecord."""
     return MCPServerAccessRecord(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         request_id=request_id,
         identity=Identity(
             username="testuser",

@@ -6,23 +6,21 @@ These endpoints provide system-level information for monitoring and display.
 
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
 from ..core.config import settings
 from ..version import __version__
 
-
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 # Global variables for server start time and stats caching
-_server_start_time: Optional[datetime] = None
-_stats_cache: Optional[dict] = None
-_stats_cache_time: Optional[datetime] = None
+_server_start_time: datetime | None = None
+_stats_cache: dict | None = None
+_stats_cache_time: datetime | None = None
 STATS_CACHE_TTL_SECONDS = 30  # Cache stats for 30 seconds
 
 
@@ -76,8 +74,8 @@ async def _get_registry_stats() -> dict:
     try:
         # Import repositories
         from registry.repositories.factory import (
-            get_server_repository,
             get_agent_repository,
+            get_server_repository,
             get_skill_repository,
         )
 
@@ -208,7 +206,7 @@ async def _get_cached_stats() -> dict:
     """
     global _stats_cache, _stats_cache_time
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Check if cache is valid
     if (

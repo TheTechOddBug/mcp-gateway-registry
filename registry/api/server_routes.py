@@ -5,7 +5,7 @@ import os
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Body, Cookie, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -14,8 +14,8 @@ from ..audit import set_audit_action
 from ..auth.dependencies import enhanced_auth, nginx_proxied_auth
 from ..auth.internal import validate_internal_auth
 from ..constants import VALID_AUTH_SCHEMES
-from ..core.schemas import AuthCredentialUpdateRequest
 from ..core.config import settings
+from ..core.schemas import AuthCredentialUpdateRequest
 from ..services.security_scanner import security_scanner_service
 from ..services.server_service import server_service
 from ..utils.credential_encryption import encrypt_credential_in_server_dict

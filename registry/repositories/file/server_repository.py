@@ -6,8 +6,7 @@ Extracts all file I/O logic from ServerService while maintaining identical behav
 
 import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from ...core.config import settings
 from ..interfaces import ServerRepositoryBase
@@ -19,8 +18,8 @@ class FileServerRepository(ServerRepositoryBase):
     """File-based implementation of server repository."""
 
     def __init__(self):
-        self._servers: Dict[str, Dict[str, Any]] = {}
-        self._state: Dict[str, bool] = {}
+        self._servers: dict[str, dict[str, Any]] = {}
+        self._state: dict[str, bool] = {}
 
     async def load_all(self) -> None:
         """Load server definitions and state from disk."""
@@ -37,7 +36,7 @@ class FileServerRepository(ServerRepositoryBase):
                 continue
 
             try:
-                with open(server_file, "r") as f:
+                with open(server_file) as f:
                     server_info = json.load(f)
 
                     if (
@@ -74,7 +73,7 @@ class FileServerRepository(ServerRepositoryBase):
 
         try:
             if settings.state_file_path.exists():
-                with open(settings.state_file_path, "r") as f:
+                with open(settings.state_file_path) as f:
                     loaded_state = json.load(f)
                 if not isinstance(loaded_state, dict):
                     logger.warning("Invalid state format, resetting")
@@ -120,7 +119,7 @@ class FileServerRepository(ServerRepositoryBase):
 
     async def _save_to_file(
         self,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> bool:
         """Save server data to individual file."""
         try:
@@ -142,7 +141,7 @@ class FileServerRepository(ServerRepositoryBase):
     async def get(
         self,
         path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get server by path."""
         server_info = self._servers.get(path)
         if server_info:
@@ -155,14 +154,14 @@ class FileServerRepository(ServerRepositoryBase):
 
         return self._servers.get(alternate_path)
 
-    async def list_all(self) -> Dict[str, Dict[str, Any]]:
+    async def list_all(self) -> dict[str, dict[str, Any]]:
         """List all servers."""
         return self._servers.copy()
 
     async def list_by_source(
         self,
         source: str,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """List all servers from a specific federation source.
 
         Args:
@@ -179,7 +178,7 @@ class FileServerRepository(ServerRepositoryBase):
 
     async def create(
         self,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> bool:
         """Create a new server."""
         path = server_info["path"]
@@ -202,7 +201,7 @@ class FileServerRepository(ServerRepositoryBase):
     async def update(
         self,
         path: str,
-        server_info: Dict[str, Any],
+        server_info: dict[str, Any],
     ) -> bool:
         """Update an existing server."""
         if path not in self._servers:

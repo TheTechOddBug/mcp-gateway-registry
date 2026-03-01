@@ -10,11 +10,7 @@ import json
 import logging
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
-
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -34,7 +30,7 @@ DEFAULT_AUTH_PROVIDER: str = "keycloak"
 DEFAULT_AUTH_SCHEME: str = "bearer"
 
 
-def _substitute_env_vars_in_headers(headers: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def _substitute_env_vars_in_headers(headers: list[dict[str, str]]) -> list[dict[str, str]]:
     """Substitute environment variables in header values.
 
     Replaces ${VAR_NAME} or $VAR_NAME with actual environment variable values.
@@ -80,8 +76,8 @@ def _substitute_env_vars_in_headers(headers: List[Dict[str, str]]) -> List[Dict[
 
 
 def _extract_remote_info(
-    remotes: List[Dict[str, Any]],
-) -> tuple[Optional[str], str, str, List[Dict[str, str]]]:
+    remotes: list[dict[str, Any]],
+) -> tuple[str | None, str, str, list[dict[str, str]]]:
     """Extract remote URL, transport type, auth scheme, and headers from remotes field.
 
     Args:
@@ -133,7 +129,7 @@ def _extract_remote_info(
     return remote_url, transport_type, auth_scheme, output_headers
 
 
-def _generate_tags(name: str) -> List[str]:
+def _generate_tags(name: str) -> list[str]:
     """Generate tags from server name.
 
     Args:
@@ -148,8 +144,8 @@ def _generate_tags(name: str) -> List[str]:
 
 
 def transform_anthropic_to_gateway(
-    anthropic_response: Dict[str, Any], base_port: int = DEFAULT_BASE_PORT
-) -> Dict[str, Any]:
+    anthropic_response: dict[str, Any], base_port: int = DEFAULT_BASE_PORT
+) -> dict[str, Any]:
     """Transform Anthropic ServerResponse to Gateway Registry Config format.
 
     Args:

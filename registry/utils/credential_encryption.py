@@ -9,11 +9,10 @@ Follows the same pattern as federation_encryption.py but derives the Fernet
 key from SECRET_KEY instead of requiring a separate environment variable.
 """
 
-import logging
 import base64
 import hashlib
-from datetime import datetime, timezone
-from typing import Optional
+import logging
+from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -51,7 +50,7 @@ def _derive_fernet_key(
     return base64.urlsafe_b64encode(derived)
 
 
-def _get_fernet() -> Optional[Fernet]:
+def _get_fernet() -> Fernet | None:
     """Get a Fernet instance derived from the application SECRET_KEY.
 
     Returns:
@@ -103,7 +102,7 @@ def encrypt_credential(
 
 def decrypt_credential(
     encrypted_credential: str,
-) -> Optional[str]:
+) -> str | None:
     """Decrypt a backend server credential from storage.
 
     Args:
@@ -157,7 +156,7 @@ def encrypt_credential_in_server_dict(
 
     encrypted = encrypt_credential(credential)
     server_dict[ENCRYPTED_FIELD] = encrypted
-    server_dict["credential_updated_at"] = datetime.now(timezone.utc).isoformat()
+    server_dict["credential_updated_at"] = datetime.now(UTC).isoformat()
 
     # Remove plaintext from storage dict
     server_dict.pop(PLAINTEXT_FIELD, None)

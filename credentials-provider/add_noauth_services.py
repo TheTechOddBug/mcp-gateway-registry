@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +33,7 @@ def _load_env_file() -> None:
 
     if env_file.exists():
         try:
-            with open(env_file, "r") as f:
+            with open(env_file) as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -48,17 +48,17 @@ def _load_env_file() -> None:
         logger.debug(f"No .env file found at {env_file}")
 
 
-def _load_json_file(file_path: Path) -> Optional[Dict[str, Any]]:
+def _load_json_file(file_path: Path) -> dict[str, Any] | None:
     """Load and parse a JSON file safely."""
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load {file_path}: {e}")
         return None
 
 
-def _save_json_file(file_path: Path, data: Dict[str, Any], description: str) -> None:
+def _save_json_file(file_path: Path, data: dict[str, Any], description: str) -> None:
     """Save data to JSON file safely."""
     try:
         with open(file_path, "w", encoding="utf-8") as f:
@@ -92,7 +92,7 @@ def _get_oauth_tokens_dir() -> Path:
     return tokens_dir
 
 
-def _scan_noauth_services() -> List[Dict[str, Any]]:
+def _scan_noauth_services() -> list[dict[str, Any]]:
     """Scan registry servers and find services with auth_scheme: none."""
     registry_dir = _get_registry_servers_dir()
     noauth_services = []
@@ -128,7 +128,7 @@ def _scan_noauth_services() -> List[Dict[str, Any]]:
     return noauth_services
 
 
-def _get_ingress_headers() -> Optional[Dict[str, str]]:
+def _get_ingress_headers() -> dict[str, str] | None:
     """Get ingress authentication headers from tokens file."""
     tokens_dir = _get_oauth_tokens_dir()
     ingress_file = tokens_dir / "ingress.json"
@@ -173,7 +173,7 @@ def _get_ingress_headers() -> Optional[Dict[str, str]]:
 
 
 def _update_vscode_config(
-    noauth_services: List[Dict[str, Any]], ingress_headers: Optional[Dict[str, str]]
+    noauth_services: list[dict[str, Any]], ingress_headers: dict[str, str] | None
 ) -> None:
     """Update VS Code MCP configuration with no-auth services."""
     tokens_dir = _get_oauth_tokens_dir()
@@ -220,7 +220,7 @@ def _update_vscode_config(
 
 
 def _update_roocode_config(
-    noauth_services: List[Dict[str, Any]], ingress_headers: Optional[Dict[str, str]]
+    noauth_services: list[dict[str, Any]], ingress_headers: dict[str, str] | None
 ) -> None:
     """Update Roocode MCP configuration with no-auth services."""
     tokens_dir = _get_oauth_tokens_dir()

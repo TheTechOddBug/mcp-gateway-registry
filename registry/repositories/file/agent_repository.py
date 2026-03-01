@@ -2,9 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from ...core.config import settings
 from ...schemas.agent_models import AgentCard
@@ -32,7 +30,7 @@ class FileAgentRepository(AgentRepositoryBase):
         self.state_file = settings.agent_state_file_path
         self.agents_dir.mkdir(parents=True, exist_ok=True)
 
-    async def get_all(self) -> Dict[str, AgentCard]:
+    async def get_all(self) -> dict[str, AgentCard]:
         """Load all agents from disk."""
         agents = {}
         agent_files = [
@@ -41,7 +39,7 @@ class FileAgentRepository(AgentRepositoryBase):
 
         for file in agent_files:
             try:
-                with open(file, "r") as f:
+                with open(file) as f:
                     data = json.load(f)
                 if isinstance(data, dict) and "path" in data and "name" in data:
                     agent = AgentCard(**data)
@@ -51,7 +49,7 @@ class FileAgentRepository(AgentRepositoryBase):
 
         return agents
 
-    async def get(self, path: str) -> Optional[AgentCard]:
+    async def get(self, path: str) -> AgentCard | None:
         """Get agent by path."""
         agents = await self.get_all()
         return agents.get(path)
@@ -59,8 +57,8 @@ class FileAgentRepository(AgentRepositoryBase):
     async def save(self, agent: AgentCard) -> AgentCard:
         """Save agent to disk."""
         if not agent.registered_at:
-            agent.registered_at = datetime.now(timezone.utc)
-        agent.updated_at = datetime.now(timezone.utc)
+            agent.registered_at = datetime.now(UTC)
+        agent.updated_at = datetime.now(UTC)
 
         filename = _path_to_filename(agent.path)
         file_path = self.agents_dir / filename
@@ -80,11 +78,11 @@ class FileAgentRepository(AgentRepositoryBase):
             return True
         return False
 
-    async def get_state(self) -> Dict[str, List[str]]:
+    async def get_state(self) -> dict[str, list[str]]:
         """Load agent state from disk."""
         if self.state_file.exists():
             try:
-                with open(self.state_file, "r") as f:
+                with open(self.state_file) as f:
                     state = json.load(f)
                 if isinstance(state, dict):
                     return {
@@ -96,7 +94,7 @@ class FileAgentRepository(AgentRepositoryBase):
 
         return {"enabled": [], "disabled": []}
 
-    async def save_state(self, state: Dict[str, List[str]]) -> None:
+    async def save_state(self, state: dict[str, list[str]]) -> None:
         """Save agent state to disk."""
         with open(self.state_file, "w") as f:
             json.dump(state, f, indent=2)
@@ -127,19 +125,19 @@ class FileAgentRepository(AgentRepositoryBase):
         """Create a new agent (alias for save)."""
         return await self.save(agent)
 
-    async def update(self, path: str, agent: AgentCard) -> Optional[AgentCard]:
+    async def update(self, path: str, agent: AgentCard) -> AgentCard | None:
         """Update an existing agent."""
         existing = await self.get(path)
         if not existing:
             return None
         return await self.save(agent)
 
-    async def list_all(self) -> List[AgentCard]:
+    async def list_all(self) -> list[AgentCard]:
         """List all agents."""
         agents = await self.get_all()
         return list(agents.values())
 
-    async def load_all(self) -> Dict[str, AgentCard]:
+    async def load_all(self) -> dict[str, AgentCard]:
         """Load all agents (alias for get_all)."""
         return await self.get_all()
 

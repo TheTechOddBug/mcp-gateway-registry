@@ -8,16 +8,14 @@ warm storage requirements.
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import UTC, datetime
+from typing import Any, Union
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
 from ..audit.models import MCPServerAccessRecord, RegistryApiAccessRecord
-from ..core.config import settings
 from .documentdb.client import get_collection_name, get_documentdb_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +34,12 @@ class AuditRepositoryBase(ABC):
     @abstractmethod
     async def find(
         self,
-        query: Dict[str, Any],
+        query: dict[str, Any],
         limit: int = 50,
         offset: int = 0,
         sort_field: str = "timestamp",
         sort_order: int = -1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Find audit events matching the query.
 
@@ -60,8 +58,8 @@ class AuditRepositoryBase(ABC):
     @abstractmethod
     async def find_one(
         self,
-        query: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        query: dict[str, Any],
+    ) -> dict[str, Any] | None:
         """
         Find a single audit event matching the query.
 
@@ -76,7 +74,7 @@ class AuditRepositoryBase(ABC):
     @abstractmethod
     async def count(
         self,
-        query: Dict[str, Any],
+        query: dict[str, Any],
     ) -> int:
         """
         Count audit events matching the query.
@@ -93,8 +91,8 @@ class AuditRepositoryBase(ABC):
     async def distinct(
         self,
         field: str,
-        query: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
+        query: dict[str, Any] | None = None,
+    ) -> list[str]:
         """
         Get distinct values for a field in audit events.
 
@@ -110,8 +108,8 @@ class AuditRepositoryBase(ABC):
     @abstractmethod
     async def aggregate(
         self,
-        pipeline: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        pipeline: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """
         Run a MongoDB aggregation pipeline on audit events.
 
@@ -149,7 +147,7 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
     """
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("audit_events")
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
@@ -161,12 +159,12 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
 
     async def find(
         self,
-        query: Dict[str, Any],
+        query: dict[str, Any],
         limit: int = 50,
         offset: int = 0,
         sort_field: str = "timestamp",
         sort_order: int = -1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Find audit events matching the query.
 
@@ -198,7 +196,7 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
                     doc["_id"] = str(doc["_id"])
                 # Motor returns naive datetimes; re-attach UTC for correct serialization
                 if isinstance(doc.get("timestamp"), datetime) and doc["timestamp"].tzinfo is None:
-                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=timezone.utc)
+                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=UTC)
                 events.append(doc)
 
             logger.debug(f"DocumentDB READ: Found {len(events)} audit events")
@@ -209,8 +207,8 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
 
     async def find_one(
         self,
-        query: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
+        query: dict[str, Any],
+    ) -> dict[str, Any] | None:
         """
         Find a single audit event matching the query.
 
@@ -231,7 +229,7 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
                     doc["_id"] = str(doc["_id"])
                 # Motor returns naive datetimes; re-attach UTC for correct serialization
                 if isinstance(doc.get("timestamp"), datetime) and doc["timestamp"].tzinfo is None:
-                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=timezone.utc)
+                    doc["timestamp"] = doc["timestamp"].replace(tzinfo=UTC)
                 logger.debug(
                     f"DocumentDB READ: Found audit event with request_id={doc.get('request_id')}"
                 )
@@ -244,7 +242,7 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
 
     async def count(
         self,
-        query: Dict[str, Any],
+        query: dict[str, Any],
     ) -> int:
         """
         Count audit events matching the query.
@@ -269,8 +267,8 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
     async def distinct(
         self,
         field: str,
-        query: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
+        query: dict[str, Any] | None = None,
+    ) -> list[str]:
         """Get distinct values for a field in audit events."""
         logger.debug(f"DocumentDB READ: Getting distinct values for field={field}")
         collection = await self._get_collection()
@@ -285,8 +283,8 @@ class DocumentDBAuditRepository(AuditRepositoryBase):
 
     async def aggregate(
         self,
-        pipeline: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        pipeline: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Run a MongoDB aggregation pipeline on audit events."""
         logger.debug(f"DocumentDB READ: Running aggregation pipeline with {len(pipeline)} stages")
         collection = await self._get_collection()

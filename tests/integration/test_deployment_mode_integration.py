@@ -4,11 +4,9 @@ These tests require a running MongoDB instance. They are skipped in CI
 where MongoDB is not available.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from registry.core.config import DeploymentMode, RegistryMode
-
+import pytest
 
 # Skip all tests in this module - requires MongoDB running
 pytestmark = pytest.mark.skip(reason="Requires MongoDB running - not available in CI environment")
@@ -62,6 +60,7 @@ def mock_auth_admin():
 def integration_client(mock_settings, mock_peer_federation):
     """Test client with peer federation mocked to avoid event loop issues."""
     from fastapi.testclient import TestClient
+
     from registry.main import app
 
     with TestClient(app) as client:

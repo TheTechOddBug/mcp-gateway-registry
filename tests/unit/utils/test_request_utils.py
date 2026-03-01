@@ -6,8 +6,6 @@ Validates IP extraction and sanitization from proxied requests.
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from registry.utils.request_utils import get_client_ip
 
 

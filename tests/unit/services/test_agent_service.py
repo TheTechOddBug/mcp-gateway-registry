@@ -10,7 +10,6 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -22,7 +21,6 @@ from tests.fixtures.constants import (
     TEST_AGENT_PATH_2,
     TEST_AGENT_URL_1,
     TEST_AGENT_URL_2,
-    TEST_USERNAME,
     TRUST_UNVERIFIED,
     VISIBILITY_PUBLIC,
 )

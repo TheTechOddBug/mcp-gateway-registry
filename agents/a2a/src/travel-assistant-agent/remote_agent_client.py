@@ -1,13 +1,11 @@
 """Client for communicating with remote A2A agents."""
 
 import logging
-from typing import List, Optional
 from uuid import uuid4
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.types import Message, Part, Role, TextPart
-
 from models import DiscoveredAgent
 
 logging.basicConfig(
@@ -31,8 +29,8 @@ class RemoteAgentClient:
         agent_url: str,
         agent_name: str,
         agent_id: str,
-        skills: Optional[List[str]] = None,
-        auth_token: Optional[str] = None,
+        skills: list[str] | None = None,
+        auth_token: str | None = None,
     ):
         self.agent_url = agent_url
         self.agent_name = agent_name
@@ -115,7 +113,7 @@ class RemoteAgentCache:
         self._cache: dict[str, RemoteAgentClient] = {}
         logger.info("RemoteAgentCache initialized")
 
-    def get(self, agent_id: str) -> Optional[RemoteAgentClient]:
+    def get(self, agent_id: str) -> RemoteAgentClient | None:
         return self._cache.get(agent_id)
 
     def get_all(self) -> dict[str, RemoteAgentClient]:
@@ -126,7 +124,7 @@ class RemoteAgentCache:
         logger.info(f"Added agent to cache: {agent_id}")
 
     def cache_discovered_agents(
-        self, agents: List[DiscoveredAgent], auth_token: Optional[str] = None
+        self, agents: list[DiscoveredAgent], auth_token: str | None = None
     ) -> dict[str, RemoteAgentClient]:
         newly_cached = {}
 

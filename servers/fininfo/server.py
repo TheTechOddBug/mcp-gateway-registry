@@ -3,18 +3,18 @@ This server provides stock market data using the Polygon.io API.
 Now supports client-specific API keys via x-client-id header and secrets manager.
 """
 
+import argparse
+import asyncio
+import logging
 import os
 import time
+from typing import Annotated, Any, ClassVar
+
 import requests
-import argparse
-import logging
-import asyncio
-from pydantic import BaseModel, Field
-from fastmcp import FastMCP, Context  # Updated import for FastMCP 2.0
-from fastmcp.server.dependencies import get_http_request  # New dependency function for HTTP access
-from typing import Dict, Any, Optional, ClassVar, Annotated
-from pydantic import validator
 from dotenv import load_dotenv
+from fastmcp import Context, FastMCP  # Updated import for FastMCP 2.0
+from fastmcp.server.dependencies import get_http_request  # New dependency function for HTTP access
+from pydantic import BaseModel, Field
 from secrets_manager import SecretsManager
 
 # Configure logging
@@ -133,7 +133,7 @@ def get_api_key_for_request() -> str:
             )
 
 
-async def get_http_headers(ctx: Context = None) -> Dict[str, Any]:
+async def get_http_headers(ctx: Context = None) -> dict[str, Any]:
     """
     FastMCP 2.0 tool to access HTTP headers directly using the new dependency system.
     This tool demonstrates how to get HTTP request information including auth headers.
@@ -262,7 +262,7 @@ async def print_all_http_headers(ctx: Context = None) -> str:
 
     output = []
     output.append("=== HTTP Request Headers ===")
-    output.append(f"Server: fininfo")
+    output.append("Server: fininfo")
     output.append(f"Timestamp: {asyncio.get_event_loop().time()}")
     output.append("")
 
@@ -327,10 +327,10 @@ async def _fetch_stock_data(
     from_date: str,
     to_date: str,
     adjusted: bool = True,
-    sort: Optional[str] = None,
+    sort: str | None = None,
     limit: int = 5000,
     ctx: Context = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Private function to fetch stock aggregate data from Polygon.io API.
     This function is shared by both get_stock_aggregates and print_stock_data.
@@ -437,13 +437,13 @@ async def get_stock_aggregates(
         bool, Field(True, description="Whether results are adjusted for splits")
     ] = True,
     sort: Annotated[
-        Optional[str], Field(None, description="Sort results by timestamp ('asc' or 'desc')")
+        str | None, Field(None, description="Sort results by timestamp ('asc' or 'desc')")
     ] = None,
     limit: Annotated[
         int, Field(5000, description="Maximum number of base aggregates (max 50000)")
     ] = 5000,
     ctx: Context = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Retrieve stock aggregate data from Polygon.io API.
 
@@ -494,7 +494,7 @@ async def print_stock_data(
         bool, Field(True, description="Whether results are adjusted for splits")
     ] = True,
     sort: Annotated[
-        Optional[str], Field(None, description="Sort results by timestamp ('asc' or 'desc')")
+        str | None, Field(None, description="Sort results by timestamp ('asc' or 'desc')")
     ] = None,
     limit: Annotated[
         int, Field(5000, description="Maximum number of base aggregates (max 50000)")

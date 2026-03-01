@@ -104,20 +104,20 @@ async def inspect_documentdb():
                 # Check if it's a vector index
                 if "vectorOptions" in idx:
                     vector_opts = idx["vectorOptions"]
-                    print(f"  Type: Vector Index (HNSW)")
+                    print("  Type: Vector Index (HNSW)")
                     print(f"  Dimensions: {vector_opts.get('dimensions')}")
                     print(f"  Similarity: {vector_opts.get('similarity')}")
                     print(f"  Vector Type: {vector_opts.get('type')}")
                 else:
-                    print(f"  Type: Standard Index")
+                    print("  Type: Standard Index")
                     if "key" in idx:
                         print(f"  Keys: {idx['key']}")
 
                 if "unique" in idx and idx["unique"]:
-                    print(f"  Unique: True")
+                    print("  Unique: True")
 
                 if "sparse" in idx and idx["sparse"]:
-                    print(f"  Sparse: True")
+                    print("  Sparse: True")
 
             print()
 

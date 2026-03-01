@@ -54,10 +54,10 @@ class MetricsClient:
         self,
         metric_type: str,
         value: float = 1.0,
-        duration_ms: Optional[float] = None,
-        dimensions: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        timestamp: Optional[datetime] = None,
+        duration_ms: float | None = None,
+        dimensions: Dict[str, Any] | None = None,
+        metadata: Dict[str, Any] | None = None,
+        timestamp: datetime | None = None,
     ) -> bool:
         """Internal method to emit a single metric."""
         if not self.enabled:
@@ -129,9 +129,9 @@ class MetricsClient:
         success: bool,
         method: str,
         duration_ms: float,
-        server_name: Optional[str] = None,
-        user_hash: Optional[str] = None,
-        error_code: Optional[str] = None,
+        server_name: str | None = None,
+        user_hash: str | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Emit authentication metric."""
         return await self._emit_metric(
@@ -158,9 +158,9 @@ class MetricsClient:
         resource_type: str,  # server, config, etc.
         success: bool,
         duration_ms: float,
-        resource_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        error_code: Optional[str] = None,
+        resource_id: str | None = None,
+        user_id: str | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Emit registry operation metric."""
         return await self._emit_metric(
@@ -187,10 +187,10 @@ class MetricsClient:
         query: str,
         results_count: int,
         duration_ms: float,
-        top_k_services: Optional[int] = None,
-        top_n_tools: Optional[int] = None,
-        embedding_time_ms: Optional[float] = None,
-        faiss_search_time_ms: Optional[float] = None,
+        top_k_services: int | None = None,
+        top_n_tools: int | None = None,
+        embedding_time_ms: float | None = None,
+        faiss_search_time_ms: float | None = None,
     ) -> bool:
         """Emit tool discovery metric."""
         return await self._emit_metric(
@@ -221,9 +221,9 @@ class MetricsClient:
         server_name: str,
         success: bool,
         duration_ms: float,
-        input_size_bytes: Optional[int] = None,
-        output_size_bytes: Optional[int] = None,
-        error_code: Optional[str] = None,
+        input_size_bytes: int | None = None,
+        output_size_bytes: int | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Emit tool execution metric."""
         return await self._emit_metric(
@@ -268,9 +268,9 @@ class MetricsClient:
         self,
         metric_name: str,
         value: float,
-        duration_ms: Optional[float] = None,
-        dimensions: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        duration_ms: float | None = None,
+        dimensions: Dict[str, Any] | None = None,
+        metadata: Dict[str, Any] | None = None,
     ) -> bool:
         """Emit custom metric with arbitrary data."""
         custom_dimensions = {"metric_name": metric_name}

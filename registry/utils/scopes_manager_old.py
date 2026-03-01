@@ -2,12 +2,13 @@
 Utility functions for managing scopes.yml file updates when servers are registered or removed.
 """
 
-import os
-import yaml
 import logging
-from typing import List, Dict, Any
+import os
 from pathlib import Path
+from typing import Any
+
 import httpx
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def _get_scopes_file_path() -> Path:
     return Path("/app/auth_server/scopes.yml")
 
 
-def _read_scopes_file() -> Dict[str, Any]:
+def _read_scopes_file() -> dict[str, Any]:
     """Read the current scopes.yml file."""
     scopes_file = _get_scopes_file_path()
 
@@ -26,11 +27,11 @@ def _read_scopes_file() -> Dict[str, Any]:
         logger.error(f"Scopes file not found at {scopes_file}")
         raise FileNotFoundError(f"Scopes file not found at {scopes_file}")
 
-    with open(scopes_file, "r") as f:
+    with open(scopes_file) as f:
         return yaml.safe_load(f)
 
 
-def _write_scopes_file(scopes_data: Dict[str, Any]) -> None:
+def _write_scopes_file(scopes_data: dict[str, Any]) -> None:
     """Write the updated scopes data to the file."""
     scopes_file = _get_scopes_file_path()
 
@@ -70,7 +71,7 @@ def _write_scopes_file(scopes_data: Dict[str, Any]) -> None:
         raise
 
 
-def _create_server_entry(server_path: str, tools: List[str]) -> Dict[str, Any]:
+def _create_server_entry(server_path: str, tools: list[str]) -> dict[str, Any]:
     """Create a server entry for scopes.yml."""
     # Remove leading slash from server path
     server_name = server_path.lstrip("/")
@@ -90,7 +91,7 @@ def _create_server_entry(server_path: str, tools: List[str]) -> Dict[str, Any]:
     }
 
 
-async def add_server_to_scopes(server_path: str, server_name: str, tools: List[str]) -> bool:
+async def add_server_to_scopes(server_path: str, server_name: str, tools: list[str]) -> bool:
     """
     Add a server to all appropriate scope sections in scopes.yml.
 
@@ -242,7 +243,7 @@ async def trigger_auth_server_reload() -> bool:
         return False
 
 
-async def update_server_scopes(server_path: str, server_name: str, tools: List[str]) -> bool:
+async def update_server_scopes(server_path: str, server_name: str, tools: list[str]) -> bool:
     """
     Update scopes for a server (add or update) and reload auth server.
 
@@ -290,7 +291,7 @@ async def remove_server_scopes(server_path: str) -> bool:
     return True
 
 
-async def add_server_to_groups(server_path: str, group_names: List[str]) -> bool:
+async def add_server_to_groups(server_path: str, group_names: list[str]) -> bool:
     """
     Add a server and all its known tools/methods to specific groups in scopes.yml.
 
@@ -389,7 +390,7 @@ async def add_server_to_groups(server_path: str, group_names: List[str]) -> bool
         return False
 
 
-async def remove_server_from_groups(server_path: str, group_names: List[str]) -> bool:
+async def remove_server_from_groups(server_path: str, group_names: list[str]) -> bool:
     """
     Remove a server from specific groups in scopes.yml.
 
@@ -585,7 +586,7 @@ async def delete_group_from_scopes(group_name: str, remove_from_mappings: bool =
         return False
 
 
-async def list_groups_from_scopes() -> Dict[str, Any]:
+async def list_groups_from_scopes() -> dict[str, Any]:
     """
     List all groups defined in scopes.yml.
 

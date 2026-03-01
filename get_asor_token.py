@@ -6,9 +6,10 @@ This script performs the 3-legged OAuth flow to get an access token
 that can be used for ASOR federation in the MCP Gateway.
 """
 
-import requests
-import urllib.parse
 import os
+import urllib.parse
+
+import requests
 
 # Configuration from environment or defaults
 CLIENT_ID = os.getenv("ASOR_CLIENT_ID")
@@ -36,7 +37,7 @@ def get_asor_token():
 
     print("Step 1: Get Authorization Code")
     print("-" * 30)
-    print(f"Visit this URL in your browser:")
+    print("Visit this URL in your browser:")
     print(f"{auth_url}?{urllib.parse.urlencode(params)}")
     print()
 
@@ -66,7 +67,7 @@ def get_asor_token():
             access_token = tokens.get("access_token")
             expires_in = tokens.get("expires_in", "unknown")
 
-            print(f"✅ Successfully obtained access token!")
+            print("✅ Successfully obtained access token!")
             print(f"   Token: {access_token}")
             print(f"   Expires in: {expires_in} seconds")
             print()

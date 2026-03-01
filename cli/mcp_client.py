@@ -7,13 +7,12 @@ MCP client implementation using only standard Python libraries. This approach
 avoids dependency issues with the fastmcp library in some environments.
 """
 
+import argparse
 import base64
 import json
 import os
 import sys
-import argparse
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 # Import shared MCP utility
 from mcp_utils import create_mcp_session
@@ -52,8 +51,8 @@ def _check_token_expiration(access_token: str) -> None:
             print("Warning: Token does not have expiration field")
             return
 
-        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-        now = datetime.now(timezone.utc)
+        exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+        now = datetime.now(UTC)
         time_until_expiry = exp_dt - now
 
         if time_until_expiry.total_seconds() < 0:
@@ -93,7 +92,7 @@ def _check_token_expiration(access_token: str) -> None:
         print(f"Warning: Could not check token expiration: {e}")
 
 
-def _load_token_from_file(file_path: str) -> Optional[str]:
+def _load_token_from_file(file_path: str) -> str | None:
     """Load access token from a file
 
     Supports multiple formats:
@@ -103,7 +102,7 @@ def _load_token_from_file(file_path: str) -> Optional[str]:
     4. JSON object with 'token_data.access_token' field (alternative UI format)
     """
     try:
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             content = f.read().strip()
             if not content:
                 return None
@@ -136,7 +135,7 @@ def _load_token_from_file(file_path: str) -> Optional[str]:
     return None
 
 
-def _load_m2m_credentials() -> Optional[str]:
+def _load_m2m_credentials() -> str | None:
     """Load M2M credentials and get access token from Keycloak"""
     client_id = os.getenv("CLIENT_ID")
     client_secret = os.getenv("CLIENT_SECRET")

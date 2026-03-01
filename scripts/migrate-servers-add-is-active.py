@@ -32,11 +32,7 @@ import os
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
-
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -122,7 +118,7 @@ Examples:
     return parser.parse_args()
 
 
-async def _migrate_documentdb(args: argparse.Namespace, dry_run: bool) -> Dict[str, Any]:
+async def _migrate_documentdb(args: argparse.Namespace, dry_run: bool) -> dict[str, Any]:
     """
     Migrate servers in DocumentDB to add is_active field.
 
@@ -188,7 +184,7 @@ async def _migrate_documentdb(args: argparse.Namespace, dry_run: bool) -> Dict[s
 
     # Find servers without is_active field
     query = {"is_active": {"$exists": False}}
-    servers_to_update: List[Dict[str, Any]] = []
+    servers_to_update: list[dict[str, Any]] = []
 
     async for server in collection.find(query):
         servers_to_update.append(
@@ -218,7 +214,7 @@ async def _migrate_documentdb(args: argparse.Namespace, dry_run: bool) -> Dict[s
     }
 
 
-async def _migrate_file_storage(args: argparse.Namespace, dry_run: bool) -> Dict[str, Any]:
+async def _migrate_file_storage(args: argparse.Namespace, dry_run: bool) -> dict[str, Any]:
     """
     Migrate servers in file storage to add is_active field.
 
@@ -240,7 +236,7 @@ async def _migrate_file_storage(args: argparse.Namespace, dry_run: bool) -> Dict
 
     logger.info(f"Scanning servers directory: {servers_path}")
 
-    servers_to_update: List[Dict[str, Any]] = []
+    servers_to_update: list[dict[str, Any]] = []
     updated_count = 0
 
     for json_file in servers_path.glob("*.json"):
@@ -248,7 +244,7 @@ async def _migrate_file_storage(args: argparse.Namespace, dry_run: bool) -> Dict
             continue
 
         try:
-            with open(json_file, "r") as f:
+            with open(json_file) as f:
                 server_data = json.load(f)
 
             # Check if is_active field is missing

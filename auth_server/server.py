@@ -61,8 +61,10 @@ logger = logging.getLogger(__name__)
 
 # Import JWT constants from shared internal auth module
 from registry.auth.internal import (
-    _INTERNAL_JWT_ISSUER as JWT_ISSUER,
     _INTERNAL_JWT_AUDIENCE as JWT_AUDIENCE,
+)
+from registry.auth.internal import (
+    _INTERNAL_JWT_ISSUER as JWT_ISSUER,
 )
 
 MAX_TOKEN_LIFETIME_HOURS = 24

@@ -7,17 +7,15 @@ Usage: python simple_agents_test.py --endpoint local|live [--debug]
 import argparse
 import json
 import logging
-import requests
 import sys
 import time
 import uuid
 from typing import (
     Any,
-    Dict,
-    Optional,
 )
 
 import boto3
+import requests
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -46,7 +44,7 @@ class AgentTester:
 
     def __init__(
         self,
-        endpoints: Dict[str, str],
+        endpoints: dict[str, str],
         is_live: bool = False,
     ) -> None:
         self.endpoints = endpoints
@@ -58,7 +56,7 @@ class AgentTester:
         self,
         agent_type: str,
         message: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send message to agent using A2A protocol (local) or boto3 (live)."""
         endpoint = self.endpoints[agent_type]
         if not endpoint:
@@ -111,7 +109,7 @@ class AgentTester:
         request_id: str,
         message_id: str,
         timestamp: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Invoke AgentCore Runtime using boto3."""
         # A2A protocol requires JSON-RPC format
         payload = {
@@ -191,7 +189,7 @@ class AgentTester:
         endpoint: str,
         method: str = "POST",
         **params,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Call direct API endpoint (only works for local)."""
         if self.is_live:
             raise NotImplementedError(

@@ -1,17 +1,15 @@
 """DocumentDB client singleton with IAM authentication support."""
 
 import logging
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from ...core.config import settings
 
-
 logger = logging.getLogger(__name__)
 
-_client: Optional[AsyncIOMotorClient] = None
-_database: Optional[AsyncIOMotorDatabase] = None
+_client: AsyncIOMotorClient | None = None
+_database: AsyncIOMotorDatabase | None = None
 
 
 async def get_documentdb_client() -> AsyncIOMotorDatabase:

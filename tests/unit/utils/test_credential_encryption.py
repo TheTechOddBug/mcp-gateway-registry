@@ -12,14 +12,14 @@ import pytest
 from cryptography.fernet import Fernet
 
 from registry.utils.credential_encryption import (
+    ENCRYPTED_FIELD,
+    PLAINTEXT_FIELD,
     _derive_fernet_key,
     _migrate_auth_type_to_auth_scheme,
     decrypt_credential,
     encrypt_credential,
     encrypt_credential_in_server_dict,
     strip_credentials_from_dict,
-    ENCRYPTED_FIELD,
-    PLAINTEXT_FIELD,
 )
 
 

@@ -96,7 +96,7 @@ class AuditLogger:
         logger.debug(f"Audit logger closed for stream: {self.stream_name}")
 
     @property
-    def current_file_path(self) -> Optional[str]:
+    def current_file_path(self) -> str | None:
         """Deprecated - returns None (no local files)."""
         return None
 

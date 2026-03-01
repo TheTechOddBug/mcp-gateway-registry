@@ -2,7 +2,6 @@
 
 import logging
 from functools import lru_cache
-from typing import Dict, Optional
 
 from database import FlightDatabaseManager
 from env_settings import EnvSettings
@@ -16,14 +15,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-@lru_cache()
+@lru_cache
 def get_env() -> EnvSettings:
     """Get environment settings singleton."""
     logger.debug("Getting environment settings")
     return EnvSettings()
 
 
-@lru_cache()
+@lru_cache
 def get_db_manager() -> FlightDatabaseManager:
     """Get database manager singleton."""
     env = get_env()
@@ -31,8 +30,8 @@ def get_db_manager() -> FlightDatabaseManager:
     return FlightDatabaseManager(env.db_path)
 
 
-@lru_cache()
-def get_registry_client() -> Optional[RegistryDiscoveryClient]:
+@lru_cache
+def get_registry_client() -> RegistryDiscoveryClient | None:
     """Get registry discovery client singleton.
 
     Returns:
@@ -67,7 +66,7 @@ def get_registry_client() -> Optional[RegistryDiscoveryClient]:
     )
 
 
-@lru_cache()
+@lru_cache
 def get_remote_agent_cache() -> RemoteAgentCache:
     """Get the remote agent cache singleton.
 

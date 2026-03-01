@@ -5,13 +5,11 @@ This module provides functions to manage groups in Keycloak via the Admin REST A
 It handles authentication, group CRUD operations, and integrates with the registry.
 """
 
-import os
 import logging
-import base64
-from typing import Dict, Any, List, Optional
+import os
+from typing import Any
 
 import httpx
-
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ logger = logging.getLogger(__name__)
 KEYCLOAK_ADMIN_URL: str = os.environ.get("KEYCLOAK_URL", "http://keycloak:8080")
 KEYCLOAK_REALM: str = os.environ.get("KEYCLOAK_REALM", "mcp-gateway")
 KEYCLOAK_ADMIN: str = os.environ.get("KEYCLOAK_ADMIN", "admin")
-KEYCLOAK_ADMIN_PASSWORD: Optional[str] = os.environ.get("KEYCLOAK_ADMIN_PASSWORD")
+KEYCLOAK_ADMIN_PASSWORD: str | None = os.environ.get("KEYCLOAK_ADMIN_PASSWORD")
 
 
 class KeycloakAdminError(RuntimeError):
@@ -72,7 +70,7 @@ async def _get_keycloak_admin_token() -> str:
         raise Exception(f"Failed to authenticate with Keycloak: {e}") from e
 
 
-def _auth_headers(token: str, content_type: Optional[str] = "application/json") -> Dict[str, str]:
+def _auth_headers(token: str, content_type: str | None = "application/json") -> dict[str, str]:
     """Build auth headers for Keycloak admin API."""
     headers = {"Authorization": f"Bearer {token}"}
     if content_type:
@@ -83,7 +81,7 @@ def _auth_headers(token: str, content_type: Optional[str] = "application/json") 
 async def _get_group_name_map(
     client: httpx.AsyncClient,
     token: str,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Return mapping of Keycloak group name to ID."""
     groups_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/groups"
     response = await client.get(groups_url, headers=_auth_headers(token, None))
@@ -96,7 +94,7 @@ async def _find_client_uuid(
     client: httpx.AsyncClient,
     token: str,
     client_id: str,
-) -> Optional[str]:
+) -> str | None:
     """Look up a client UUID by clientId."""
     clients_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/clients"
     response = await client.get(
@@ -111,14 +109,14 @@ async def _find_client_uuid(
     return None
 
 
-def _extract_resource_id(location_header: Optional[str]) -> Optional[str]:
+def _extract_resource_id(location_header: str | None) -> str | None:
     """Extract trailing resource ID from a Location header."""
     if not location_header:
         return None
     return location_header.rstrip("/").split("/")[-1]
 
 
-async def create_keycloak_group(group_name: str, description: str = "") -> Dict[str, Any]:
+async def create_keycloak_group(group_name: str, description: str = "") -> dict[str, Any]:
     """
     Create a group in Keycloak.
 
@@ -227,7 +225,7 @@ async def delete_keycloak_group(group_name: str) -> bool:
         raise
 
 
-async def get_keycloak_group(group_name: str) -> Dict[str, Any]:
+async def get_keycloak_group(group_name: str) -> dict[str, Any]:
     """
     Get a group's details from Keycloak by name.
 
@@ -273,7 +271,7 @@ async def get_keycloak_group(group_name: str) -> Dict[str, Any]:
         raise
 
 
-async def list_keycloak_groups() -> List[Dict[str, Any]]:
+async def list_keycloak_groups() -> list[dict[str, Any]]:
     """
     List all groups in Keycloak realm.
 
@@ -329,7 +327,7 @@ async def group_exists_in_keycloak(group_name: str) -> bool:
         return False
 
 
-async def update_keycloak_group(group_name: str, description: str) -> Dict[str, Any]:
+async def update_keycloak_group(group_name: str, description: str) -> dict[str, Any]:
     """
     Update a group's description in Keycloak.
 
@@ -396,7 +394,7 @@ async def update_keycloak_group(group_name: str, description: str) -> Dict[str, 
         raise
 
 
-def _normalize_group_list(groups: List[str]) -> List[str]:
+def _normalize_group_list(groups: list[str]) -> list[str]:
     """Clean and validate incoming group list."""
     normalized = [group.strip() for group in groups if group and group.strip()]
     if not normalized:
@@ -408,7 +406,7 @@ async def _assign_user_to_groups_by_name(
     client: httpx.AsyncClient,
     token: str,
     user_id: str,
-    groups: List[str],
+    groups: list[str],
 ) -> None:
     """Assign a Keycloak user/service account to a set of groups."""
     if not groups:
@@ -437,7 +435,7 @@ async def _remove_user_from_groups_by_name(
     client: httpx.AsyncClient,
     token: str,
     user_id: str,
-    groups: List[str],
+    groups: list[str],
 ) -> None:
     """Remove a Keycloak user from a set of groups."""
     if not groups:
@@ -467,7 +465,7 @@ async def _get_user_groups(
     client: httpx.AsyncClient,
     token: str,
     user_id: str,
-) -> List[str]:
+) -> list[str]:
     """Fetch group names for a given Keycloak user."""
     groups_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/users/{user_id}/groups"
     response = await client.get(groups_url, headers=_auth_headers(token, None))
@@ -480,7 +478,7 @@ async def _get_user_by_username(
     client: httpx.AsyncClient,
     token: str,
     username: str,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Look up a user in Keycloak by username."""
     users_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/users"
     response = await client.get(
@@ -500,7 +498,7 @@ async def _get_user_by_id(
     client: httpx.AsyncClient,
     token: str,
     user_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch a user document by ID."""
     user_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/users/{user_id}"
     response = await client.get(user_url, headers=_auth_headers(token, None))
@@ -512,7 +510,7 @@ async def _ensure_client(
     client: httpx.AsyncClient,
     token: str,
     client_id: str,
-    description: Optional[str],
+    description: str | None,
 ) -> str:
     """Create the client if it does not yet exist and return UUID."""
     existing_uuid = await _find_client_uuid(client, token, client_id)
@@ -651,9 +649,9 @@ async def _set_initial_password(
 
 async def create_service_account_client(
     client_id: str,
-    group_names: List[str],
-    description: Optional[str] = None,
-) -> Dict[str, Any]:
+    group_names: list[str],
+    description: str | None = None,
+) -> dict[str, Any]:
     """
     Create or update a service account client with group assignments.
 
@@ -691,9 +689,9 @@ async def create_human_user_account(
     email: str,
     first_name: str,
     last_name: str,
-    groups: List[str],
-    password: Optional[str] = None,
-) -> Dict[str, Any]:
+    groups: list[str],
+    password: str | None = None,
+) -> dict[str, Any]:
     """
     Create a human Keycloak user and assign groups.
     """
@@ -787,10 +785,10 @@ async def delete_keycloak_user(username: str) -> bool:
 
 
 async def list_keycloak_users(
-    search: Optional[str] = None,
+    search: str | None = None,
     max_results: int = 500,
     include_groups: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     List users in the Keycloak realm.
 
@@ -805,7 +803,7 @@ async def list_keycloak_users(
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         # Fetch human users
-        params: Dict[str, Any] = {"max": max_results}
+        params: dict[str, Any] = {"max": max_results}
         if search:
             params["search"] = search
         users_url = f"{KEYCLOAK_ADMIN_URL}/admin/realms/{KEYCLOAK_REALM}/users"
@@ -880,8 +878,8 @@ async def list_keycloak_users(
 
 async def update_keycloak_user_groups(
     username: str,
-    groups: List[str],
-) -> Dict[str, Any]:
+    groups: list[str],
+) -> dict[str, Any]:
     """
     Update group memberships for a Keycloak user or service account.
 

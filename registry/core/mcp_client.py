@@ -6,16 +6,11 @@ Copied directly from main_old.py working implementation.
 """
 
 import asyncio
-import json
 import logging
+import re
 from typing import (
-    List,
-    Dict,
-    Optional,
     TypedDict,
 )
-import re
-from urllib.parse import urlparse
 
 # MCP Client imports
 from mcp import ClientSession
@@ -35,7 +30,7 @@ class MCPServerInfo(TypedDict, total=False):
 class MCPConnectionResult(TypedDict, total=False):
     """Result of connecting to an MCP server."""
 
-    tools: List[dict]
+    tools: list[dict]
     server_info: MCPServerInfo
 
 
@@ -75,7 +70,7 @@ def normalize_sse_endpoint_url(endpoint_url: str) -> str:
 import httpx
 
 
-def _build_headers_for_server(server_info: dict = None) -> Dict[str, str]:
+def _build_headers_for_server(server_info: dict = None) -> dict[str, str]:
     """
     Build HTTP headers for server requests by merging server-specific headers.
 
@@ -244,7 +239,7 @@ async def detect_server_transport(base_url: str) -> str:
 
 async def get_tools_from_server_with_transport(
     base_url: str, transport: str = "auto"
-) -> List[dict] | None:
+) -> list[dict] | None:
     """
     Connects to an MCP server using the specified transport, lists tools, and returns their details.
 
@@ -281,7 +276,7 @@ async def get_tools_from_server_with_transport(
         return None
 
 
-async def _get_tools_streamable_http(base_url: str, server_info: dict = None) -> List[dict] | None:
+async def _get_tools_streamable_http(base_url: str, server_info: dict = None) -> list[dict] | None:
     """Get tools using streamable-http transport"""
     # Build headers for the server
     headers = _build_headers_for_server(server_info)
@@ -353,7 +348,6 @@ async def _get_tools_streamable_http(base_url: str, server_info: dict = None) ->
                     return result
         except Exception as e:
             logger.error(f"MCP Check Error: Streamable-HTTP connection failed to {base_url}: {e}")
-            import traceback
 
             return None
     else:
@@ -375,7 +369,7 @@ async def _get_tools_streamable_http(base_url: str, server_info: dict = None) ->
                         logger.info(f"MCP Client: Successfully connected to {mcp_url}")
                         return _extract_tool_details(tools_response)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(
                     f"MCP Check Error: Timeout during streamable-http session with {mcp_url}."
                 )
@@ -393,7 +387,7 @@ async def _get_tools_streamable_http(base_url: str, server_info: dict = None) ->
     return None
 
 
-async def _get_tools_sse(base_url: str, server_info: dict = None) -> List[dict] | None:
+async def _get_tools_sse(base_url: str, server_info: dict = None) -> list[dict] | None:
     """Get tools using SSE transport (legacy method with patches)"""
     # Check if server_info has explicit sse_endpoint
     explicit_endpoint = server_info.get("sse_endpoint") if server_info else None
@@ -436,7 +430,7 @@ async def _get_tools_sse(base_url: str, server_info: dict = None) -> List[dict] 
         finally:
             httpx.AsyncClient.request = original_request
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(f"MCP Check Error: Timeout during SSE session with {base_url}.")
         return None
     except Exception as e:
@@ -444,7 +438,7 @@ async def _get_tools_sse(base_url: str, server_info: dict = None) -> List[dict] 
         return None
 
 
-def _extract_tool_details(tools_response) -> List[dict]:
+def _extract_tool_details(tools_response) -> list[dict]:
     """Extract tool details from MCP tools response."""
     tool_details_list = []
 
@@ -530,7 +524,7 @@ def _extract_tool_details(tools_response) -> List[dict]:
 
 async def get_tools_from_server_with_server_info(
     base_url: str, server_info: dict = None
-) -> List[dict] | None:
+) -> list[dict] | None:
     """
     Get tools from server using server configuration to determine optimal transport.
 
@@ -695,7 +689,7 @@ async def get_mcp_connection_result(
             logger.error(f"Unsupported transport type: {transport}")
             return None
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(f"MCP Check Error: Timeout connecting to {mcp_url}")
         return None
     except Exception as e:
@@ -711,13 +705,13 @@ class MCPClientService:
 
     async def get_tools_from_server_with_server_info(
         self, base_url: str, server_info: dict = None
-    ) -> Optional[List[Dict]]:
+    ) -> list[dict] | None:
         """Wrapper method that uses server configuration for transport selection."""
         return await get_tools_from_server_with_server_info(base_url, server_info)
 
     async def get_mcp_connection_result(
         self, base_url: str, server_info: dict = None
-    ) -> Optional[MCPConnectionResult]:
+    ) -> MCPConnectionResult | None:
         """Get both tools and server info from MCP server."""
         return await get_mcp_connection_result(base_url, server_info)
 

@@ -12,7 +12,7 @@ Example:
 
 import argparse
 import logging
-import os
+
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 

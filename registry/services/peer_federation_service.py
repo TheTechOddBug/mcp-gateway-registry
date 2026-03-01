@@ -1502,7 +1502,7 @@ class PeerFederationService:
                 original_server_path = scan.get("server_path", "")
 
                 if not original_server_path:
-                    logger.warning(f"Security scan missing 'server_path' field, skipping")
+                    logger.warning("Security scan missing 'server_path' field, skipping")
                     continue
 
                 # Normalize path - ensure it starts with /

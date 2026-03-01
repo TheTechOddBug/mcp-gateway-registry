@@ -4,10 +4,8 @@ Unit tests for AuditLogger service.
 Tests the MongoDB-only audit logging functionality.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from registry.audit import (
     AuditLogger,
@@ -21,7 +19,7 @@ from registry.audit import (
 def make_test_record(request_id: str = "test-123") -> RegistryApiAccessRecord:
     """Create a test audit record."""
     return RegistryApiAccessRecord(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         request_id=request_id,
         identity=Identity(
             username="testuser",

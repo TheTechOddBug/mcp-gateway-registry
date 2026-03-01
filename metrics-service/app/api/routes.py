@@ -90,7 +90,7 @@ async def get_rate_limit(request: Request):
 
 @router.get("/admin/retention/preview")
 async def get_cleanup_preview(
-    table_name: Optional[str] = None, api_key: str = Depends(verify_api_key)
+    table_name: str | None = None, api_key: str = Depends(verify_api_key)
 ):
     """Preview what would be cleaned up by retention policies.
 
@@ -121,7 +121,7 @@ async def get_cleanup_preview(
 
 @router.post("/admin/retention/cleanup")
 async def run_cleanup(
-    table_name: Optional[str] = None, dry_run: bool = True, api_key: str = Depends(verify_api_key)
+    table_name: str | None = None, dry_run: bool = True, api_key: str = Depends(verify_api_key)
 ):
     """Run data cleanup according to retention policies.
 

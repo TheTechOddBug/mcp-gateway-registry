@@ -30,9 +30,6 @@ from enum import Enum
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
-    Optional,
 )
 
 # Add api directory to path for imports
@@ -41,15 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "api"))
 from registry_client import (
     RegistryClient,
     SkillRegistrationRequest,
-    SkillCard,
-    SkillListResponse,
-    SkillHealthResponse,
-    SkillContentResponse,
-    SkillSearchResponse,
-    SkillToggleResponse,
-    SkillRatingResponse,
 )
-
 
 # Configure logging
 logging.basicConfig(
@@ -82,7 +71,7 @@ class TestResult:
     status: TestStatus
     duration_ms: float
     message: str = ""
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 class AgentSkillsE2ETest:
@@ -100,8 +89,8 @@ class AgentSkillsE2ETest:
             token: JWT authentication token
         """
         self.client = RegistryClient(registry_url, token)
-        self.results: List[TestResult] = []
-        self.skill_path: Optional[str] = None
+        self.results: list[TestResult] = []
+        self.skill_path: str | None = None
 
     def _record_result(
         self,
@@ -109,7 +98,7 @@ class AgentSkillsE2ETest:
         status: TestStatus,
         duration_ms: float,
         message: str = "",
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Record a test result."""
         result = TestResult(
@@ -678,7 +667,7 @@ class AgentSkillsE2ETest:
         if failed > 0:
             print(f"\n  \033[91m*** {failed} TEST(S) FAILED ***\033[0m")
         else:
-            print(f"\n  \033[92m*** ALL TESTS PASSED ***\033[0m")
+            print("\n  \033[92m*** ALL TESTS PASSED ***\033[0m")
 
         print("=" * 70)
         print()

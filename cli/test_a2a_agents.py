@@ -21,12 +21,11 @@ import argparse
 import base64
 import json
 import logging
-import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any
 from urllib.parse import quote
 
 import requests
@@ -37,7 +36,6 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from registry.constants import REGISTRY_CONSTANTS
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,8 +87,8 @@ def _check_token_expiration(access_token: str) -> None:
             logger.warning("Token does not have expiration field")
             return
 
-        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-        now = datetime.now(timezone.utc)
+        exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+        now = datetime.now(UTC)
         time_until_expiry = exp_dt - now
 
         if time_until_expiry.total_seconds() < 0:
@@ -120,7 +118,7 @@ def _check_token_expiration(access_token: str) -> None:
         logger.warning(f"Could not check token expiration: {e}")
 
 
-def _load_token_file(token_file_path: Path) -> Dict[str, Any]:
+def _load_token_file(token_file_path: Path) -> dict[str, Any]:
     """
     Load token data from JSON file.
 
@@ -131,11 +129,11 @@ def _load_token_file(token_file_path: Path) -> Dict[str, Any]:
         Token data dictionary
     """
     try:
-        with open(token_file_path, "r") as f:
+        with open(token_file_path) as f:
             token_data = json.load(f)
         logger.info(f"Loaded token file: {token_file_path}")
         return token_data
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load token file: {e}")
         sys.exit(1)
 
@@ -145,8 +143,8 @@ def _make_api_request(
     access_token: str,
     base_url: str,
     method: str = "GET",
-    params: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """
     Make an API request to the A2A Agents API.
 
@@ -288,7 +286,7 @@ def _test_list_agents_paginated(access_token: str, base_url: str, limit: int = 3
         next_cursor = response.get("metadata", {}).get("nextCursor")
         result.message = f"Page 1: {len(agents)} agents"
         if next_cursor:
-            result.message += f", nextCursor available"
+            result.message += ", nextCursor available"
     else:
         result.error = "Failed to list agents"
 
@@ -490,8 +488,8 @@ def _test_error_missing_agent(access_token: str, base_url: str) -> TestResult:
 
 
 def _run_all_tests(
-    access_token: str, base_url: str, agent_name: Optional[str] = None, verbose: bool = False
-) -> List[TestResult]:
+    access_token: str, base_url: str, agent_name: str | None = None, verbose: bool = False
+) -> list[TestResult]:
     """
     Run all API tests.
 
@@ -544,7 +542,7 @@ def _run_all_tests(
     return results
 
 
-def _print_summary(results: List[TestResult]) -> None:
+def _print_summary(results: list[TestResult]) -> None:
     """
     Print test summary report.
 
@@ -631,8 +629,8 @@ token lifetime in Keycloak: Realm Settings → Tokens → Access Token Lifespan
 
 
 def _execute_test(
-    test_name: str, access_token: str, base_url: str, agent_name: Optional[str], verbose: bool
-) -> List[TestResult]:
+    test_name: str, access_token: str, base_url: str, agent_name: str | None, verbose: bool
+) -> list[TestResult]:
     """
     Execute a single test based on test name.
 

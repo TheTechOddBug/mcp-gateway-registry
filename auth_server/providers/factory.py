@@ -2,12 +2,11 @@
 
 import logging
 import os
-from typing import Optional
 
 from .base import AuthProvider
 from .cognito import CognitoProvider
-from .keycloak import KeycloakProvider
 from .entra import EntraIdProvider
+from .keycloak import KeycloakProvider
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_auth_provider(provider_type: Optional[str] = None) -> AuthProvider:
+def get_auth_provider(provider_type: str | None = None) -> AuthProvider:
     """Factory function to get the appropriate auth provider.
 
     Args:

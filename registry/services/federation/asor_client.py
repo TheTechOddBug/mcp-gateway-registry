@@ -119,7 +119,7 @@ class AsorFederationClient(BaseFederationClient):
                 "WORKDAY_TOKEN_URL is using placeholder value. "
                 "ASOR federation is disabled. "
                 "Set WORKDAY_TOKEN_URL environment variable to your actual Workday tenant URL to enable ASOR federation. "
-                f"Example: https://services.wd101.myworkday.com/ccx/oauth2/instance_name/token"
+                "Example: https://services.wd101.myworkday.com/ccx/oauth2/instance_name/token"
             )
             return None
 

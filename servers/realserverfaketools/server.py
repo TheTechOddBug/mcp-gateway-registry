@@ -3,16 +3,17 @@ This server provides a collection of fake tools with interesting names that take
 These tools are stubbed out and return mock responses for demonstration purposes.
 """
 
-import os
-import time
-import secrets  # Replaced random with secrets
 import argparse
-import logging
 import json
-from datetime import datetime, timedelta
-from fastmcp import FastMCP, Context
+import logging
+import os
+import secrets  # Replaced random with secrets
+import time
+from datetime import datetime
+from typing import Annotated, Any, ClassVar
+
+from fastmcp import FastMCP
 from pydantic import BaseModel, Field
-from typing import Annotated, List, Dict, Optional, Union, Any, ClassVar
 
 # Configure logging
 logging.basicConfig(
@@ -100,20 +101,20 @@ mcp = FastMCP("RealServerFakeTools")
 class GeoCoordinates(BaseModel):
     latitude: float = Field(..., description="Latitude coordinate")
     longitude: float = Field(..., description="Longitude coordinate")
-    altitude: Optional[float] = Field(None, description="Altitude in meters (optional)")
+    altitude: float | None = Field(None, description="Altitude in meters (optional)")
 
 
 class UserProfile(BaseModel):
     username: str = Field(..., description="User's username")
     email: str = Field(..., description="User's email address")
-    age: Optional[int] = Field(None, description="User's age (optional)")
-    interests: List[str] = Field(default_factory=list, description="List of user interests")
+    age: int | None = Field(None, description="User's age (optional)")
+    interests: list[str] = Field(default_factory=list, description="List of user interests")
 
 
 class AnalysisOptions(BaseModel):
     depth: int = Field(3, description="Depth of analysis (1-10)")
     include_metadata: bool = Field(True, description="Whether to include metadata")
-    filters: Dict[str, Any] = Field(default_factory=dict, description="Filters to apply")
+    filters: dict[str, Any] = Field(default_factory=dict, description="Filters to apply")
 
 
 @mcp.prompt()
@@ -190,7 +191,7 @@ def quantum_flux_analyzer(
 @mcp.tool()
 def neural_pattern_synthesizer(
     input_patterns: Annotated[
-        List[str], Field(description="List of neural patterns to synthesize")
+        list[str], Field(description="List of neural patterns to synthesize")
     ],
     coherence_threshold: Annotated[
         float, Field(ge=0.0, le=1.0, description="Threshold for pattern coherence (0.0-1.0)")
@@ -198,7 +199,7 @@ def neural_pattern_synthesizer(
     dimensions: Annotated[
         int, Field(ge=1, le=10, description="Number of dimensions for synthesis (1-10)")
     ] = 3,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Synthesizes neural patterns into coherent structures.
 
@@ -304,17 +305,17 @@ def hyper_dimensional_mapper(
 @mcp.tool()
 def temporal_anomaly_detector(
     timeframe: Annotated[
-        Dict[str, str], Field(description="Start and end times for anomaly detection")
+        dict[str, str], Field(description="Start and end times for anomaly detection")
     ],
     sensitivity: Annotated[
         int, Field(ge=1, le=10, description="Sensitivity level for detection (1-10)")
     ] = 7,
-    anomaly_types: Annotated[List[str], Field(description="Types of anomalies to detect")] = [
+    anomaly_types: Annotated[list[str], Field(description="Types of anomalies to detect")] = [
         "temporal_shift",
         "causal_loop",
         "timeline_divergence",
     ],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Detects temporal anomalies within a specified timeframe.
 
@@ -432,15 +433,15 @@ def user_profile_analyzer(
 @mcp.tool()
 def synthetic_data_generator(
     schema: Annotated[
-        Dict[str, Any], Field(description="Schema defining the structure of synthetic data")
+        dict[str, Any], Field(description="Schema defining the structure of synthetic data")
     ],
     record_count: Annotated[
         int, Field(ge=1, le=1000, description="Number of synthetic records to generate (1-1000)")
     ] = 10,
     seed: Annotated[
-        Optional[int], Field(description="Random seed for reproducibility (optional)")
+        int | None, Field(description="Random seed for reproducibility (optional)")
     ] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generates synthetic data based on a provided schema.
 

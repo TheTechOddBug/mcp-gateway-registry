@@ -3,12 +3,13 @@ Example MCP Server demonstrating basic functionality.
 This server provides simple tools for demonstration purposes.
 """
 
-import os
 import argparse
 import logging
+import os
+from typing import Annotated, Any
+
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
-from typing import Annotated, Dict, Any
 
 # Configure logging
 logging.basicConfig(
@@ -83,7 +84,7 @@ Available tools:
     return system_prompt
 
 
-def _process_message(message: str) -> Dict[str, Any]:
+def _process_message(message: str) -> dict[str, Any]:
     """
     Internal function to process a message.
 
@@ -106,7 +107,7 @@ def _process_message(message: str) -> Dict[str, Any]:
 @mcp.tool()
 def example_tool(
     message: Annotated[str, Field(description="Example message to process")],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     An example tool that demonstrates MCP functionality.
 
@@ -125,7 +126,7 @@ def example_tool(
     try:
         logger.info(f"Processing message: {message}")
         result = _process_message(message)
-        logger.info(f"Successfully processed message")
+        logger.info("Successfully processed message")
         return result
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
@@ -138,7 +139,7 @@ def echo_tool(
     include_metadata: Annotated[
         bool, Field(default=True, description="Whether to include metadata in the response")
     ] = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     A simple echo tool that returns the input with optional metadata.
 
@@ -174,7 +175,7 @@ def echo_tool(
 
 
 @mcp.tool()
-def status_tool() -> Dict[str, Any]:
+def status_tool() -> dict[str, Any]:
     """
     Get the current status of the example server.
 

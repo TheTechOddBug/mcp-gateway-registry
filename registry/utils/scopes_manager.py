@@ -9,21 +9,35 @@ The old implementation has been preserved in scopes_manager_old.py for reference
 
 import logging
 from typing import (
-    List,
-    Dict,
     Any,
 )
 
 from ..services.scope_service import (
-    update_server_scopes as _update_server_scopes,
-    remove_server_scopes as _remove_server_scopes,
     add_server_to_groups as _add_server_to_groups,
-    remove_server_from_groups as _remove_server_from_groups,
+)
+from ..services.scope_service import (
     create_group as _create_group,
+)
+from ..services.scope_service import (
     delete_group as _delete_group,
-    list_groups as _list_groups,
+)
+from ..services.scope_service import (
     group_exists as _group_exists,
+)
+from ..services.scope_service import (
+    list_groups as _list_groups,
+)
+from ..services.scope_service import (
+    remove_server_from_groups as _remove_server_from_groups,
+)
+from ..services.scope_service import (
+    remove_server_scopes as _remove_server_scopes,
+)
+from ..services.scope_service import (
     trigger_auth_server_reload as _trigger_auth_server_reload,
+)
+from ..services.scope_service import (
+    update_server_scopes as _update_server_scopes,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,7 +46,7 @@ logger = logging.getLogger(__name__)
 async def update_server_scopes(
     server_path: str,
     server_name: str,
-    tools: List[str],
+    tools: list[str],
 ) -> bool:
     """
     DEPRECATED: Use registry.services.scope_service.update_server_scopes instead.
@@ -77,7 +91,7 @@ async def remove_server_scopes(
 
 async def add_server_to_groups(
     server_path: str,
-    group_names: List[str],
+    group_names: list[str],
 ) -> bool:
     """
     DEPRECATED: Use registry.services.scope_service.add_server_to_groups instead.
@@ -100,7 +114,7 @@ async def add_server_to_groups(
 
 async def remove_server_from_groups(
     server_path: str,
-    group_names: List[str],
+    group_names: list[str],
 ) -> bool:
     """
     DEPRECATED: Use registry.services.scope_service.remove_server_from_groups instead.
@@ -167,7 +181,7 @@ async def delete_group_from_scopes(
     return await _delete_group(group_name, remove_from_mappings)
 
 
-async def list_groups_from_scopes() -> Dict[str, Any]:
+async def list_groups_from_scopes() -> dict[str, Any]:
     """
     DEPRECATED: Use registry.services.scope_service.list_groups instead.
 

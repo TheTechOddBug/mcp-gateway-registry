@@ -6,11 +6,6 @@ Links allowed_tools to MCP servers in the registry.
 
 import logging
 import time
-from typing import (
-    List,
-    Optional,
-    Set,
-)
 
 from ..repositories.factory import get_server_repository
 from ..repositories.interfaces import ServerRepositoryBase
@@ -19,7 +14,6 @@ from ..schemas.skill_models import (
     ToolReference,
     ToolValidationResult,
 )
-
 
 # Configure logging
 logging.basicConfig(
@@ -33,7 +27,7 @@ class ToolValidationService:
     """Validate tool availability for skill execution."""
 
     def __init__(self):
-        self._server_repo: Optional[ServerRepositoryBase] = None
+        self._server_repo: ServerRepositoryBase | None = None
 
     def _get_server_repo(self) -> ServerRepositoryBase:
         """Lazy initialization of server repository."""
@@ -81,7 +75,7 @@ class ToolValidationService:
         logger.debug(f"Retrieved {len(servers_dict)} servers from repository")
 
         # Build index of available tools
-        available_tools: Set[str] = set()
+        available_tools: set[str] = set()
         server_tool_map: dict = {}
 
         for server_path, server_info in servers_dict.items():
@@ -110,9 +104,9 @@ class ToolValidationService:
             )
 
         # Check each required tool
-        missing: List[str] = []
-        found: List[str] = []
-        required_servers: Set[str] = set()
+        missing: list[str] = []
+        found: list[str] = []
+        required_servers: set[str] = set()
 
         for tool_ref in skill.allowed_tools:
             tool_name = tool_ref.tool_name
@@ -147,8 +141,8 @@ class ToolValidationService:
 
     async def get_tools_with_servers(
         self,
-        tool_refs: List[ToolReference],
-    ) -> List[dict]:
+        tool_refs: list[ToolReference],
+    ) -> list[dict]:
         """Get tool references with their providing servers.
 
         Args:
@@ -211,7 +205,7 @@ class ToolValidationService:
 
 
 # Singleton
-_tool_validation_service: Optional[ToolValidationService] = None
+_tool_validation_service: ToolValidationService | None = None
 
 
 def get_tool_validation_service() -> ToolValidationService:

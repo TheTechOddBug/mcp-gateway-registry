@@ -17,9 +17,6 @@ import logging
 import time
 from typing import (
     Any,
-    Dict,
-    Optional,
-    Set,
 )
 
 from ..schemas.federation_schema import FederationConfig
@@ -38,7 +35,7 @@ RECONCILIATION_DURATION_METRIC: str = "mcp_federation_reconciliation_duration_se
 
 def _config_server_names_to_paths(
     config: FederationConfig,
-) -> Set[str]:
+) -> set[str]:
     """Convert federation config server names to expected DB paths.
 
     Anthropic server names like 'io.github.jgador/websharp'
@@ -89,11 +86,11 @@ async def reconcile_anthropic_servers(
     config: FederationConfig,
     server_service: Any,
     server_repo: Any,
-    nginx_service: Optional[Any] = None,
+    nginx_service: Any | None = None,
     dry_run: bool = False,
     skip_nginx_regen: bool = False,
-    audit_username: Optional[str] = None,
-) -> Dict[str, Any]:
+    audit_username: str | None = None,
+) -> dict[str, Any]:
     """Reconcile Anthropic federated servers against the current config.
 
     Removes servers from mcp_servers_default that have source="anthropic"

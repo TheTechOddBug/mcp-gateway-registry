@@ -1,6 +1,5 @@
 """Unit tests for backend session Pydantic models and internal API routes."""
 
-import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 

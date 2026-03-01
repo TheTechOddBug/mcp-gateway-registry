@@ -25,9 +25,9 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 from dotenv import load_dotenv
@@ -41,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _load_gateway_configs() -> List[Dict[str, Any]]:
+def _load_gateway_configs() -> list[dict[str, Any]]:
     """
     Load gateway configurations from environment variables.
     Supports multiple configurations with _1, _2, _3 suffixes.
@@ -98,7 +98,7 @@ def _get_cognito_token(
     client_id: str,
     client_secret: str,
     audience: str = "MCPGateway",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get OAuth2 token from Amazon Cognito or Auth0 using client credentials grant type.
 
@@ -154,9 +154,9 @@ def _get_cognito_token(
 
 
 def _save_egress_token(
-    token_response: Dict[str, Any],
+    token_response: dict[str, Any],
     provider: str = "bedrock-agentcore",
-    server_name: Optional[str] = None,
+    server_name: str | None = None,
     oauth_tokens_dir: str = ".oauth-tokens",
 ) -> str:
     """
@@ -179,10 +179,10 @@ def _save_egress_token(
     expires_in = token_response.get("expires_in", 10800)  # Default 3 hours
     current_time = time.time()
     expires_at = current_time + expires_in
-    expires_at_human = datetime.fromtimestamp(expires_at, tz=timezone.utc).strftime(
+    expires_at_human = datetime.fromtimestamp(expires_at, tz=UTC).strftime(
         "%Y-%m-%d %H:%M:%S UTC"
     )
-    saved_at = datetime.fromtimestamp(current_time, tz=timezone.utc).strftime(
+    saved_at = datetime.fromtimestamp(current_time, tz=UTC).strftime(
         "%Y-%m-%d %H:%M:%S UTC"
     )
 
@@ -223,7 +223,7 @@ def _save_egress_token(
     return str(egress_path)
 
 
-def _get_cognito_domain_from_env() -> Tuple[str, Optional[str]]:
+def _get_cognito_domain_from_env() -> tuple[str, str | None]:
     """
     Get Cognito domain and user pool ID from environment variables.
 
@@ -243,8 +243,8 @@ def _get_cognito_domain_from_env() -> Tuple[str, Optional[str]]:
 
 
 def generate_access_token(
-    gateway_index: Optional[int] = None,
-    gateway_name: Optional[str] = None,
+    gateway_index: int | None = None,
+    gateway_name: str | None = None,
     oauth_tokens_dir: str = ".oauth-tokens",
     audience: str = "MCPGateway",
     generate_all: bool = False,

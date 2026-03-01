@@ -18,12 +18,10 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING
-from pymongo.errors import ServerSelectionTimeoutError, OperationFailure
-
+from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -251,7 +249,7 @@ async def _load_default_scopes(
             continue
 
         try:
-            with open(scope_file, "r") as f:
+            with open(scope_file) as f:
                 scope_data = json.load(f)
 
             logger.info(f"Loading scope from {scope_filename}")

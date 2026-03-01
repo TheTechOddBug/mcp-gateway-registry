@@ -1,8 +1,8 @@
 """Integration tests for skill API endpoints."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 
 # Sample skill data for testing
 SAMPLE_SKILL_DATA = {

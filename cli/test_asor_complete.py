@@ -3,10 +3,11 @@
 Complete ASOR API test with token exchange
 """
 
-import requests
 import json
-import urllib.parse
 import os
+import urllib.parse
+
+import requests
 
 # Configuration
 CLIENT_ID = os.getenv("ASOR_CLIENT_ID")
@@ -95,7 +96,7 @@ def test_agent_definition_crud(token):
     status, response = api_call(token, "GET", "/agentDefinition")
 
     if status == 200:
-        print(f"✅ SUCCESS")
+        print("✅ SUCCESS")
         try:
             data = json.loads(response)
             print(f"   Found {data.get('total', 0)} agents")
@@ -103,7 +104,7 @@ def test_agent_definition_crud(token):
             print(json.dumps(data, indent=2))
             if data.get("data"):
                 agent = data["data"][0]  # Get first agent
-                print(f"\n   📋 Agent JSON (Pretty Printed):")
+                print("\n   📋 Agent JSON (Pretty Printed):")
                 print("   " + "=" * 50)
                 print(json.dumps(agent, indent=2))
                 print("   " + "=" * 50)
@@ -113,12 +114,12 @@ def test_agent_definition_crud(token):
         print(f"❌ Failed: {status} - {response[:200]}")
 
     if status in [200, 201]:
-        print(f"✅ Agent created successfully!")
+        print("✅ Agent created successfully!")
         print(f"   Response: {response[:200]}...")
     elif status == 400:
         print(f"⚠️  Bad Request: {response[:300]}")
     elif status == 403:
-        print(f"🚫 Forbidden - may need different permissions")
+        print("🚫 Forbidden - may need different permissions")
     else:
         print(f"❌ Failed: {status} - {response[:200]}")
 
@@ -138,26 +139,26 @@ def main():
     # Test main Agent Definition API
     test_agent_definition_crud(token)
 
-    print(f"\n📋 SUMMARY")
+    print("\n📋 SUMMARY")
     print("=" * 50)
     print("✅ OAuth Flow: SUCCESS")
     print("✅ ASOR API Base URL confirmed working")
     print("✅ Agent Definition endpoint accessible")
     print("✅ Ready for MCP Gateway integration")
 
-    print(f"\n🔧 Final MCP Gateway Configuration:")
-    print(f"{{")
-    print(f'  "name": "workday-asor",')
+    print("\n🔧 Final MCP Gateway Configuration:")
+    print("{")
+    print('  "name": "workday-asor",')
     print(f'  "url": "{BASE_URL}",')
-    print(f'  "auth_type": "oauth_3lo",')
-    print(f'  "oauth_config": {{')
+    print('  "auth_type": "oauth_3lo",')
+    print('  "oauth_config": {')
     print(f'    "client_id": "{CLIENT_ID}",')
     print(f'    "client_secret": "{CLIENT_SECRET}",')
     print(f'    "auth_url": "https://wcpdev.wd103.myworkday.com/{TENANT_NAME}/authorize",')
     print(f'    "token_url": "https://{HOSTNAME}/ccx/oauth2/{TENANT_NAME}/token",')
-    print(f'    "scope": "Agent System of Record"')
-    print(f"  }}")
-    print(f"}}")
+    print('    "scope": "Agent System of Record"')
+    print("  }")
+    print("}")
 
 
 if __name__ == "__main__":

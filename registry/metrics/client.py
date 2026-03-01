@@ -5,18 +5,17 @@ Provides both the basic metrics client and an enhanced MCP client service
 that uses dependency injection for clean metrics collection.
 """
 
-import os
-import sys
-import time
 import logging
-from typing import List, Dict, Optional, Any
+import os
+import time
 from contextlib import asynccontextmanager
-from fastapi import Depends
+from datetime import datetime
+from typing import Any
 
 # Import HTTP client for metrics
 import httpx
-import json
-from datetime import datetime
+from fastapi import Depends
+
 from .utils import extract_server_name_from_url
 
 logger = logging.getLogger(__name__)
@@ -43,9 +42,9 @@ class MetricsClient:
         self,
         metric_type: str,
         value: float = 1.0,
-        duration_ms: Optional[float] = None,
-        dimensions: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        duration_ms: float | None = None,
+        dimensions: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Emit a metric to the metrics service."""
         try:
@@ -82,9 +81,9 @@ class MetricsClient:
         resource_type: str,
         success: bool,
         duration_ms: float,
-        resource_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        error_code: Optional[str] = None,
+        resource_id: str | None = None,
+        user_id: str | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Emit registry operation metric."""
         return await self._emit_metric(
@@ -106,10 +105,10 @@ class MetricsClient:
         query: str,
         results_count: int,
         duration_ms: float,
-        top_k_services: Optional[int] = None,
-        top_n_tools: Optional[int] = None,
-        embedding_time_ms: Optional[float] = None,
-        faiss_search_time_ms: Optional[float] = None,
+        top_k_services: int | None = None,
+        top_n_tools: int | None = None,
+        embedding_time_ms: float | None = None,
+        faiss_search_time_ms: float | None = None,
     ) -> bool:
         """Emit tool discovery metric."""
         return await self._emit_metric(
@@ -135,9 +134,9 @@ class MetricsClient:
         server_name: str,
         success: bool,
         duration_ms: float,
-        input_size_bytes: Optional[int] = None,
-        output_size_bytes: Optional[int] = None,
-        error_code: Optional[str] = None,
+        input_size_bytes: int | None = None,
+        output_size_bytes: int | None = None,
+        error_code: str | None = None,
     ) -> bool:
         """Emit tool execution metric."""
         return await self._emit_metric(
@@ -172,9 +171,9 @@ class MetricsClient:
         self,
         metric_name: str,
         value: float,
-        duration_ms: Optional[float] = None,
-        dimensions: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        duration_ms: float | None = None,
+        dimensions: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Emit custom metric with arbitrary data."""
         custom_dimensions = {"metric_name": metric_name}
@@ -277,7 +276,7 @@ class _ToolDiscoveryTracker:
         self.tools_count = 0
         self.error_code = None
 
-    def set_result(self, tools: Optional[List[Dict]]):
+    def set_result(self, tools: list[dict] | None):
         """Set the result of the tool discovery operation."""
         if tools is not None:
             self.success = True
@@ -381,7 +380,7 @@ class EnhancedMCPClientService:
 
     async def get_tools_from_server_with_server_info(
         self, base_url: str, server_info: dict = None
-    ) -> Optional[List[Dict]]:
+    ) -> list[dict] | None:
         """Get tools from MCP server with metrics collection."""
         async with self.metrics_collector.track_tool_discovery(base_url) as tracker:
             # Call the original client method

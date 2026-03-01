@@ -8,13 +8,12 @@ Based on: registry/services/server_service.py
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from ..repositories.factory import get_agent_repository, get_search_repository
 from ..repositories.interfaces import AgentRepositoryBase, SearchRepositoryBase
 from ..schemas.agent_models import AgentCard
-
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +25,8 @@ class AgentService:
         """Initialize agent service with repository."""
         self._repo: AgentRepositoryBase = get_agent_repository()
         self._search_repo: SearchRepositoryBase = get_search_repository()
-        self.registered_agents: Dict[str, AgentCard] = {}
-        self.agent_state: Dict[str, List[str]] = {"enabled": [], "disabled": []}
+        self.registered_agents: dict[str, AgentCard] = {}
+        self.agent_state: dict[str, list[str]] = {"enabled": [], "disabled": []}
 
     async def load_agents_and_state(self) -> None:
         """Load agent cards and persisted state from repository."""
@@ -139,7 +138,7 @@ class AgentService:
 
         return agent
 
-    def list_agents(self) -> List[AgentCard]:
+    def list_agents(self) -> list[AgentCard]:
         """
         List all registered agents.
 
@@ -217,7 +216,7 @@ class AgentService:
     async def update_agent(
         self,
         path: str,
-        updates: Dict[str, Any],
+        updates: dict[str, Any],
     ) -> AgentCard:
         """
         Update an existing agent.
@@ -240,7 +239,7 @@ class AgentService:
         agent_dict = existing_agent.model_dump()
         agent_dict.update(updates)
         agent_dict["path"] = path
-        agent_dict["updated_at"] = datetime.now(timezone.utc)
+        agent_dict["updated_at"] = datetime.now(UTC)
 
         try:
             updated_agent = AgentCard(**agent_dict)
@@ -397,7 +396,7 @@ class AgentService:
 
         return alternate_path in self.agent_state["enabled"]
 
-    def get_enabled_agents(self) -> List[str]:
+    def get_enabled_agents(self) -> list[str]:
         """
         Get list of enabled agent paths.
 
@@ -406,7 +405,7 @@ class AgentService:
         """
         return list(self.agent_state["enabled"])
 
-    def get_disabled_agents(self) -> List[str]:
+    def get_disabled_agents(self) -> list[str]:
         """
         Get list of disabled agent paths.
 
@@ -440,7 +439,7 @@ class AgentService:
     async def get_agent_info(
         self,
         path: str,
-    ) -> Optional[AgentCard]:
+    ) -> AgentCard | None:
         """
         Get agent by path - queries repository directly (returns None if not found).
 
@@ -452,7 +451,7 @@ class AgentService:
         """
         return await self._repo.get(path)
 
-    async def get_all_agents(self) -> List[AgentCard]:
+    async def get_all_agents(self) -> list[AgentCard]:
         """
         Get all registered agents - queries repository directly.
 

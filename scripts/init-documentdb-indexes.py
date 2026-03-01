@@ -34,10 +34,8 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient
-
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -61,11 +59,11 @@ async def _get_documentdb_connection_string(
     host: str,
     port: int,
     database: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
     storage_backend: str = "documentdb",
 ) -> str:
     """Build DocumentDB connection string with appropriate auth mechanism.
@@ -152,7 +150,7 @@ async def _create_vector_index(
         logger.info(f"Created vector index '{index_name}' on {collection_name}")
     except Exception as e:
         # Debug logging
-        logger.info(f"DEBUG: Caught exception in vector index creation")
+        logger.info("DEBUG: Caught exception in vector index creation")
         logger.info(f"DEBUG: Exception type: {type(e).__name__}")
         logger.info(f"DEBUG: Exception str: {str(e)}")
         logger.info(f"DEBUG: Exception repr: {repr(e)}")
@@ -162,7 +160,7 @@ async def _create_vector_index(
             "'code': 85" in str(e) or "code': 85" in str(e)
         ) or "already exists with different options" in str(e).lower():
             if recreate:
-                logger.info(f"Vector index exists with different options. Recreating...")
+                logger.info("Vector index exists with different options. Recreating...")
 
                 # List all indexes to see what's there
                 logger.info(f"Listing all indexes on {collection_name}...")
@@ -370,7 +368,7 @@ async def _create_scopes_indexes(
 async def _load_default_scopes(
     db,
     namespace: str,
-    entra_group_id: Optional[str] = None,
+    entra_group_id: str | None = None,
 ) -> None:
     """Load default admin scope from JSON file into scopes collection.
 
@@ -392,7 +390,7 @@ async def _load_default_scopes(
         return
 
     try:
-        with open(admin_scope_file, "r") as f:
+        with open(admin_scope_file) as f:
             admin_scope = json.load(f)
 
         logger.info(f"Loading default admin scope from {admin_scope_file}")
@@ -647,7 +645,7 @@ async def _initialize_collections(
     db,
     namespace: str,
     recreate: bool,
-    entra_group_id: Optional[str] = None,
+    entra_group_id: str | None = None,
 ) -> None:
     """Initialize all collections and indexes.
 

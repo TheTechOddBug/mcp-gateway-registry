@@ -10,8 +10,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from ..auth.dependencies import nginx_proxied_auth
 from ..audit import set_audit_action
+from ..auth.dependencies import nginx_proxied_auth
 from ..repositories.factory import get_federation_config_repository
 from ..repositories.interfaces import FederationConfigRepositoryBase
 from ..schemas.federation_schema import FederationConfig
@@ -142,10 +142,10 @@ async def save_federation_config(
         # Reconcile: remove stale federated servers
         reconciliation_result = None
         try:
+            from ..core.nginx_service import nginx_service
+            from ..repositories.factory import get_server_repository
             from ..services.federation_reconciliation import reconcile_anthropic_servers
             from ..services.server_service import server_service
-            from ..repositories.factory import get_server_repository
-            from ..core.nginx_service import nginx_service
 
             server_repo = get_server_repository()
             reconciliation_result = await reconcile_anthropic_servers(
@@ -223,10 +223,10 @@ async def update_federation_config(
         # Reconcile: remove stale federated servers
         reconciliation_result = None
         try:
+            from ..core.nginx_service import nginx_service
+            from ..repositories.factory import get_server_repository
             from ..services.federation_reconciliation import reconcile_anthropic_servers
             from ..services.server_service import server_service
-            from ..repositories.factory import get_server_repository
-            from ..core.nginx_service import nginx_service
 
             server_repo = get_server_repository()
             reconciliation_result = await reconcile_anthropic_servers(
@@ -747,9 +747,9 @@ async def sync_federation(
         # Reconcile: remove stale federated servers after sync
         reconciliation_result = None
         try:
-            from ..services.federation_reconciliation import reconcile_anthropic_servers
-            from ..repositories.factory import get_server_repository
             from ..core.nginx_service import nginx_service as nginx_svc
+            from ..repositories.factory import get_server_repository
+            from ..services.federation_reconciliation import reconcile_anthropic_servers
 
             server_repo = get_server_repository()
             reconciliation_result = await reconcile_anthropic_servers(

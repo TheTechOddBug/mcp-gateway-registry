@@ -13,22 +13,23 @@ Environment variables required:
     AWS_REGION: AWS region (optional, defaults to us-east-1)
 """
 
-import os
-import sys
-import json
-import secrets
-import hashlib
+import argparse
 import base64
+import hashlib
+import json
+import logging
+import os
+import secrets
+import sys
 import threading
 import webbrowser
-import argparse
-import logging
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import urlencode, parse_qs
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from itsdangerous import URLSafeTimedSerializer
+from urllib.parse import parse_qs, urlencode
+
 import requests
 from dotenv import load_dotenv
+from itsdangerous import URLSafeTimedSerializer
 
 # Configure logging
 logging.basicConfig(
@@ -410,7 +411,7 @@ def main():
                 print("✓ Authentication successful!")
                 print(f"✓ Session cookie saved to: {Path(args.cookie_file).expanduser()}")
                 print("\nYou can now use this cookie with agents:")
-                print(f"  python agents/agent.py --use-session-cookie")
+                print("  python agents/agent.py --use-session-cookie")
                 print("=" * 50 + "\n")
                 return 0
             else:

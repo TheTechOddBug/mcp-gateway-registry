@@ -8,8 +8,7 @@ JSON-RPC request parsing and tool/resource invocation tracking.
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional, Union
+from datetime import UTC, datetime
 
 from .models import (
     Identity,
@@ -45,7 +44,7 @@ class MCPLogger:
         """
         self.audit_logger = audit_logger
 
-    def parse_jsonrpc_body(self, body: Union[bytes, str]) -> dict:
+    def parse_jsonrpc_body(self, body: bytes | str) -> dict:
         """
         Parse JSON-RPC request body to extract method and params.
 
@@ -119,17 +118,17 @@ class MCPLogger:
         request_id: str,
         identity: Identity,
         mcp_server: MCPServer,
-        request_body: Union[bytes, str],
+        request_body: bytes | str,
         response_status: str,
         duration_ms: float,
-        mcp_session_id: Optional[str] = None,
+        mcp_session_id: str | None = None,
         transport: str = "streamable-http",
-        error_code: Optional[int] = None,
-        error_message: Optional[str] = None,
+        error_code: int | None = None,
+        error_message: str | None = None,
         client_ip: str = "unknown",
-        forwarded_for: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        correlation_id: Optional[str] = None,
+        forwarded_for: str | None = None,
+        user_agent: str | None = None,
+        correlation_id: str | None = None,
     ) -> None:
         """
         Log an MCP server access event.
@@ -187,7 +186,7 @@ class MCPLogger:
 
         # Create the complete audit record
         record = MCPServerAccessRecord(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             request_id=request_id,
             correlation_id=correlation_id,
             identity=identity,

@@ -9,23 +9,27 @@ structured audit records.
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
-from typing import Callable, List, Optional
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from ..utils.request_utils import get_client_ip
 from .models import (
     Action,
     Authorization,
     Identity,
     RegistryApiAccessRecord,
+)
+from .models import (
     Request as AuditRequest,
+)
+from .models import (
     Response as AuditResponse,
 )
 from .service import AuditLogger
-from ..utils.request_utils import get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +52,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         self,
         app: ASGIApp,
         audit_logger: AuditLogger,
-        exclude_paths: Optional[List[str]] = None,
+        exclude_paths: list[str] | None = None,
         log_health_checks: bool = False,
         log_static_assets: bool = False,
     ):
@@ -134,7 +138,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         return "none"
 
-    def _get_credential_hint(self, request: Request) -> Optional[str]:
+    def _get_credential_hint(self, request: Request) -> str | None:
         """
         Extract credential hint for audit logging.
 
@@ -196,7 +200,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
             credential_hint=self._get_credential_hint(request),
         )
 
-    def _extract_action(self, request: Request) -> Optional[Action]:
+    def _extract_action(self, request: Request) -> Action | None:
         """
         Extract action context from the request.
 
@@ -221,7 +225,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         return None
 
-    def _extract_authorization(self, request: Request) -> Optional[Authorization]:
+    def _extract_authorization(self, request: Request) -> Authorization | None:
         """
         Extract authorization decision from the request.
 
@@ -295,7 +299,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
         # Build the audit record
         try:
             record = RegistryApiAccessRecord(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 request_id=request_id,
                 correlation_id=correlation_id,
                 identity=self._extract_identity(request),
@@ -330,7 +334,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 def add_audit_middleware(
     app,
     audit_logger: AuditLogger,
-    exclude_paths: Optional[List[str]] = None,
+    exclude_paths: list[str] | None = None,
     log_health_checks: bool = False,
     log_static_assets: bool = False,
 ) -> None:

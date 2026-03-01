@@ -4,7 +4,7 @@ Utility functions for metrics collection in the registry.
 
 import hashlib
 import logging
-from typing import Dict, Any
+from typing import Any
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def categorize_user_agent(user_agent: str) -> str:
         return "other"
 
 
-def extract_headers_for_analysis(headers: Dict[str, str]) -> Dict[str, Any]:
+def extract_headers_for_analysis(headers: dict[str, str]) -> dict[str, Any]:
     """Extract and categorize headers for nginx config analysis."""
     return {
         "user_agent_type": categorize_user_agent(headers.get("user-agent", "")),

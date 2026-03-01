@@ -13,11 +13,9 @@ import argparse
 import asyncio
 import logging
 import os
+
 import yaml
-from typing import Optional
-
 from motor.motor_asyncio import AsyncIOMotorClient
-
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -31,11 +29,11 @@ async def _get_documentdb_connection_string(
     host: str,
     port: int,
     database: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
     storage_backend: str = "documentdb",
 ) -> str:
     """Build DocumentDB connection string with appropriate auth mechanism.
@@ -117,10 +115,10 @@ async def load_scopes_from_yaml(
     if os.path.exists("/app/auth_server"):
         logger.info(f"DEBUG: /app/auth_server exists, contents: {os.listdir('/app/auth_server')}")
     else:
-        logger.info(f"DEBUG: /app/auth_server does NOT exist")
+        logger.info("DEBUG: /app/auth_server does NOT exist")
 
     # Read YAML file
-    with open(scopes_file, "r") as f:
+    with open(scopes_file) as f:
         scopes_data = yaml.safe_load(f)
 
     if not scopes_data:

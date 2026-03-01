@@ -54,7 +54,7 @@ import os
 import subprocess  # nosec B404
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
 

@@ -8,11 +8,10 @@ custom endpoint support and backward compatibility with default /mcp and /sse su
 import pytest
 
 from registry.core.endpoint_utils import (
+    _url_contains_transport_path,
     get_endpoint_url,
     get_endpoint_url_from_server_info,
-    _url_contains_transport_path,
 )
-
 
 # =============================================================================
 # TEST CLASS: URL Contains Transport Path Detection

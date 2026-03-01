@@ -2,13 +2,12 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 from ..interfaces import SecurityScanRepositoryBase
 from .client import get_collection_name, get_documentdb_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ class DocumentDBSecurityScanRepository(SecurityScanRepositoryBase):
     """DocumentDB implementation of security scan repository."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("mcp_security_scans")
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
@@ -41,11 +40,11 @@ class DocumentDBSecurityScanRepository(SecurityScanRepositoryBase):
     async def get(
         self,
         server_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest security scan result for a server."""
         return await self.get_latest(server_path)
 
-    async def list_all(self) -> List[Dict[str, Any]]:
+    async def list_all(self) -> list[dict[str, Any]]:
         """List all security scan results."""
         collection = await self._get_collection()
 
@@ -62,7 +61,7 @@ class DocumentDBSecurityScanRepository(SecurityScanRepositoryBase):
 
     async def create(
         self,
-        scan_result: Dict[str, Any],
+        scan_result: dict[str, Any],
     ) -> bool:
         """Create/update a security scan result."""
         try:
@@ -105,7 +104,7 @@ class DocumentDBSecurityScanRepository(SecurityScanRepositoryBase):
     async def get_latest(
         self,
         server_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest scan result for a server."""
         try:
             collection = await self._get_collection()
@@ -126,7 +125,7 @@ class DocumentDBSecurityScanRepository(SecurityScanRepositoryBase):
     async def query_by_status(
         self,
         status: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query scan results by status."""
         try:
             collection = await self._get_collection()

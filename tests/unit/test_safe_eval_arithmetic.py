@@ -1,9 +1,9 @@
 """Unit tests for safe arithmetic evaluation."""
 
+import importlib.util
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
-import importlib.util
 
 # agents/ is a standalone script directory, not an installed package.
 # Add it to sys.path so that `from registry_client import ...` inside
@@ -37,6 +37,7 @@ else:
     sys.modules["faiss"] = _faiss_mock
 
 import pytest
+
 from agents.agent import _safe_eval_arithmetic
 
 

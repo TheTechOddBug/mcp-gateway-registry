@@ -2,13 +2,12 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 from ..interfaces import SkillSecurityScanRepositoryBase
 from .client import get_collection_name, get_documentdb_client
-
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ class DocumentDBSkillSecurityScanRepository(SkillSecurityScanRepositoryBase):
     """DocumentDB implementation of skill security scan repository."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("mcp_skill_security_scans")
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
@@ -43,11 +42,11 @@ class DocumentDBSkillSecurityScanRepository(SkillSecurityScanRepositoryBase):
     async def get(
         self,
         skill_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest security scan result for a skill."""
         return await self.get_latest(skill_path)
 
-    async def list_all(self) -> List[Dict[str, Any]]:
+    async def list_all(self) -> list[dict[str, Any]]:
         """List all skill security scan results."""
         collection = await self._get_collection()
 
@@ -64,7 +63,7 @@ class DocumentDBSkillSecurityScanRepository(SkillSecurityScanRepositoryBase):
 
     async def create(
         self,
-        scan_result: Dict[str, Any],
+        scan_result: dict[str, Any],
     ) -> bool:
         """Create/update a skill security scan result."""
         try:
@@ -89,7 +88,7 @@ class DocumentDBSkillSecurityScanRepository(SkillSecurityScanRepositoryBase):
     async def get_latest(
         self,
         skill_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest scan result for a skill."""
         try:
             collection = await self._get_collection()
@@ -110,7 +109,7 @@ class DocumentDBSkillSecurityScanRepository(SkillSecurityScanRepositoryBase):
     async def query_by_status(
         self,
         status: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query scan results by status."""
         try:
             collection = await self._get_collection()

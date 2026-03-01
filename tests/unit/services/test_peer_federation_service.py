@@ -14,6 +14,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from registry.repositories.file.peer_federation_repository import (
+    _get_safe_file_path,
+    _validate_peer_id,
+)
 from registry.schemas.peer_federation_schema import (
     PeerRegistryConfig,
     PeerSyncStatus,
@@ -21,10 +25,6 @@ from registry.schemas.peer_federation_schema import (
 from registry.services.peer_federation_service import (
     PeerFederationService,
     get_peer_federation_service,
-)
-from registry.repositories.file.peer_federation_repository import (
-    _get_safe_file_path,
-    _validate_peer_id,
 )
 
 

@@ -12,7 +12,6 @@ Usage:
 import json
 import logging
 import random
-import statistics
 import subprocess
 import sys
 import threading
@@ -20,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,14 +59,14 @@ def _refresh_token() -> str:
         check=True,
         capture_output=True,
     )
-    with open(TOKEN_FILE, "r") as f:
+    with open(TOKEN_FILE) as f:
         data = json.load(f)
     token = data["access_token"]
     logger.info("Token refreshed successfully (length=%d)", len(token))
     return token
 
 
-def _parse_sse_response(body: str) -> Optional[Dict[str, Any]]:
+def _parse_sse_response(body: str) -> dict[str, Any] | None:
     """Parse an SSE response body, extracting the JSON from data: lines."""
     for line in body.splitlines():
         stripped = line.strip()
@@ -78,7 +77,7 @@ def _parse_sse_response(body: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _parse_response(body: str) -> Optional[Dict[str, Any]]:
+def _parse_response(body: str) -> dict[str, Any] | None:
     """Parse either plain JSON or SSE response body."""
     body = body.strip()
     if not body:
@@ -91,11 +90,11 @@ def _parse_response(body: str) -> Optional[Dict[str, Any]]:
 
 
 def _send_request(
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     token: str,
-    session_id: Optional[str] = None,
+    session_id: str | None = None,
     timeout: float = 30.0,
-) -> Tuple[Optional[Dict[str, Any]], Dict[str, str]]:
+) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """Send an MCP JSON-RPC request and return (parsed_body, response_headers)."""
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -144,7 +143,7 @@ def _initialize_session(token: str) -> str:
     return session_id
 
 
-def _build_payload(method: str) -> Dict[str, Any]:
+def _build_payload(method: str) -> dict[str, Any]:
     """Build a JSON-RPC payload for the given method shorthand."""
     rid = _next_request_id()
     if method == "ping":
@@ -180,8 +179,8 @@ class _StressResult:
         self._lock = threading.Lock()
         self.successes: int = 0
         self.failures: int = 0
-        self.latencies: List[float] = []
-        self.errors: List[str] = []
+        self.latencies: list[float] = []
+        self.errors: list[str] = []
 
     def record_success(self, latency_ms: float) -> None:
         with self._lock:
@@ -235,7 +234,7 @@ def _print_scenario_report(name: str, result: _StressResult, duration: float) ->
             print(f"  [{count}x] {err}")
 
 
-def _percentile(sorted_data: List[float], pct: float) -> float:
+def _percentile(sorted_data: list[float], pct: float) -> float:
     """Compute a percentile from sorted data."""
     if not sorted_data:
         return 0.0
@@ -426,7 +425,7 @@ def main() -> int:
     logger.info("Initializing shared MCP session...")
     session_id = _initialize_session(token)
 
-    results: List[Tuple[str, _StressResult]] = []
+    results: list[tuple[str, _StressResult]] = []
 
     # Scenario 1: Concurrent tools/list
     logger.info("Starting scenario: Concurrent tools/list")

@@ -7,7 +7,7 @@ Reads security scan results from ~/mcp-gateway/security_scans/*.json files.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from ..interfaces import SecurityScanRepositoryBase
 
@@ -18,7 +18,7 @@ class FileSecurityScanRepository(SecurityScanRepositoryBase):
     """File-based implementation of security scan repository."""
 
     def __init__(self):
-        self._scans: Dict[str, Dict[str, Any]] = {}
+        self._scans: dict[str, dict[str, Any]] = {}
         self._scans_dir = Path.home() / "mcp-gateway" / "security_scans"
 
     async def load_all(self) -> None:
@@ -37,7 +37,7 @@ class FileSecurityScanRepository(SecurityScanRepositoryBase):
 
             for scan_file in scan_files:
                 try:
-                    with open(scan_file, "r") as f:
+                    with open(scan_file) as f:
                         scan_data = json.load(f)
 
                     if isinstance(scan_data, dict) and "server_path" in scan_data:
@@ -58,17 +58,17 @@ class FileSecurityScanRepository(SecurityScanRepositoryBase):
     async def get(
         self,
         server_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest security scan result for a server."""
         return self._scans.get(server_path)
 
-    async def list_all(self) -> List[Dict[str, Any]]:
+    async def list_all(self) -> list[dict[str, Any]]:
         """List all security scan results."""
         return list(self._scans.values())
 
     async def create(
         self,
-        scan_result: Dict[str, Any],
+        scan_result: dict[str, Any],
     ) -> bool:
         """Create/update a security scan result."""
         try:
@@ -97,13 +97,13 @@ class FileSecurityScanRepository(SecurityScanRepositoryBase):
     async def get_latest(
         self,
         server_path: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get latest scan result for a server."""
         return await self.get(server_path)
 
     async def query_by_status(
         self,
         status: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Query scan results by status."""
         return [scan for scan in self._scans.values() if scan.get("scan_status") == status]

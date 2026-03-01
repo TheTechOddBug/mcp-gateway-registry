@@ -10,36 +10,37 @@ domain routers while handling core app configuration.
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Annotated, Dict, Any, Optional
-from pathlib import Path
 
-from fastapi import FastAPI, Cookie, HTTPException, Depends
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+# Import datetime for uptime tracking
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
-# Import registry mode middleware
-from registry.middleware.mode_filter import RegistryModeMiddleware
-
-# Import domain routers
-from registry.auth.routes import router as auth_router
-from registry.api.server_routes import router as servers_router
-from registry.api.search_routes import router as search_router
-from registry.api.wellknown_routes import router as wellknown_router
-from registry.api.registry_routes import router as registry_router
 from registry.api.agent_routes import router as agent_router
-from registry.api.management_routes import router as management_router
-from registry.api.federation_routes import router as federation_router
-from registry.api.federation_export_routes import router as federation_export_router
-from registry.api.peer_management_routes import router as peer_management_router
-from registry.api.skill_routes import router as skill_router
 from registry.api.config_routes import router as config_router
-from registry.api.virtual_server_routes import router as virtual_server_router
+from registry.api.federation_export_routes import router as federation_export_router
+from registry.api.federation_routes import router as federation_router
 from registry.api.internal_routes import router as internal_router
-from registry.health.routes import router as health_router
+from registry.api.management_routes import router as management_router
+from registry.api.peer_management_routes import router as peer_management_router
+from registry.api.registry_routes import router as registry_router
+from registry.api.search_routes import router as search_router
+from registry.api.server_routes import router as servers_router
+from registry.api.skill_routes import router as skill_router
+from registry.api.system_routes import router as system_router
+from registry.api.system_routes import set_server_start_time
+from registry.api.virtual_server_routes import router as virtual_server_router
+from registry.api.wellknown_routes import router as wellknown_router
+
+# Import audit logging
+from registry.audit import AuditLogger, add_audit_middleware
 from registry.audit.routes import router as audit_router
-from registry.api.system_routes import router as system_router, set_server_start_time
 
 # Import auth dependencies
 from registry.auth.dependencies import (
@@ -47,34 +48,33 @@ from registry.auth.dependencies import (
     nginx_proxied_auth,
 )
 
-# Import services for initialization
-from registry.services.server_service import server_service
-from registry.services.agent_service import agent_service
-from registry.repositories.factory import get_search_repository
-from registry.health.service import health_service
-from registry.core.nginx_service import nginx_service
-from registry.services.peer_federation_service import get_peer_federation_service
-from registry.services.peer_sync_scheduler import get_peer_sync_scheduler
+# Import domain routers
+from registry.auth.routes import router as auth_router
 
 # Import core configuration
 from registry.core.config import (
-    settings,
     RegistryMode,
-    _validate_mode_combination,
     _print_config_warning_banner,
+    _validate_mode_combination,
+    settings,
 )
 from registry.core.metrics import DEPLOYMENT_MODE_INFO
+from registry.core.nginx_service import nginx_service
+from registry.health.routes import router as health_router
+from registry.health.service import health_service
 
-# Import audit logging
-from registry.audit import AuditLogger, add_audit_middleware
+# Import registry mode middleware
+from registry.middleware.mode_filter import RegistryModeMiddleware
+from registry.repositories.factory import get_search_repository
+from registry.services.agent_service import agent_service
+from registry.services.peer_federation_service import get_peer_federation_service
+from registry.services.peer_sync_scheduler import get_peer_sync_scheduler
+
+# Import services for initialization
+from registry.services.server_service import server_service
 
 # Import version
 from registry.version import __version__
-
-# Import datetime for uptime tracking
-from datetime import datetime, timezone
-from typing import Optional
-
 
 # Server start time tracking moved to registry/api/system_routes.py
 
@@ -174,7 +174,7 @@ def _initialize_deployment_metrics() -> None:
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle management."""
     # Record server start time for uptime tracking
-    server_start_time = datetime.now(timezone.utc)
+    server_start_time = datetime.now(UTC)
     set_server_start_time(server_start_time)
     logger.info(f"Server started at: {server_start_time.isoformat()}")
 
@@ -332,11 +332,11 @@ async def lifespan(app: FastAPI):
                             # Run reconciliation after sync to remove stale servers
                             logger.info("🔄 Running reconciliation after startup sync...")
                             try:
-                                from registry.services.federation_reconciliation import (
-                                    reconcile_anthropic_servers,
-                                )
                                 from registry.repositories.factory import (
                                     get_server_repository,
+                                )
+                                from registry.services.federation_reconciliation import (
+                                    reconcile_anthropic_servers,
                                 )
 
                                 server_repo = get_server_repository()
@@ -610,7 +610,7 @@ app.openapi = custom_openapi
 
 # Add user info endpoint for React auth context
 @app.get("/api/auth/me")
-async def get_current_user(user_context: Dict[str, Any] = Depends(nginx_proxied_auth)):
+async def get_current_user(user_context: dict[str, Any] = Depends(nginx_proxied_auth)):
     """Get current user information for React auth context"""
     # Get user's scopes
     user_scopes = user_context.get("scopes", [])
@@ -656,11 +656,11 @@ FRONTEND_BUILD_PATH = Path(__file__).parent.parent / "frontend" / "build"
 
 # Cache the modified index.html content for path-based routing
 # Read once at startup instead of on every request
-_CACHED_INDEX_HTML: Optional[str] = None
+_CACHED_INDEX_HTML: str | None = None
 _ROOT_PATH: str = os.environ.get("ROOT_PATH", "")
 
 
-def _build_cached_index_html() -> Optional[str]:
+def _build_cached_index_html() -> str | None:
     """Read index.html and inject <base> tag if ROOT_PATH is set.
 
     Returns:
@@ -673,7 +673,7 @@ def _build_cached_index_html() -> Optional[str]:
     if not index_path.exists():
         return None
 
-    with open(index_path, "r") as f:
+    with open(index_path) as f:
         html_content = f.read()
 
     # Inject <base> tag if not already present

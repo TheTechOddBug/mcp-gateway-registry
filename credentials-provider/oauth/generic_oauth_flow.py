@@ -976,7 +976,7 @@ def interactive_configuration() -> dict[str, Any]:
 
     # Redirect URI (skip for M2M providers)
     if not provider_config.get("is_m2m", False):
-        print(f"\n🔄 Redirect URI")
+        print("\n🔄 Redirect URI")
 
         # Try to get public IP for better remote access
         try:
@@ -1030,7 +1030,7 @@ def interactive_configuration() -> dict[str, Any]:
     # Summary (redacted for security)
     from ..utils import redact_sensitive_value
 
-    print(f"\n📋 Configuration Summary")
+    print("\n📋 Configuration Summary")
     print("=" * 30)
     print(f"Provider: {provider_config['display_name']}")
     print(f"Client ID: {redact_sensitive_value(client_id, 8)}")

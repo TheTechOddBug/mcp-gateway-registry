@@ -32,11 +32,11 @@ Example with environment variables (create a .env file):
     python client.py --generate-token --scopes "read write"
 """
 
-import os
 import argparse
 import logging
+import os
+
 import requests
-from typing import Dict, List, Optional
 from cognito_utils import generate_token
 
 # Import dotenv for loading environment variables
@@ -83,7 +83,7 @@ for handler in root_logger.handlers:
 logger = logging.getLogger(__name__)
 
 
-def load_env_config() -> Dict[str, Optional[str]]:
+def load_env_config() -> dict[str, str | None]:
     """
     Load configuration from .env file if available.
 

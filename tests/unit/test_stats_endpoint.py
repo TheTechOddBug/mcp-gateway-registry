@@ -5,13 +5,11 @@ Tests the new /api/stats endpoint and count() methods added to repositories.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +304,7 @@ class TestGetCachedStats:
         # Reset cache
         registry.api.system_routes._stats_cache = None
         registry.api.system_routes._stats_cache_time = None
-        registry.api.system_routes._server_start_time = datetime.now(timezone.utc)
+        registry.api.system_routes._server_start_time = datetime.now(UTC)
 
         with patch(
             "registry.repositories.factory.get_server_repository",
@@ -356,7 +354,7 @@ class TestStatsEndpoint:
         # Reset cache
         registry.api.system_routes._stats_cache = None
         registry.api.system_routes._stats_cache_time = None
-        registry.api.system_routes._server_start_time = datetime.now(timezone.utc)
+        registry.api.system_routes._server_start_time = datetime.now(UTC)
 
         with patch(
             "registry.repositories.factory.get_server_repository",

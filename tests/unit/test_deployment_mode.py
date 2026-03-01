@@ -14,7 +14,6 @@ from registry.core.config import (
     _validate_mode_combination,
 )
 
-
 # =============================================================================
 # TEST CLASS: Deployment Mode Validation
 # =============================================================================
@@ -91,7 +90,6 @@ class TestNginxUpdatesEnabled:
 
 
 from unittest.mock import MagicMock, patch
-
 
 # =============================================================================
 # TEST CLASS: Nginx Service Deployment Mode

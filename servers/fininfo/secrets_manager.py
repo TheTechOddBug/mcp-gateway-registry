@@ -12,14 +12,14 @@ The current implementation provides a foundation that can be easily extended
 for production use cases while maintaining a simple interface.
 """
 
-import os
-import yaml
-import logging
-from typing import Dict, Optional
-from pathlib import Path
-from cryptography.fernet import Fernet
 import base64
 import hashlib
+import logging
+import os
+from pathlib import Path
+
+import yaml
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +44,13 @@ class SecretsManager:
                               Will first try .encrypted version, then fall back to plain text
         """
         self.base_secrets_file_path = Path(secrets_file_path)
-        self.secrets: Dict[str, str] = {}
+        self.secrets: dict[str, str] = {}
         self.secret_key = os.environ.get("SECRET_KEY")
 
         # Load secrets on initialization
         self.load_secrets()
 
-    def _get_encryption_key(self) -> Optional[bytes]:
+    def _get_encryption_key(self) -> bytes | None:
         """
         Generate a Fernet encryption key from the SECRET_KEY environment variable.
 
@@ -130,7 +130,7 @@ class SecretsManager:
             is_encrypted = False
             logger.info(f"Found plain text secrets file: {plain_file_path}")
         else:
-            logger.warning(f"No secrets file found. Tried:")
+            logger.warning("No secrets file found. Tried:")
             logger.warning(f"  - Encrypted: {encrypted_file_path}")
             logger.warning(f"  - Plain text: {plain_file_path}")
             logger.info(
@@ -143,7 +143,7 @@ class SecretsManager:
             if is_encrypted:
                 logger.info("Loading encrypted secrets file, attempting to decrypt...")
                 try:
-                    with open(secrets_file_path, "r") as file:
+                    with open(secrets_file_path) as file:
                         encrypted_content_b64 = file.read().strip()
 
                     # Decode the base64 content and decrypt
@@ -158,7 +158,7 @@ class SecretsManager:
             else:
                 # Plain text file
                 logger.info("Loading plain text secrets file...")
-                with open(secrets_file_path, "r") as file:
+                with open(secrets_file_path) as file:
                     content = file.read()
 
             self.secrets = yaml.safe_load(content) or {}
@@ -190,7 +190,7 @@ class SecretsManager:
         else:
             logger.info("Secrets reloaded successfully")
 
-    def get_api_key(self, client_id: str) -> Optional[str]:
+    def get_api_key(self, client_id: str) -> str | None:
         """
         Retrieve the API key for a specific client ID.
 
@@ -282,7 +282,7 @@ class SecretsManager:
                 return False
 
             # Read the plain text file
-            with open(input_file, "r") as f:
+            with open(input_file) as f:
                 plain_content = f.read()
 
             # Encrypt the content
@@ -305,7 +305,7 @@ class SecretsManager:
             logger.error(f"Failed to encrypt secrets file: {e}")
             return False
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> dict[str, any]:
         """
         Get statistics about the secrets manager.
 

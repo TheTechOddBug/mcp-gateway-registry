@@ -6,7 +6,8 @@ Property-based tests for skill security schema round-trip serialization.
 **Validates: Requirements 2.5, 9.3**
 """
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.schemas.skill_security import (
     SkillSecurityScanConfig,

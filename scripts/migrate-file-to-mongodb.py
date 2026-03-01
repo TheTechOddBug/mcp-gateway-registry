@@ -22,12 +22,11 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
-
 
 # Configure logging
 logging.basicConfig(
@@ -38,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_config_from_env(
-    host_override: Optional[str] = None,
-    port_override: Optional[int] = None,
+    host_override: str | None = None,
+    port_override: int | None = None,
 ) -> dict:
     """Get MongoDB configuration from environment variables or overrides.
 
@@ -96,10 +95,10 @@ async def _get_mongodb_client(
     return client
 
 
-def _load_server_json(filepath: Path) -> Optional[Dict[str, Any]]:
+def _load_server_json(filepath: Path) -> dict[str, Any] | None:
     """Load and transform a server JSON file."""
     try:
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             data = json.load(f)
 
         # Skip non-server files
@@ -124,7 +123,7 @@ def _load_server_json(filepath: Path) -> Optional[Dict[str, Any]]:
         data["path"] = path
 
         # Add default fields if missing
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         data.setdefault("is_enabled", True)
         data.setdefault("registered_at", now)
         data.setdefault("updated_at", now)
@@ -140,10 +139,10 @@ def _load_server_json(filepath: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _load_agent_json(filepath: Path) -> Optional[Dict[str, Any]]:
+def _load_agent_json(filepath: Path) -> dict[str, Any] | None:
     """Load and transform an agent JSON file."""
     try:
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             data = json.load(f)
 
         # Check for agent card structure
@@ -154,8 +153,8 @@ def _load_agent_json(filepath: Path) -> Optional[Dict[str, Any]]:
                 "card": card,
                 "path": data.get("path") or f"/agents/{card.get('name', filepath.stem)}",
                 "is_enabled": data.get("is_enabled", True),
-                "registered_at": data.get("registered_at", datetime.now(timezone.utc).isoformat()),
-                "updated_at": data.get("updated_at", datetime.now(timezone.utc).isoformat()),
+                "registered_at": data.get("registered_at", datetime.now(UTC).isoformat()),
+                "updated_at": data.get("updated_at", datetime.now(UTC).isoformat()),
             }
         elif "name" in data:
             # Flat agent structure
@@ -164,8 +163,8 @@ def _load_agent_json(filepath: Path) -> Optional[Dict[str, Any]]:
                 "card": data,
                 "path": f"/agents/{agent_name}",
                 "is_enabled": data.get("is_enabled", True),
-                "registered_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "registered_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         else:
             logger.debug(f"Skipping {filepath.name} - not an agent config")
@@ -239,7 +238,7 @@ async def _migrate_servers(
             # Update existing document
             doc = {**server_data}
             doc.pop("path", None)
-            doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+            doc["updated_at"] = datetime.now(UTC).isoformat()
             await collection.update_one({"_id": path}, {"$set": doc})
         else:
             # Create new document
@@ -294,7 +293,7 @@ async def _migrate_agents(
             logger.info(f"Agent already exists at {path}, updating...")
             doc = {**agent_data}
             doc.pop("path", None)
-            doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+            doc["updated_at"] = datetime.now(UTC).isoformat()
             await collection.update_one({"_id": path}, {"$set": doc})
         else:
             # Create new document

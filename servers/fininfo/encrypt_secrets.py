@@ -16,9 +16,10 @@ Examples:
     python encrypt_secrets.py --test encrypted.yml
 """
 
+import argparse
 import os
 import sys
-import argparse
+
 from secrets_manager import SecretsManager
 
 
@@ -92,9 +93,9 @@ def main():
             output_file = args.output_file or (args.input_file + ".encrypted")
             print(f"✅ Successfully encrypted to: {output_file}")
             print("\nTo use the encrypted file:")
-            print(f"1. Replace your plain text secrets file with the encrypted version")
-            print(f"2. The secrets manager will automatically detect and decrypt it")
-            print(f"3. Ensure SECRET_KEY environment variable is available")
+            print("1. Replace your plain text secrets file with the encrypted version")
+            print("2. The secrets manager will automatically detect and decrypt it")
+            print("3. Ensure SECRET_KEY environment variable is available")
         else:
             print("❌ Encryption failed")
             sys.exit(1)

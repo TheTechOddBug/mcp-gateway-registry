@@ -3,39 +3,38 @@ Repository factory - creates concrete implementations based on configuration.
 """
 
 import logging
-from typing import Optional
 
 from ..core.config import settings
+from .audit_repository import AuditRepositoryBase
 from .interfaces import (
-    ServerRepositoryBase,
     AgentRepositoryBase,
     BackendSessionRepositoryBase,
-    ScopeRepositoryBase,
-    SecurityScanRepositoryBase,
-    SkillSecurityScanRepositoryBase,
-    SearchRepositoryBase,
     FederationConfigRepositoryBase,
     PeerFederationRepositoryBase,
+    ScopeRepositoryBase,
+    SearchRepositoryBase,
+    SecurityScanRepositoryBase,
+    ServerRepositoryBase,
     SkillRepositoryBase,
+    SkillSecurityScanRepositoryBase,
     VirtualServerRepositoryBase,
 )
-from .audit_repository import AuditRepositoryBase
 
 logger = logging.getLogger(__name__)
 
 # Singleton instances
-_server_repo: Optional[ServerRepositoryBase] = None
-_agent_repo: Optional[AgentRepositoryBase] = None
-_scope_repo: Optional[ScopeRepositoryBase] = None
-_security_scan_repo: Optional[SecurityScanRepositoryBase] = None
-_search_repo: Optional[SearchRepositoryBase] = None
-_federation_config_repo: Optional[FederationConfigRepositoryBase] = None
-_peer_federation_repo: Optional[PeerFederationRepositoryBase] = None
-_audit_repo: Optional[AuditRepositoryBase] = None
-_skill_repo: Optional[SkillRepositoryBase] = None
-_virtual_server_repo: Optional[VirtualServerRepositoryBase] = None
-_backend_session_repo: Optional[BackendSessionRepositoryBase] = None
-_skill_security_scan_repo: Optional[SkillSecurityScanRepositoryBase] = None
+_server_repo: ServerRepositoryBase | None = None
+_agent_repo: AgentRepositoryBase | None = None
+_scope_repo: ScopeRepositoryBase | None = None
+_security_scan_repo: SecurityScanRepositoryBase | None = None
+_search_repo: SearchRepositoryBase | None = None
+_federation_config_repo: FederationConfigRepositoryBase | None = None
+_peer_federation_repo: PeerFederationRepositoryBase | None = None
+_audit_repo: AuditRepositoryBase | None = None
+_skill_repo: SkillRepositoryBase | None = None
+_virtual_server_repo: VirtualServerRepositoryBase | None = None
+_backend_session_repo: BackendSessionRepositoryBase | None = None
+_skill_security_scan_repo: SkillSecurityScanRepositoryBase | None = None
 
 
 def get_server_repository() -> ServerRepositoryBase:
@@ -288,7 +287,7 @@ def get_virtual_server_repository() -> VirtualServerRepositoryBase:
     return _virtual_server_repo
 
 
-def get_backend_session_repository() -> Optional[BackendSessionRepositoryBase]:
+def get_backend_session_repository() -> BackendSessionRepositoryBase | None:
     """Get backend session repository singleton.
 
     Note: Backend session repository only supports DocumentDB/MongoDB backends.

@@ -7,15 +7,14 @@ blocks /api/servers and /api/agents endpoints).
 """
 
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..core.config import settings, RegistryMode
+from ..core.config import RegistryMode, settings
 from ..core.metrics import MODE_BLOCKED_REQUESTS
-
 
 logger = logging.getLogger(__name__)
 

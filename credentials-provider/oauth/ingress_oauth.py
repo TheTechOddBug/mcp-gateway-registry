@@ -42,7 +42,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 import requests
 
@@ -123,7 +123,7 @@ def _get_cognito_domain(user_pool_id: str, region: str) -> str:
 
 def _perform_keycloak_m2m_authentication(
     client_id: str, client_secret: str, keycloak_url: str, realm: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Perform M2M (client credentials) OAuth 2.0 authentication with Keycloak."""
     try:
         # Generate token URL for Keycloak
@@ -202,7 +202,7 @@ def _perform_keycloak_m2m_authentication(
 
 def _perform_entra_m2m_authentication(
     tenant_id: str, client_id: str, client_secret: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Perform M2M (client credentials) OAuth 2.0 authentication with Microsoft Entra ID."""
     try:
         # Generate token URL for Entra ID
@@ -281,7 +281,7 @@ def _perform_entra_m2m_authentication(
 
 def _perform_m2m_authentication(
     client_id: str, client_secret: str, user_pool_id: str, region: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Perform M2M (client credentials) OAuth 2.0 authentication with Cognito."""
     try:
         # Generate token URL
@@ -365,7 +365,7 @@ def _perform_m2m_authentication(
         raise
 
 
-def _save_ingress_tokens(token_data: Dict[str, Any]) -> str:
+def _save_ingress_tokens(token_data: dict[str, Any]) -> str:
     """Save ingress tokens to ingress.json file."""
     try:
         # Create .oauth-tokens directory in current working directory
@@ -432,7 +432,7 @@ def _save_ingress_tokens(token_data: Dict[str, Any]) -> str:
         raise
 
 
-def _load_existing_tokens() -> Optional[Dict[str, Any]]:
+def _load_existing_tokens() -> dict[str, Any] | None:
     """Load existing ingress tokens if they exist and are valid."""
     try:
         ingress_path = Path.cwd() / ".oauth-tokens" / "ingress.json"

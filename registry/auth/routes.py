@@ -1,14 +1,14 @@
-import urllib.parse
 import logging
+import urllib.parse
 from typing import Annotated
 
-from fastapi import APIRouter, Request, Form, HTTPException, status, Cookie
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 import httpx
+from fastapi import APIRouter, Cookie, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
-from ..core.config import settings
 from ..audit import set_audit_action
+from ..core.config import settings
 from .dependencies import create_session_cookie, validate_login_credentials
 
 logger = logging.getLogger(__name__)
@@ -215,7 +215,7 @@ async def logout_handler(
         provider = None
         if session:
             try:
-                from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+                from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
                 serializer = URLSafeTimedSerializer(settings.secret_key)
                 session_data = serializer.loads(session, max_age=settings.session_max_age_seconds)

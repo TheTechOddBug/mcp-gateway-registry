@@ -1,10 +1,11 @@
 import asyncio
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
-from .service import health_service
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
 from ..core.config import settings
+from .service import health_service
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Add timeout to prevent hanging on slow clients
             try:
                 await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send ping to keep connection alive
                 await websocket.ping()
 

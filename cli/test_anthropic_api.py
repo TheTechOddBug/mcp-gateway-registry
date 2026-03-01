@@ -36,12 +36,11 @@ import argparse
 import base64
 import json
 import logging
-import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 import requests
 
@@ -51,7 +50,6 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from registry.constants import REGISTRY_CONSTANTS
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,8 +94,8 @@ def _check_token_expiration(access_token: str) -> None:
             logger.warning("Token does not have expiration field")
             return
 
-        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-        now = datetime.now(timezone.utc)
+        exp_dt = datetime.fromtimestamp(exp, tz=UTC)
+        now = datetime.now(UTC)
         time_until_expiry = exp_dt - now
 
         if time_until_expiry.total_seconds() < 0:
@@ -127,7 +125,7 @@ def _check_token_expiration(access_token: str) -> None:
         logger.warning(f"Could not check token expiration: {e}")
 
 
-def _load_token_file(token_file_path: Path) -> Dict[str, Any]:
+def _load_token_file(token_file_path: Path) -> dict[str, Any]:
     """
     Load token data from JSON file.
 
@@ -138,16 +136,16 @@ def _load_token_file(token_file_path: Path) -> Dict[str, Any]:
         Token data dictionary
     """
     try:
-        with open(token_file_path, "r") as f:
+        with open(token_file_path) as f:
             token_data = json.load(f)
         logger.info(f"Loaded token file: {token_file_path}")
         return token_data
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load token file: {e}")
         sys.exit(1)
 
 
-def _save_token_file(token_file_path: Path, token_data: Dict[str, Any]) -> None:
+def _save_token_file(token_file_path: Path, token_data: dict[str, Any]) -> None:
     """
     Save updated token data to JSON file.
 
@@ -159,7 +157,7 @@ def _save_token_file(token_file_path: Path, token_data: Dict[str, Any]) -> None:
         with open(token_file_path, "w") as f:
             json.dump(token_data, f, indent=2)
         logger.info(f"Saved updated tokens to: {token_file_path}")
-    except IOError as e:
+    except OSError as e:
         logger.error(f"Failed to save token file: {e}")
 
 
@@ -168,8 +166,8 @@ def _make_api_request(
     access_token: str,
     base_url: str,
     method: str = "GET",
-    params: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """
     Make an API request to the Anthropic MCP Registry API.
 

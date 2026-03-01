@@ -4,11 +4,10 @@ Unit tests for Audit Repository.
 Validates: Requirements 6.1, 6.2
 """
 
-from datetime import datetime, timezone
-from pymongo.errors import DuplicateKeyError
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
+from pymongo.errors import DuplicateKeyError
 
 from registry.audit.models import Identity, RegistryApiAccessRecord, Request, Response
 from registry.repositories.audit_repository import DocumentDBAuditRepository
@@ -17,7 +16,7 @@ from registry.repositories.audit_repository import DocumentDBAuditRepository
 def make_test_record(request_id: str = "test-123") -> RegistryApiAccessRecord:
     """Create a test audit record."""
     return RegistryApiAccessRecord(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         request_id=request_id,
         identity=Identity(
             username="testuser", auth_method="oauth2", credential_type="bearer_token"

@@ -10,10 +10,10 @@ Tests for skill security scan API endpoints and registration integration.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from registry.schemas.skill_security import SkillSecurityScanResult
-
 
 VALID_ANALYZERS = ["static", "behavioral", "llm", "meta", "virustotal", "ai-defense"]
 
@@ -186,6 +186,7 @@ class TestGetSkillSecurityScan:
     async def test_returns_404_for_nonexistent_skill(self):
         """Returns 404 when skill does not exist."""
         from fastapi import HTTPException
+
         from registry.api.skill_routes import get_skill_security_scan
 
         mock_service = AsyncMock()
@@ -210,6 +211,7 @@ class TestRescanSkill:
     async def test_non_admin_returns_403(self):
         """Non-admin user gets 403 on rescan."""
         from fastapi import HTTPException
+
         from registry.api.skill_routes import rescan_skill
 
         user_context = {"is_admin": False, "username": "user", "groups": []}
@@ -228,6 +230,7 @@ class TestRescanSkill:
     async def test_returns_404_for_nonexistent_skill(self):
         """Returns 404 when skill does not exist."""
         from fastapi import HTTPException
+
         from registry.api.skill_routes import rescan_skill
 
         mock_service = AsyncMock()

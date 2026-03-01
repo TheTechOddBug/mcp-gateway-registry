@@ -1,6 +1,7 @@
 """Unit tests for URL scheme validation."""
 
 import pytest
+
 from cli.mcp_utils import _validate_url_scheme
 
 

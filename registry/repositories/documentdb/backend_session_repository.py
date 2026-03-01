@@ -8,7 +8,6 @@ on last_used_at for automatic cleanup of idle sessions. Uses compound keys
 
 import logging
 from datetime import UTC, datetime
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo import ASCENDING
@@ -46,7 +45,7 @@ class DocumentDBBackendSessionRepository(BackendSessionRepositoryBase):
     """MongoDB implementation for backend session storage."""
 
     def __init__(self):
-        self._collection: Optional[AsyncIOMotorCollection] = None
+        self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("backend_sessions")
         self._indexes_created = False
 
@@ -97,7 +96,7 @@ class DocumentDBBackendSessionRepository(BackendSessionRepositoryBase):
         self,
         client_session_id: str,
         backend_key: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get backend session ID and atomically bump last_used_at.
 
         Uses find_one_and_update so the TTL is refreshed on every access,

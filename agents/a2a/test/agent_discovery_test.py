@@ -9,10 +9,10 @@ Usage: python agent_discovery_test_v2.py [--endpoint local|live]
 """
 
 import argparse
-import json
 import logging
-import requests
 import sys
+
+import requests
 
 logging.basicConfig(
     level=logging.INFO,

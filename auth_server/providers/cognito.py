@@ -1,10 +1,8 @@
 """AWS Cognito authentication provider implementation."""
 
-import json
 import logging
 import time
-from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlencode
 
 import jwt
@@ -29,7 +27,7 @@ class CognitoProvider(AuthProvider):
         client_id: str,
         client_secret: str,
         region: str,
-        domain: Optional[str] = None,
+        domain: str | None = None,
     ):
         """Initialize Cognito provider.
 
@@ -47,7 +45,7 @@ class CognitoProvider(AuthProvider):
         self.domain = domain
 
         # Cache for JWKS
-        self._jwks_cache: Optional[Dict[str, Any]] = None
+        self._jwks_cache: dict[str, Any] | None = None
         self._jwks_cache_time: float = 0
         self._jwks_cache_ttl: int = 3600  # 1 hour
 
@@ -71,7 +69,7 @@ class CognitoProvider(AuthProvider):
             f"Initialized Cognito provider for user pool '{user_pool_id}' in region '{region}'"
         )
 
-    def validate_token(self, token: str, **kwargs: Any) -> Dict[str, Any]:
+    def validate_token(self, token: str, **kwargs: Any) -> dict[str, Any]:
         """Validate Cognito JWT token."""
         try:
             logger.debug("Validating Cognito JWT token")
@@ -134,7 +132,7 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Cognito token validation error: {e}")
             raise ValueError(f"Token validation failed: {e}")
 
-    def get_jwks(self) -> Dict[str, Any]:
+    def get_jwks(self) -> dict[str, Any]:
         """Get JSON Web Key Set from Cognito with caching."""
         current_time = time.time()
 
@@ -158,7 +156,7 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Failed to retrieve JWKS from Cognito: {e}")
             raise ValueError(f"Cannot retrieve JWKS: {e}")
 
-    def exchange_code_for_token(self, code: str, redirect_uri: str) -> Dict[str, Any]:
+    def exchange_code_for_token(self, code: str, redirect_uri: str) -> dict[str, Any]:
         """Exchange authorization code for access token."""
         try:
             logger.debug("Exchanging authorization code for token")
@@ -185,7 +183,7 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Failed to exchange code for token: {e}")
             raise ValueError(f"Token exchange failed: {e}")
 
-    def get_user_info(self, access_token: str) -> Dict[str, Any]:
+    def get_user_info(self, access_token: str) -> dict[str, Any]:
         """Get user information from Cognito."""
         try:
             logger.debug("Fetching user info from Cognito")
@@ -203,7 +201,7 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Failed to get user info: {e}")
             raise ValueError(f"User info retrieval failed: {e}")
 
-    def get_auth_url(self, redirect_uri: str, state: str, scope: Optional[str] = None) -> str:
+    def get_auth_url(self, redirect_uri: str, state: str, scope: str | None = None) -> str:
         """Get Cognito authorization URL."""
         logger.debug(f"Generating auth URL with redirect_uri: {redirect_uri}")
 
@@ -231,7 +229,7 @@ class CognitoProvider(AuthProvider):
 
         return logout_url
 
-    def refresh_token(self, refresh_token: str) -> Dict[str, Any]:
+    def refresh_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh an access token using a refresh token."""
         try:
             logger.debug("Refreshing access token")
@@ -257,17 +255,17 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Failed to refresh token: {e}")
             raise ValueError(f"Token refresh failed: {e}")
 
-    def validate_m2m_token(self, token: str) -> Dict[str, Any]:
+    def validate_m2m_token(self, token: str) -> dict[str, Any]:
         """Validate a machine-to-machine token."""
         # M2M tokens use the same validation as regular tokens in Cognito
         return self.validate_token(token)
 
     def get_m2m_token(
         self,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        scope: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        scope: str | None = None,
+    ) -> dict[str, Any]:
         """Get machine-to-machine token using client credentials."""
         try:
             logger.debug("Requesting M2M token using client credentials")
@@ -295,7 +293,7 @@ class CognitoProvider(AuthProvider):
             logger.error(f"Failed to get M2M token: {e}")
             raise ValueError(f"M2M token generation failed: {e}")
 
-    def get_provider_info(self) -> Dict[str, Any]:
+    def get_provider_info(self) -> dict[str, Any]:
         """Get provider-specific information."""
         return {
             "provider_type": "cognito",

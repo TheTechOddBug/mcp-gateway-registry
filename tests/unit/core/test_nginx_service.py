@@ -13,7 +13,6 @@ import pytest
 from registry.constants import HealthStatus
 from registry.core.nginx_service import NginxConfigService
 
-
 # =============================================================================
 # TEST FIXTURES
 # =============================================================================

@@ -33,10 +33,9 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,11 +48,11 @@ async def _get_documentdb_connection_string(
     host: str,
     port: int,
     database: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
     storage_backend: str = "documentdb",
 ) -> str:
     """Build DocumentDB connection string with appropriate auth mechanism.
@@ -121,11 +120,11 @@ async def _get_client(
     host: str,
     port: int,
     database: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> AsyncIOMotorClient:
     """Create DocumentDB async client."""
     # Get storage backend from environment variable
@@ -153,11 +152,11 @@ async def list_collections(
     host: str,
     port: int,
     database: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """List all collections in the DocumentDB database."""
     try:
@@ -218,11 +217,11 @@ async def inspect_collection(
     port: int,
     database: str,
     collection_name: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Inspect a specific collection (schema and stats)."""
     try:
@@ -268,7 +267,7 @@ async def inspect_collection(
                 print(f"\nIndex: {idx.get('name', 'unknown')}")
                 print(f"  Keys: {json.dumps(idx.get('key', {}), indent=4)}")
                 if idx.get("unique"):
-                    print(f"  Unique: True")
+                    print("  Unique: True")
         except Exception as e:
             logger.warning(f"Could not get indexes: {e}")
 
@@ -296,11 +295,11 @@ async def count_documents(
     port: int,
     database: str,
     collection_name: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Count documents in a collection."""
     try:
@@ -333,11 +332,11 @@ async def search_documents(
     database: str,
     collection_name: str,
     limit: int,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Search/list documents in a collection."""
     try:
@@ -376,11 +375,11 @@ async def sample_document(
     port: int,
     database: str,
     collection_name: str,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Show a sample document from a collection."""
     try:
@@ -421,11 +420,11 @@ async def query_documents(
     collection_name: str,
     filter_json: str,
     limit: int,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Query documents with a filter."""
     try:
@@ -472,11 +471,11 @@ async def drop_collection(
     database: str,
     collection_name: str,
     confirm: bool,
-    username: Optional[str],
-    password: Optional[str],
+    username: str | None,
+    password: str | None,
     use_iam: bool,
     use_tls: bool,
-    tls_ca_file: Optional[str],
+    tls_ca_file: str | None,
 ) -> int:
     """Drop a collection from the database."""
     if not confirm:
@@ -524,7 +523,7 @@ async def drop_collection(
         return 1
 
 
-def _get_schema(doc: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
+def _get_schema(doc: dict[str, Any], prefix: str = "") -> dict[str, str]:
     """Infer schema from a document."""
     schema = {}
 
@@ -535,7 +534,7 @@ def _get_schema(doc: Dict[str, Any], prefix: str = "") -> Dict[str, str]:
             schema.update(_get_schema(value, full_key))
         elif isinstance(value, list):
             if value and isinstance(value[0], dict):
-                schema[full_key] = f"array[object]"
+                schema[full_key] = "array[object]"
             else:
                 schema[full_key] = f"array[{type(value[0]).__name__ if value else 'unknown'}]"
         else:
