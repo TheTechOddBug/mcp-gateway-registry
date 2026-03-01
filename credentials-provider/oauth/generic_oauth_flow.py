@@ -51,9 +51,9 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 # Removed keyring dependency - using file-based storage only
 import requests
@@ -142,7 +142,7 @@ DEFAULT_REDIRECT_PORT = 8080
 
 
 # Load OAuth provider configurations from YAML file
-def _load_oauth_providers() -> Dict[str, Any]:
+def _load_oauth_providers() -> dict[str, Any]:
     """Load OAuth provider configurations from YAML file."""
     yaml_path = Path(__file__).parent / "oauth_providers.yaml"
 
@@ -166,7 +166,7 @@ def _load_oauth_providers() -> Dict[str, Any]:
         }
 
     try:
-        with open(yaml_path, "r") as f:
+        with open(yaml_path) as f:
             config = yaml.safe_load(f)
             providers = config.get("providers", {})
             logger.debug(f"Loaded {len(providers)} OAuth providers from {yaml_path}")
@@ -196,13 +196,13 @@ class OAuthConfig:
     client_id: str
     client_secret: str
     redirect_uri: str
-    scopes: List[str]
-    provider_config: Dict[str, Any]
-    cloud_id: Optional[str] = None
-    refresh_token: Optional[str] = None
-    access_token: Optional[str] = None
-    expires_at: Optional[float] = None
-    additional_params: Optional[Dict[str, str]] = None
+    scopes: list[str]
+    provider_config: dict[str, Any]
+    cloud_id: str | None = None
+    refresh_token: str | None = None
+    access_token: str | None = None
+    expires_at: float | None = None
+    additional_params: dict[str, str] | None = None
 
     @property
     def is_token_expired(self) -> bool:
@@ -211,7 +211,7 @@ class OAuthConfig:
             return True
         return time.time() + TOKEN_EXPIRY_MARGIN >= self.expires_at
 
-    def get_authorization_url(self, state: str, pkce_challenge: Optional[str] = None) -> str:
+    def get_authorization_url(self, state: str, pkce_challenge: str | None = None) -> str:
         """Get the authorization URL for the OAuth 2.0 flow."""
         params = {
             "client_id": self.client_id,
@@ -238,7 +238,7 @@ class OAuthConfig:
 
         return f"{self.provider_config['auth_url']}?{urllib.parse.urlencode(params)}"
 
-    def exchange_code_for_tokens(self, code: str, pkce_verifier: Optional[str] = None) -> bool:
+    def exchange_code_for_tokens(self, code: str, pkce_verifier: str | None = None) -> bool:
         """Exchange the authorization code for access and refresh tokens."""
         try:
             payload = {
@@ -411,7 +411,7 @@ class OAuthConfig:
         except Exception as e:
             logger.error(f"Failed to save tokens: {e}")
 
-    def _save_tokens_to_file(self, token_data: Dict) -> None:
+    def _save_tokens_to_file(self, token_data: dict) -> None:
         """Save tokens to a file as fallback storage."""
         try:
             # Create provider-specific directory structure (with backwards compatibility)
@@ -586,7 +586,7 @@ class OAuthConfig:
             logger.error(f"Failed to create Roocode MCP configuration: {e}")
 
     @staticmethod
-    def load_tokens(provider: str, client_id: str) -> Dict[str, Any]:
+    def load_tokens(provider: str, client_id: str) -> dict[str, Any]:
         """Load tokens from file storage."""
         # Try primary token file format first
         primary_tokens = OAuthConfig._load_tokens_from_file(provider, client_id)
@@ -596,7 +596,7 @@ class OAuthConfig:
         return {}
 
     @staticmethod
-    def _load_tokens_from_file(provider: str, client_id: str) -> Dict[str, Any]:
+    def _load_tokens_from_file(provider: str, client_id: str) -> dict[str, Any]:
         """Load tokens from primary file format."""
         token_path = Path.cwd() / ".oauth-tokens" / f"oauth-{provider}-{client_id}.json"
 
@@ -851,7 +851,7 @@ def parse_redirect_uri(redirect_uri: str) -> tuple[str, int]:
     return parsed.hostname, port
 
 
-def load_config_file(config_path: str) -> Dict[str, Any]:
+def load_config_file(config_path: str) -> dict[str, Any]:
     """Load OAuth configuration from a JSON file."""
     try:
         with open(config_path) as f:
@@ -914,11 +914,11 @@ def interactive_input(prompt: str, required: bool = True, is_secret: bool = Fals
             sys.exit(0)
 
 
-def interactive_scopes_input(provider_config: Dict[str, Any]) -> List[str]:
+def interactive_scopes_input(provider_config: dict[str, Any]) -> list[str]:
     """Interactive scopes selection."""
     default_scopes = provider_config.get("scopes", [])
 
-    print(f"\n📋 OAuth Scopes")
+    print("\n📋 OAuth Scopes")
     print(f"Default scopes: {', '.join(default_scopes)}")
 
     custom_input = input(
@@ -936,7 +936,7 @@ def interactive_scopes_input(provider_config: Dict[str, Any]) -> List[str]:
     return default_scopes
 
 
-def interactive_configuration() -> Dict[str, Any]:
+def interactive_configuration() -> dict[str, Any]:
     """Interactive configuration setup."""
     print("\n🚀 Generic OAuth 2.0 Flow - Interactive Setup")
     print("=" * 50)
@@ -1049,7 +1049,7 @@ def interactive_configuration() -> Dict[str, Any]:
             print(f"{key.replace('_', ' ').title()}: {display_value}")
 
     # Confirmation
-    confirm = input(f"\n✅ Proceed with OAuth flow? (y/N): ").strip().lower()
+    confirm = input("\n✅ Proceed with OAuth flow? (y/N): ").strip().lower()
     if confirm != "y":
         print("❌ Cancelled by user")
         sys.exit(0)

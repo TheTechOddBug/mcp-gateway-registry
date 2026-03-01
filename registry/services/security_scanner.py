@@ -12,15 +12,13 @@ import logging
 import os
 import re
 import subprocess  # nosec B404
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from ..core.config import settings
 from ..core.endpoint_utils import get_endpoint_url
-from ..schemas.security import SecurityScanResult, SecurityScanConfig
 from ..repositories.factory import get_security_scan_repository
-
+from ..schemas.security import SecurityScanConfig, SecurityScanResult
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +27,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "security_scans"
 
 
-def _extract_bearer_token_from_headers(headers: str) -> Optional[str]:
+def _extract_bearer_token_from_headers(headers: str) -> str | None:
     """
     Extract bearer token from headers JSON string.
 
@@ -162,12 +160,12 @@ class SecurityScannerService:
     async def scan_server(
         self,
         server_url: str,
-        server_path: Optional[str] = None,
-        analyzers: Optional[str] = None,
-        api_key: Optional[str] = None,
-        headers: Optional[str] = None,
-        timeout: Optional[int] = None,
-        mcp_endpoint: Optional[str] = None,
+        server_path: str | None = None,
+        analyzers: str | None = None,
+        api_key: str | None = None,
+        headers: str | None = None,
+        timeout: int | None = None,
+        mcp_endpoint: str | None = None,
     ) -> SecurityScanResult:
         """
         Scan an MCP server for security vulnerabilities.
@@ -230,7 +228,7 @@ class SecurityScannerService:
                 server_url=server_url,
                 server_path=server_path
                 or server_url,  # Use server_path if provided, fallback to URL
-                scan_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                scan_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 is_safe=is_safe,
                 critical_issues=critical,
                 high_severity=high,
@@ -271,7 +269,7 @@ class SecurityScannerService:
             # Return error result
             result = SecurityScanResult(
                 server_url=server_url,
-                scan_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                scan_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 is_safe=False,  # Treat scanner failures as unsafe
                 critical_issues=0,
                 high_severity=0,
@@ -302,7 +300,7 @@ class SecurityScannerService:
             # Return error result
             result = SecurityScanResult(
                 server_url=server_url,
-                scan_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                scan_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 is_safe=False,  # Treat scanner failures as unsafe
                 critical_issues=0,
                 high_severity=0,
@@ -324,9 +322,9 @@ class SecurityScannerService:
         self,
         server_url: str,
         analyzers: str,
-        api_key: Optional[str] = None,
-        headers: Optional[str] = None,
-        timeout: Optional[int] = None,
+        api_key: str | None = None,
+        headers: str | None = None,
+        timeout: int | None = None,
     ) -> dict:
         """
         Run mcp-scanner command and return raw output.
@@ -376,7 +374,7 @@ class SecurityScannerService:
 
         # Run scanner with timeout
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 - args are hardcoded flags passed to mcp-scanner tool
                 cmd,
                 capture_output=True,
                 text=True,
@@ -457,7 +455,7 @@ class SecurityScannerService:
 
         return is_safe, critical_count, high_count, medium_count, low_count
 
-    async def get_scan_result(self, server_path: str) -> Optional[dict]:
+    async def get_scan_result(self, server_path: str) -> dict | None:
         """
         Get the latest scan result for a server.
 

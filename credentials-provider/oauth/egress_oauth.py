@@ -35,7 +35,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -67,7 +67,7 @@ except ImportError:
     logger.debug("python-dotenv not available, skipping .env loading")
 
 
-def _find_available_configurations() -> List[int]:
+def _find_available_configurations() -> list[int]:
     """Find all available configuration sets (1-100) based on environment variables."""
     available_configs = []
 
@@ -105,7 +105,7 @@ def _validate_environment_variables() -> None:
 
 def _run_generic_oauth_flow_for_config(
     config_num: int, provider: str, force_new: bool = False, verbose: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the generic OAuth flow using a specific configuration set."""
     import subprocess  # nosec B404
 
@@ -146,7 +146,7 @@ def _run_generic_oauth_flow_for_config(
 
     try:
         # Run the generic OAuth flow
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - internal script path, args from validated env vars
             cmd,
             capture_output=True,
             text=True,
@@ -159,7 +159,7 @@ def _run_generic_oauth_flow_for_config(
             logger.error(f"stderr: {result.stderr}")
             raise RuntimeError(f"Generic OAuth flow failed for {provider}")
 
-        logger.debug(f"OAuth flow completed successfully")
+        logger.debug("OAuth flow completed successfully")
         logger.debug(f"stdout: {result.stdout}")
 
         # Parse the JSON output from the OAuth flow
@@ -182,7 +182,7 @@ def _run_generic_oauth_flow_for_config(
         return json_output
 
     except subprocess.TimeoutExpired:
-        logger.error(f"OAuth flow timed out after 5 minutes")
+        logger.error("OAuth flow timed out after 5 minutes")
         raise RuntimeError(f"OAuth flow timed out for {provider}")
     except Exception as e:
         logger.error(f"Error running OAuth flow: {e}")
@@ -191,7 +191,7 @@ def _run_generic_oauth_flow_for_config(
 
 def _run_generic_oauth_flow(
     provider: str, force_new: bool = False, verbose: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the generic OAuth flow using the existing script."""
     import subprocess  # nosec B404
 
@@ -209,7 +209,7 @@ def _run_generic_oauth_flow(
 
     try:
         # Run the generic OAuth flow
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - internal script path, args from validated env vars
             cmd,
             capture_output=True,
             text=True,
@@ -238,7 +238,7 @@ def _run_generic_oauth_flow(
         raise
 
 
-def _load_provider_tokens(provider: str) -> Dict[str, Any]:
+def _load_provider_tokens(provider: str) -> dict[str, Any]:
     """Load tokens for the specified provider from the OAuth tokens directory."""
     try:
         token_dir = Path.cwd() / ".oauth-tokens"
@@ -265,7 +265,7 @@ def _load_provider_tokens(provider: str) -> Dict[str, Any]:
 
 
 def _save_egress_tokens(
-    token_data: Dict[str, Any], provider: str, mcp_server_name: Optional[str] = None
+    token_data: dict[str, Any], provider: str, mcp_server_name: str | None = None
 ) -> str:
     """Save egress tokens to provider-specific egress file."""
     try:
@@ -312,8 +312,8 @@ def _save_egress_tokens(
 
 
 def _load_existing_tokens(
-    provider: str = None, mcp_server_name: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+    provider: str = None, mcp_server_name: str | None = None
+) -> dict[str, Any] | None:
     """Load existing egress tokens if they exist and are valid."""
     try:
         # If provider specified, look for provider-specific file
@@ -354,7 +354,7 @@ def _load_existing_tokens(
         return None
 
 
-def _get_supported_providers() -> List[str]:
+def _get_supported_providers() -> list[str]:
     """Get list of supported external providers (exclude cognito providers)."""
     try:
         import yaml

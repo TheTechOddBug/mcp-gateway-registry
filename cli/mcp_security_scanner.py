@@ -13,12 +13,10 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +48,7 @@ class SecurityScanResult(BaseModel):
     output_file: str = Field(..., description="Path to detailed JSON output file")
 
 
-def _get_llm_api_key(cli_value: Optional[str] = None) -> str:
+def _get_llm_api_key(cli_value: str | None = None) -> str:
     """Retrieve LLM API key from CLI argument or environment variable.
 
     Args:
@@ -81,8 +79,8 @@ def _ensure_output_directory() -> Path:
 def _run_mcp_scanner(
     server_url: str,
     analyzers: str = DEFAULT_ANALYZERS,
-    api_key: Optional[str] = None,
-    headers: Optional[str] = None,
+    api_key: str | None = None,
+    headers: str | None = None,
 ) -> dict:
     """Run mcp-scanner command and return raw output.
 
@@ -114,7 +112,7 @@ def _run_mcp_scanner(
 
     # Add headers if provided - parse JSON and extract bearer token
     if headers:
-        logger.info(f"Adding custom headers for scanning")
+        logger.info("Adding custom headers for scanning")
         try:
             headers_dict = json.loads(headers)
             # Check for X-Authorization header with Bearer token
@@ -138,7 +136,9 @@ def _run_mcp_scanner(
 
     # Run scanner
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
+        result = subprocess.run(  # nosec B603 - mcp-scanner tool with validated args
+            cmd, capture_output=True, text=True, check=True, env=env
+        )
 
         # Log raw output for debugging
         logger.debug(f"Raw scanner stdout:\n{result.stdout[:500]}")
@@ -245,7 +245,7 @@ def _analyze_scan_results(raw_output: dict) -> tuple[bool, int, int, int, int]:
     # Determine if safe: no critical or high severity issues
     is_safe = critical_count == 0 and high_count == 0
 
-    logger.info(f"Security analysis results:")
+    logger.info("Security analysis results:")
     logger.info(f"  Critical Issues: {critical_count}")
     logger.info(f"  High Severity: {high_count}")
     logger.info(f"  Medium Severity: {medium_count}")
@@ -275,7 +275,7 @@ def _save_scan_output(server_url: str, raw_output: dict) -> str:
     safe_url = server_url.replace("https://", "").replace("http://", "").replace("/", "_")
 
     # Create date-based subdirectory for archival
-    timestamp = datetime.now(timezone.utc)
+    timestamp = datetime.now(UTC)
     date_folder = timestamp.strftime("%Y-%m-%d")
     archive_dir = output_dir / date_folder
     archive_dir.mkdir(exist_ok=True)
@@ -320,7 +320,9 @@ def _disable_unsafe_server(server_path: str) -> bool:
         # Call service_mgmt.sh to disable the server
         cmd = [str(PROJECT_ROOT / "cli" / "service_mgmt.sh"), "disable", server_path]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(  # nosec B603 - hardcoded internal script, server_path from URL parsing
+            cmd, capture_output=True, text=True, check=True
+        )
 
         logger.info(f"Server {server_path} disabled successfully")
         logger.debug(f"Output: {result.stdout}")
@@ -335,7 +337,7 @@ def _disable_unsafe_server(server_path: str) -> bool:
         return False
 
 
-def _extract_server_path_from_url(server_url: str) -> Optional[str]:
+def _extract_server_path_from_url(server_url: str) -> str | None:
     """Extract server path from URL.
 
     Args:
@@ -368,10 +370,10 @@ def _extract_server_path_from_url(server_url: str) -> Optional[str]:
 def scan_server(
     server_url: str,
     analyzers: str = DEFAULT_ANALYZERS,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
     output_json: bool = False,
     auto_disable: bool = False,
-    headers: Optional[str] = None,
+    headers: str | None = None,
 ) -> SecurityScanResult:
     """Scan an MCP server for security vulnerabilities.
 
@@ -405,7 +407,7 @@ def scan_server(
         # Create error result
         result = SecurityScanResult(
             server_url=server_url,
-            scan_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            scan_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             is_safe=False,  # Treat scanner failures as unsafe
             critical_issues=0,
             high_severity=0,
@@ -424,9 +426,9 @@ def scan_server(
             print("=" * 60)
             print(f"Server URL: {result.server_url}")
             print(f"Scan Time: {result.scan_timestamp}")
-            print(f"\nError: Scanner failed to complete scan")
+            print("\nError: Scanner failed to complete scan")
             print(f"Details: {e}")
-            print(f"\nMarking server as UNSAFE due to scanner failure")
+            print("\nMarking server as UNSAFE due to scanner failure")
             print(f"\nDetailed output saved to: {result.output_file}")
             print("=" * 60 + "\n")
 
@@ -440,7 +442,7 @@ def scan_server(
 
     # Auto-disable server if unsafe
     if auto_disable and not is_safe:
-        logger.warning(f"Server marked as UNSAFE - attempting to disable")
+        logger.warning("Server marked as UNSAFE - attempting to disable")
         server_path = _extract_server_path_from_url(server_url)
         if server_path:
             if _disable_unsafe_server(server_path):
@@ -448,12 +450,12 @@ def scan_server(
             else:
                 logger.error(f"✗ Failed to disable server {server_path}")
         else:
-            logger.error(f"✗ Could not extract server path from URL - manual intervention required")
+            logger.error("✗ Could not extract server path from URL - manual intervention required")
 
     # Create result object
     result = SecurityScanResult(
         server_url=server_url,
-        scan_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        scan_timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         is_safe=is_safe,
         critical_issues=critical,
         high_severity=high,
@@ -473,7 +475,7 @@ def scan_server(
         print("=" * 60)
         print(f"Server URL: {result.server_url}")
         print(f"Scan Time: {result.scan_timestamp}")
-        print(f"\nEXECUTIVE SUMMARY OF ISSUES:")
+        print("\nEXECUTIVE SUMMARY OF ISSUES:")
         print(f"  Critical Issues: {result.critical_issues}")
         print(f"  High Severity: {result.high_severity}")
         print(f"  Medium Severity: {result.medium_severity}")
@@ -488,7 +490,7 @@ def scan_server(
                     f"\n⚠️  ACTION TAKEN: Server {server_path} has been DISABLED due to security issues"
                 )
             else:
-                print(f"\n⚠️  WARNING: Could not auto-disable server - manual intervention required")
+                print("\n⚠️  WARNING: Could not auto-disable server - manual intervention required")
 
         print(f"\nDetailed output saved to: {result.output_file}")
         print("=" * 60 + "\n")

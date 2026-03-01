@@ -164,7 +164,7 @@ class NginxConfigService:
 
         # Priority 5: Try generic hostname command (works on most Linux systems)
         try:
-            result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2.0)
+            result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2.0)  # nosec B603 B607 - hardcoded command
             if result.returncode == 0:
                 ips = result.stdout.strip().split()
                 if ips:
@@ -537,13 +537,13 @@ class NginxConfigService:
             import subprocess  # nosec B404
 
             # Test the configuration first before reloading
-            test_result = subprocess.run(["nginx", "-t"], capture_output=True, text=True)
+            test_result = subprocess.run(["nginx", "-t"], capture_output=True, text=True)  # nosec B603 B607 - hardcoded command
             if test_result.returncode != 0:
                 logger.error(f"Nginx configuration test failed: {test_result.stderr}")
                 logger.info("Skipping Nginx reload due to configuration errors")
                 return False
 
-            result = subprocess.run(["nginx", "-s", "reload"], capture_output=True, text=True)
+            result = subprocess.run(["nginx", "-s", "reload"], capture_output=True, text=True)  # nosec B603 B607 - hardcoded command
             if result.returncode == 0:
                 logger.info("Nginx configuration reloaded successfully")
                 return True

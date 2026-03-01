@@ -19,15 +19,14 @@ import argparse
 import json
 import logging
 import os
-import psutil
 import signal
 import subprocess  # nosec B404
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+
+import psutil
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -46,7 +45,7 @@ def _load_env_file() -> None:
 
     if env_file.exists():
         try:
-            with open(env_file, "r") as f:
+            with open(env_file) as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
@@ -103,7 +102,7 @@ def _should_ignore_file(filename: str) -> bool:
     return False
 
 
-def _parse_token_file(filepath: Path) -> Optional[Dict]:
+def _parse_token_file(filepath: Path) -> dict | None:
     """
     Parse a token JSON file and extract relevant information.
 
@@ -114,7 +113,7 @@ def _parse_token_file(filepath: Path) -> Optional[Dict]:
         Token data dict or None if file cannot be parsed
     """
     try:
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             data = json.load(f)
 
         # Validate required fields
@@ -123,12 +122,12 @@ def _parse_token_file(filepath: Path) -> Optional[Dict]:
             return None
 
         return data
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to parse {filepath.name}: {e}")
         return None
 
 
-def _get_all_tokens() -> List[Tuple[Path, Dict]]:
+def _get_all_tokens() -> list[tuple[Path, dict]]:
     """
     Get all valid token files regardless of expiration status.
 
@@ -159,7 +158,7 @@ def _get_all_tokens() -> List[Tuple[Path, Dict]]:
     return all_tokens
 
 
-def _get_expiring_tokens(buffer_seconds: int = DEFAULT_EXPIRY_BUFFER) -> List[Tuple[Path, Dict]]:
+def _get_expiring_tokens(buffer_seconds: int = DEFAULT_EXPIRY_BUFFER) -> list[tuple[Path, dict]]:
     """
     Find all tokens that are expired or will expire within the buffer period.
 
@@ -224,7 +223,7 @@ def _get_expiring_tokens(buffer_seconds: int = DEFAULT_EXPIRY_BUFFER) -> List[Tu
     return expiring_tokens
 
 
-def _determine_refresh_method(token_data: Dict, filename: str) -> Optional[str]:
+def _determine_refresh_method(token_data: dict, filename: str) -> str | None:
     """
     Determine which refresh method to use based on token data.
 
@@ -257,7 +256,7 @@ def _determine_refresh_method(token_data: Dict, filename: str) -> Optional[str]:
     return None
 
 
-def _refresh_agentcore_token(token_data: Dict, filename: str) -> bool:
+def _refresh_agentcore_token(token_data: dict, filename: str) -> bool:
     """
     Refresh a Bedrock AgentCore token using generate_access_token.py.
 
@@ -293,7 +292,9 @@ def _refresh_agentcore_token(token_data: Dict, filename: str) -> bool:
         logger.debug(f"Running AgentCore refresh command: {' '.join(cmd)}")
         logger.debug(f"Working directory: {PROJECT_ROOT.absolute()}")
 
-        result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(  # nosec B603 - internal script path via uv run, no user input
+            cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30
+        )
 
         if result.returncode == 0:
             logger.info(f"Successfully refreshed AgentCore token: {filename}")
@@ -310,7 +311,7 @@ def _refresh_agentcore_token(token_data: Dict, filename: str) -> bool:
         return False
 
 
-def _refresh_oauth_token(token_data: Dict, filename: str) -> bool:
+def _refresh_oauth_token(token_data: dict, filename: str) -> bool:
     """
     Refresh a generic OAuth token using egress_oauth.py or ingress_oauth.py.
 
@@ -359,7 +360,7 @@ def _refresh_oauth_token(token_data: Dict, filename: str) -> bool:
         elif "refresh_token" in token_data:
             logger.info("Refresh token available, script will handle refresh flow")
 
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - internal script path via uv run, no user input
             cmd,
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -382,7 +383,7 @@ def _refresh_oauth_token(token_data: Dict, filename: str) -> bool:
         return False
 
 
-def _refresh_token(filepath: Path, token_data: Dict) -> bool:
+def _refresh_token(filepath: Path, token_data: dict) -> bool:
     """
     Refresh a single token based on its type.
 
@@ -409,7 +410,7 @@ def _refresh_token(filepath: Path, token_data: Dict) -> bool:
         return False
 
 
-def _scan_noauth_services() -> List[Dict]:
+def _scan_noauth_services() -> list[dict]:
     """
     Scan registry servers and find services with auth_scheme: none.
 
@@ -431,7 +432,7 @@ def _scan_noauth_services() -> List[Dict]:
             continue
 
         try:
-            with open(json_file, "r") as f:
+            with open(json_file) as f:
                 server_config = json.load(f)
 
             # Backward-compatible read: prefer auth_scheme, fall back to auth_type
@@ -450,7 +451,7 @@ def _scan_noauth_services() -> List[Dict]:
                 }
                 noauth_services.append(service)
                 logger.debug(f"Found no-auth service: {service['server_name']} ({service['path']})")
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.warning(f"Failed to parse {json_file.name}: {e}")
             continue
 
@@ -508,7 +509,7 @@ def _regenerate_mcp_configs() -> bool:
         return False
 
 
-def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
+def _get_ingress_headers(ingress_file: Path) -> dict[str, str]:
     """
     Extract ingress authentication headers from token file.
 
@@ -528,7 +529,7 @@ def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
         agent_token_file = OAUTH_TOKENS_DIR / "agent-ai-coding-assistant-m2m-token.json"
         if agent_token_file.exists():
             try:
-                with open(agent_token_file, "r") as f:
+                with open(agent_token_file) as f:
                     agent_data = json.load(f)
 
                 if agent_data and agent_data.get("access_token"):
@@ -547,7 +548,7 @@ def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
                         f"Using Keycloak agent headers: client_id={agent_data.get('client_id', '')}"
                     )
                     return headers
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"Failed to read Keycloak agent token file: {e}")
 
         # Fall back to ingress file if agent token not available
@@ -556,7 +557,7 @@ def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
     # Default behavior: use ingress file
     if ingress_file.exists():
         try:
-            with open(ingress_file, "r") as f:
+            with open(ingress_file) as f:
                 ingress_data = json.load(f)
 
                 # Always include the access token
@@ -589,7 +590,7 @@ def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
                         f"Using Cognito headers: pool_id={ingress_data.get('user_pool_id', '')}"
                     )
 
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.warning(f"Failed to read ingress file: {e}")
 
     return headers
@@ -597,10 +598,10 @@ def _get_ingress_headers(ingress_file: Path) -> Dict[str, str]:
 
 def _create_egress_server_config(
     egress_file: Path,
-    ingress_headers: Dict[str, str],
+    ingress_headers: dict[str, str],
     registry_url: str,
     config_type: str = "vscode",
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     """
     Create server configuration from egress token file.
 
@@ -614,9 +615,9 @@ def _create_egress_server_config(
         Tuple of (server_key, server_config)
     """
     try:
-        with open(egress_file, "r") as f:
+        with open(egress_file) as f:
             egress_data = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to read egress file {egress_file.name}: {e}")
         return None, None
 
@@ -671,8 +672,8 @@ def _create_egress_server_config(
 
 
 def _create_noauth_server_config(
-    service: Dict, ingress_headers: Dict[str, str], registry_url: str, config_type: str = "vscode"
-) -> Tuple[str, Dict]:
+    service: dict, ingress_headers: dict[str, str], registry_url: str, config_type: str = "vscode"
+) -> tuple[str, dict]:
     """
     Create server configuration for no-auth service.
 
@@ -719,8 +720,8 @@ def _create_noauth_server_config(
 def _generate_vscode_config(
     has_ingress: bool,
     ingress_file: Path,
-    egress_files: List[Path],
-    noauth_services: List[Dict] = None,
+    egress_files: list[Path],
+    noauth_services: list[dict] = None,
 ) -> bool:
     """
     Generate VS Code MCP configuration file.
@@ -796,8 +797,8 @@ def _generate_vscode_config(
 def _generate_roocode_config(
     has_ingress: bool,
     ingress_file: Path,
-    egress_files: List[Path],
-    noauth_services: List[Dict] = None,
+    egress_files: list[Path],
+    noauth_services: list[dict] = None,
 ) -> bool:
     """
     Generate Roocode MCP configuration file.
@@ -969,7 +970,7 @@ def _kill_existing_instance() -> bool:
         return False
 
     try:
-        with open(pidfile, "r") as f:
+        with open(pidfile) as f:
             old_pid = int(f.read().strip())
 
         # Check if process exists and is a token refresher
@@ -1103,7 +1104,7 @@ Examples:
             pidfile = _get_pidfile_path()
             if pidfile.exists():
                 try:
-                    with open(pidfile, "r") as f:
+                    with open(pidfile) as f:
                         existing_pid = int(f.read().strip())
                     if psutil.pid_exists(existing_pid):
                         logger.error(

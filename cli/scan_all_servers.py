@@ -19,9 +19,9 @@ import json
 import logging
 import subprocess  # nosec B404
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 # Add project root to path to import registry client
 SCRIPT_DIR = Path(__file__).parent
@@ -29,7 +29,6 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "api"))
 
 from registry_client import RegistryClient
-
 
 # Configure logging
 logging.basicConfig(
@@ -46,11 +45,8 @@ DEFAULT_ANALYZERS = "yara"
 
 
 def _run_security_scan(
-    server_url: str,
-    analyzers: str,
-    api_key: Optional[str] = None,
-    access_token: Optional[str] = None,
-) -> Dict[str, Any]:
+    server_url: str, analyzers: str, api_key: str | None = None, access_token: str | None = None
+) -> dict[str, Any]:
     """Run security scan on a server using mcp_security_scanner.py directly.
 
     Args:
@@ -114,7 +110,7 @@ def _run_security_scan(
     logger.info(f"Running: {' '.join(cmd_for_log)}")
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - internal script invoked via uv run with validated args
             cmd, capture_output=True, text=True, check=False, cwd=str(PROJECT_ROOT)
         )
 
@@ -149,7 +145,7 @@ def _run_security_scan(
 
                 if scan_file.exists():
                     scan_result["scan_output_file"] = str(scan_file)
-                    with open(scan_file, "r") as f:
+                    with open(scan_file) as f:
                         scan_data = json.load(f)
 
                     # Extract severity counts from analysis_results
@@ -199,7 +195,7 @@ def _run_security_scan(
 
 
 def _generate_markdown_report(
-    scan_results: List[Dict[str, Any]], stats: Dict[str, int], analyzers: str, scan_timestamp: str
+    scan_results: list[dict[str, Any]], stats: dict[str, int], analyzers: str, scan_timestamp: str
 ) -> str:
     """Generate markdown report from scan results.
 
@@ -279,7 +275,7 @@ def _generate_markdown_report(
         scan_file = result.get("scan_output_file")
         if scan_file and Path(scan_file).exists():
             try:
-                with open(scan_file, "r") as f:
+                with open(scan_file) as f:
                     scan_data = json.load(f)
 
                 tool_results = scan_data.get("tool_results", [])
@@ -332,7 +328,7 @@ def _generate_markdown_report(
                         tool_desc = tool.get("tool_description", "")
                         if tool_desc:
                             lines.append("<details>")
-                            lines.append(f"<summary>Tool Description</summary>")
+                            lines.append("<summary>Tool Description</summary>")
                             lines.append("")
                             lines.append("```")
                             lines.append(tool_desc)
@@ -363,11 +359,8 @@ def _generate_markdown_report(
 
 
 def _scan_all_servers(
-    base_url: str,
-    token_file: Path,
-    analyzers: str = DEFAULT_ANALYZERS,
-    api_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    base_url: str, token_file: Path, analyzers: str = DEFAULT_ANALYZERS, api_key: str | None = None
+) -> dict[str, Any]:
     """Scan all enabled servers.
 
     Args:
@@ -385,7 +378,7 @@ def _scan_all_servers(
 
     # Load access token from file
     try:
-        with open(token_file, "r") as f:
+        with open(token_file) as f:
             token_data = json.load(f)
             access_token = token_data.get("access_token")
             if not access_token:
@@ -442,7 +435,7 @@ def _scan_all_servers(
     stats = {"total": len(enabled_servers), "passed": 0, "failed": 0}
 
     scan_results = []
-    scan_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    scan_timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     logger.info("")
     logger.info("=" * 80)
@@ -599,7 +592,7 @@ Examples:
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     # Save timestamped report in reports/ subdirectory
-    timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     timestamped_report = reports_dir / f"scan_report_{timestamp_str}.md"
 
     with open(timestamped_report, "w") as f:
