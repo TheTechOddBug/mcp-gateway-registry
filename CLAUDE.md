@@ -46,59 +46,163 @@ When evaluating pull requests for merge, adopt the **Merge Specialist** persona 
 ### Type Annotations
 - Use clear type annotations for all function parameters
 - One function parameter per line for better readability
+- Use modern Python 3.10+ type hint syntax (PEP 604/585)
 - Example:
   ```python
   def process_data(
       input_file: str,
       output_format: str,
       validate: bool = True
-  ) -> dict:
+  ) -> dict[str, Any]:
       pass
   ```
 
-### Type Hints for Optional Parameters
-- Always use `Optional[type]` for parameters that can be None
-- Be explicit about optional parameters, especially when they have special meanings:
-  ```python
-  from typing import Optional, List
-  
-  def process_samples(
-      sample_size: Optional[int] = None,  # None means use default
-      language: Optional[str] = None      # None means no filtering
-  ) -> List[dict]:
-      """Process dataset samples.
-      
-      Args:
-          sample_size: Number of samples. None uses default, 0 means all.
-          language: Language filter. None means all languages.
-      """
-      if sample_size == 0:
-          # Special case: process all samples
-          return process_all()
-      elif sample_size is None:
-          # Use default sample size
-          sample_size = DEFAULT_SAMPLE_SIZE
-          
-      # Process with explicit sample size
-      return process_with_size(sample_size)
-  ```
+### Modern Type Hint Standards (Python 3.10+)
+
+**IMPORTANT**: This codebase uses modern Python 3.10+ type hint syntax (PEP 604 and PEP 585). Always use built-in types instead of importing from `typing` module.
+
+#### PEP 604: Union Types with `|`
+Use `X | None` instead of `Optional[X]`:
+
+```python
+# Good - Modern syntax (Python 3.10+)
+def process_data(
+    sample_size: int | None = None,
+    language: str | None = None
+) -> list[dict[str, Any]]:
+    pass
+
+# Avoid - Legacy syntax
+from typing import Optional, List, Dict, Any
+
+def process_data(
+    sample_size: Optional[int] = None,
+    language: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    pass
+```
+
+#### PEP 585: Built-in Generic Types
+Use `list`, `dict`, `tuple`, `set` directly instead of importing from `typing`:
+
+```python
+# Good - Built-in generic types
+def process_items(
+    data: list[dict[str, Any]],
+    filters: set[str],
+    metadata: tuple[str, int]
+) -> dict[str, list[Any]]:
+    pass
+
+# Avoid - typing module imports
+from typing import List, Dict, Set, Tuple, Any
+
+def process_items(
+    data: List[Dict[str, Any]],
+    filters: Set[str],
+    metadata: Tuple[str, int]
+) -> Dict[str, List[Any]]:
+    pass
+```
+
+#### Type Hint Migration Examples
+
+**Example 1: Optional Parameters**
+```python
+# Old style
+from typing import Optional
+
+def get_user(user_id: int, token: Optional[str] = None) -> Optional[dict]:
+    pass
+
+# New style - no imports needed
+def get_user(user_id: int, token: str | None = None) -> dict | None:
+    pass
+```
+
+**Example 2: Complex Types**
+```python
+# Old style
+from typing import List, Dict, Optional, Tuple
+
+def process_samples(
+    sample_size: Optional[int] = None,
+    language: Optional[str] = None
+) -> List[dict]:
+    """Process dataset samples.
+
+    Args:
+        sample_size: Number of samples. None uses default, 0 means all.
+        language: Language filter. None means all languages.
+    """
+    if sample_size == 0:
+        return process_all()
+    elif sample_size is None:
+        sample_size = DEFAULT_SAMPLE_SIZE
+
+    return process_with_size(sample_size)
+
+# New style - cleaner and more Pythonic
+def process_samples(
+    sample_size: int | None = None,
+    language: str | None = None
+) -> list[dict[str, Any]]:
+    """Process dataset samples.
+
+    Args:
+        sample_size: Number of samples. None uses default, 0 means all.
+        language: Language filter. None means all languages.
+    """
+    if sample_size == 0:
+        return process_all()
+    elif sample_size is None:
+        sample_size = DEFAULT_SAMPLE_SIZE
+
+    return process_with_size(sample_size)
+```
+
+**Example 3: Nested Generic Types**
+```python
+# Old style
+from typing import Dict, List, Tuple, Optional
+
+def get_user_data(
+    user_id: int
+) -> Optional[Dict[str, List[Tuple[str, int]]]]:
+    pass
+
+# New style - much cleaner
+def get_user_data(
+    user_id: int
+) -> dict[str, list[tuple[str, int]]] | None:
+    pass
+```
+
+#### Benefits of Modern Type Hints
+1. **Fewer imports**: No need to import from `typing` for basic types
+2. **More readable**: `X | None` is clearer than `Optional[X]`
+3. **Consistent with Python evolution**: PEP 585 and PEP 604 are the future
+4. **Better IDE support**: Native type inference without imports
+5. **Simpler syntax**: Less typing, easier to understand
 
 ### Class Definitions with Pydantic
 - Consider using Pydantic BaseModel for all class definitions to leverage validation, serialization, and other powerful features
 - Pydantic provides automatic validation, type coercion, and serialization capabilities
+- Use modern type hints (PEP 604/585) in Pydantic models
 - Example:
   ```python
   from pydantic import BaseModel, Field, validator
-  from typing import Optional
-  
+
   class UserConfig(BaseModel):
       """User configuration settings."""
-      
+
       username: str = Field(..., min_length=3, max_length=50)
       email: str = Field(..., regex=r'^[\w\.-]+@[\w\.-]+\.\w+$')
       timeout_seconds: int = Field(default=30, ge=1, le=300)
       debug_enabled: bool = False
-      
+      tags: list[str] = Field(default_factory=list)
+      metadata: dict[str, str] | None = None
+
       @validator('username')
       def username_alphanumeric(cls, v: str) -> str:
           if not v.replace('_', '').isalnum():
@@ -983,6 +1087,39 @@ When reviewing code with subprocess or SQL operations, verify:
 - **Pytest**: For testing
 
 ### Pre-commit Workflow
+
+#### Option 1: Automated Pre-commit Hooks (Recommended)
+
+Install pre-commit hooks to automatically run checks before each commit:
+
+```bash
+# Install pre-commit (one-time setup)
+uv pip install pre-commit
+
+# Install the git hooks (one-time per repo clone)
+pre-commit install
+
+# Now all checks run automatically on git commit
+git add file.py
+git commit -m "Your message"  # Hooks run automatically
+
+# Run hooks manually on all files
+pre-commit run --all-files
+```
+
+**What runs automatically:**
+- ✅ Ruff linter with auto-fixes
+- ✅ Ruff formatter (PEP 604/585 modernization)
+- ✅ Trailing whitespace removal
+- ✅ End-of-file fixes
+- ✅ YAML/JSON validation
+- ✅ Bandit security scan
+- ✅ MyPy type checking
+- ✅ Fast unit tests
+- ✅ Python/shell syntax checks
+
+#### Option 2: Manual Workflow
+
 Before committing code, run these checks in order:
 
 ```bash
@@ -1002,10 +1139,40 @@ uv run pytest
 uv run ruff check --fix . && uv run ruff format . && uv run bandit -r src/ && uv run mypy src/ && uv run pytest
 ```
 
+### Code Formatting Standards
+
+**Ruff Configuration**: This project uses ruff for formatting with the following key settings (see `pyproject.toml`):
+
+- **Target Python**: 3.10+ (enables PEP 604/585)
+- **Line Length**: 100 characters
+- **Type Hint Modernization**: Automatic via ruff rules:
+  - `UP006`: Use PEP 585 built-in generics (`list`, `dict`, `tuple`)
+  - `UP007`: Use PEP 604 union syntax (`X | Y` instead of `Union[X, Y]`)
+  - `UP037`: Remove quotes from type annotations
+  - `I001`: Auto-sort imports (isort compatible)
+
+**Formatting automatically handles:**
+- Type hint modernization (PEP 604/585)
+- Import organization (stdlib, third-party, local)
+- Trailing whitespace removal
+- Consistent indentation (4 spaces)
+- Line length enforcement
+- Docstring formatting
+
+**Example ruff modernizations:**
+```python
+# Before ruff format
+from typing import Optional, List, Dict
+def func(x: Optional[List[Dict]]) -> Optional[str]: pass
+
+# After ruff format (automatic)
+def func(x: list[dict] | None) -> str | None: pass
+```
+
 ### Adding Development Dependencies
 ```bash
 # Add development dependencies
-uv add --dev ruff mypy bandit pytest pytest-cov
+uv add --dev ruff mypy bandit pytest pytest-cov pre-commit
 ```
 
 ## Dependency Management
@@ -1452,7 +1619,16 @@ gh issue comment 123 --body "Suggest adding 'agentcore' label for AgentCore-rela
 ```
 
 ## Summary
-These guidelines ensure consistent, maintainable, and modern Python code. Always prioritize simplicity and clarity over cleverness.
+
+These guidelines ensure consistent, maintainable, and modern Python code. Key principles:
+
+- **Simplicity First**: Write code maintainable by entry-level developers
+- **Modern Python**: Use Python 3.10+ features (PEP 604/585 type hints)
+- **Automated Quality**: Use pre-commit hooks for consistent formatting
+- **Security**: Follow subprocess and SQL security patterns
+- **Type Safety**: Clear type annotations with modern syntax
+
+Always prioritize simplicity and clarity over cleverness.
 ## Federated Registry Implementation Workflow
 
 When implementing the federated registry feature, follow this 3-agent workflow for each sub-feature:
