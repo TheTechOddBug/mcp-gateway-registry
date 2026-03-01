@@ -159,6 +159,24 @@ class FileServerRepository(ServerRepositoryBase):
         """List all servers."""
         return self._servers.copy()
 
+    async def list_by_source(
+        self,
+        source: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        """List all servers from a specific federation source.
+
+        Args:
+            source: Federation source identifier (e.g., "anthropic")
+
+        Returns:
+            Dictionary mapping server path to server info
+        """
+        return {
+            path: info
+            for path, info in self._servers.items()
+            if info.get("source") == source
+        }
+
     async def create(
         self,
         server_info: Dict[str, Any],

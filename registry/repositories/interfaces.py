@@ -39,6 +39,21 @@ class ServerRepositoryBase(ABC):
         pass
 
     @abstractmethod
+    async def list_by_source(
+        self,
+        source: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        """List all servers from a specific federation source.
+
+        Args:
+            source: Federation source identifier (e.g., "anthropic")
+
+        Returns:
+            Dictionary mapping server path to server info
+        """
+        pass
+
+    @abstractmethod
     async def create(
         self,
         server_info: Dict[str, Any],
