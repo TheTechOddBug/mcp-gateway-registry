@@ -679,6 +679,301 @@ def get_secret(key: str, default: Optional[str] = None) -> str:
   app.run(host=private_ip, port=8000)
   ```
 
+### Subprocess Security Guidelines
+
+When using the `subprocess` module, follow these security patterns to prevent Bandit B603/B607 findings and avoid shell injection vulnerabilities.
+
+#### ✅ ALWAYS Use List Form (Not String Commands)
+
+```python
+# Good - list form prevents shell injection
+result = subprocess.run(
+    ["nginx", "-s", "reload"],
+    capture_output=True,
+    text=True,
+    timeout=5,
+)
+
+# Bad - string form with shell=True is vulnerable to injection
+result = subprocess.run("nginx -s reload", shell=True)  # NEVER DO THIS
+```
+
+#### ✅ ALWAYS Add Timeout
+
+```python
+# Good - prevents DoS from hanging processes
+result = subprocess.run(cmd, timeout=30, capture_output=True)
+
+# Bad - no timeout can cause infinite hangs
+result = subprocess.run(cmd, capture_output=True)  # Missing timeout!
+```
+
+#### ✅ ALWAYS Handle Errors
+
+```python
+# Good - proper error handling
+try:
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=True,  # Raises CalledProcessError on non-zero exit
+        timeout=30,
+    )
+except subprocess.TimeoutExpired:
+    logger.error("Command timed out")
+    return False
+except subprocess.CalledProcessError as e:
+    logger.error(f"Command failed: {e.stderr}")
+    return False
+```
+
+#### ✅ Approved Subprocess Patterns
+
+**Pattern 1: System Utilities (hardcoded commands)**
+```python
+# System commands with hardcoded paths and flags
+result = subprocess.run(
+    ["nginx", "-t"],  # nosec B603 B607 - hardcoded command
+    capture_output=True,
+    text=True,
+    timeout=5,
+)
+
+result = subprocess.run(
+    ["hostname", "-I"],  # nosec B603 B607 - hardcoded command
+    capture_output=True,
+    text=True,
+    timeout=2,
+)
+```
+
+**Pattern 2: Internal Scripts (controlled paths)**
+```python
+# Internal scripts with validated arguments
+script_path = os.path.join(project_root, "scripts/generate_token.sh")
+result = subprocess.run(
+    [script_path, validated_arg],  # nosec B603 - hardcoded internal script path
+    capture_output=True,
+    text=True,
+    timeout=30,
+    cwd=working_directory,
+)
+```
+
+**Pattern 3: External Tools (hardcoded flags, data as arguments)**
+```python
+# External tools with hardcoded flags - user data passed as arguments, not commands
+cmd = ["mcp-scanner", "--format", "json", "--url", user_provided_url]
+result = subprocess.run(  # nosec B603 - args are hardcoded flags passed to mcp-scanner tool
+    cmd,
+    capture_output=True,
+    text=True,
+    check=True,
+    timeout=60,
+)
+```
+
+#### ✅ Security Comment Standards for Subprocess
+
+When suppressing Bandit warnings for subprocess calls, **always include a clear justification**:
+
+```python
+# Good - explains why it's safe
+subprocess.run(
+    ["nginx", "-s", "reload"],
+    ...
+)  # nosec B603 B607 - hardcoded command
+
+# Good - explains the security model
+subprocess.run(
+    [script_path, arg],
+    ...
+)  # nosec B603 - hardcoded internal script path
+
+# Good - explains what's hardcoded
+subprocess.run(
+    cmd,
+    ...
+)  # nosec B603 - args are hardcoded flags passed to tool
+
+# Bad - no justification
+subprocess.run(cmd, ...)  # nosec B603
+```
+
+**Valid Justification Templates:**
+- `# nosec B603 B607 - hardcoded command` - for system utilities (nginx, hostname, etc.)
+- `# nosec B603 - hardcoded internal script path` - for internal project scripts
+- `# nosec B603 - hardcoded internal script path and flags` - when both path and flags are hardcoded
+- `# nosec B603 - args are hardcoded flags passed to [tool-name]` - for external tools
+
+#### ❌ NEVER Do These With Subprocess
+
+```python
+# NEVER use shell=True with any user input
+user_cmd = f"tool --arg {user_input}"
+subprocess.run(user_cmd, shell=True)  # VULNERABLE TO INJECTION
+
+# NEVER construct commands from user input
+cmd = f"grep {user_search_term} file.txt"  # VULNERABLE
+subprocess.run(cmd, shell=True)
+
+# NEVER skip timeout - can hang forever
+subprocess.run(["long-running-command"])  # NO TIMEOUT
+
+# NEVER ignore errors without logging
+result = subprocess.run(cmd, capture_output=True)
+# No error handling - failures go unnoticed
+```
+
+### SQL Security Guidelines
+
+When working with databases, follow these patterns to prevent SQL injection vulnerabilities (Bandit B608).
+
+#### ✅ ALWAYS Use Parameterized Queries
+
+```python
+# Good - parameterized query with placeholders
+cutoff = datetime.now().isoformat()
+query = "DELETE FROM table_name WHERE created_at < ?"
+cursor.execute(query, (cutoff,))
+
+# Bad - string formatting is vulnerable to SQL injection
+cutoff_str = f"'{datetime.now().isoformat()}'"
+query = f"DELETE FROM table_name WHERE created_at < {cutoff_str}"  # VULNERABLE
+cursor.execute(query)
+```
+
+#### ✅ Validate Identifiers Against Allowlists
+
+For table names and column names that cannot be parameterized, use allowlist validation:
+
+```python
+# Define allowlists for table and column names
+ALLOWED_TABLES = {"users", "metrics", "auth_logs"}
+ALLOWED_COLUMNS = {"created_at", "updated_at", "timestamp"}
+
+def validate_table_name(table: str) -> str:
+    """Validate table name against allowlist."""
+    if table not in ALLOWED_TABLES:
+        raise ValueError(f"Invalid table: {table}")
+    return table
+
+def validate_column_name(column: str) -> str:
+    """Validate column name against allowlist."""
+    if column not in ALLOWED_COLUMNS:
+        raise ValueError(f"Invalid column: {column}")
+    return column
+
+# Use validated identifiers with nosec comment
+table = validate_table_name(user_provided_table)
+column = validate_column_name(user_provided_column)
+query = f"SELECT * FROM {table} WHERE {column} = ?"  # nosec B608 - table and column validated against allowlists
+cursor.execute(query, (value,))
+```
+
+#### ✅ Return Query and Parameters as Tuple
+
+For query-building methods, return both query string and parameters:
+
+```python
+def get_cleanup_query(
+    table_name: str,
+    days: int
+) -> tuple[str, tuple]:
+    """Get cleanup query and parameters.
+
+    Returns:
+        Tuple of (query_string, parameters)
+    """
+    # Validate table name against allowlist
+    table_name = validate_table_name(table_name)
+
+    # Calculate cutoff date
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    # Build parameterized query
+    query = f"DELETE FROM {table_name} WHERE created_at < ?"  # nosec B608 - table_name validated against allowlist
+
+    return query, (cutoff,)
+
+# Use the query and parameters
+query, params = get_cleanup_query("metrics", 90)
+cursor.execute(query, params)
+```
+
+#### ✅ Security Comment Standards for SQL
+
+When suppressing B608 warnings, **always document the validation**:
+
+```python
+# Good - documents allowlist validation
+query = f"SELECT * FROM {table}"  # nosec B608 - table name validated against allowlist
+cursor.execute(query, params)
+
+# Good - references validation function
+query = f"DELETE FROM {table}"  # nosec B608 - table validated by validate_table_name()
+cursor.execute(query, params)
+
+# Good - explains multiple validations
+query = f"SELECT {column} FROM {table}"  # nosec B608 - table and column validated against allowlists
+cursor.execute(query, params)
+
+# Bad - no justification
+query = f"SELECT * FROM {table}"  # nosec B608
+cursor.execute(query)
+```
+
+**Valid Justification Templates:**
+- `# nosec B608 - table name validated against allowlist`
+- `# nosec B608 - column name validated against allowlist`
+- `# nosec B608 - table and column validated against allowlists`
+- `# nosec B608 - identifier validated by _validate_identifier()`
+
+#### ❌ NEVER Do These With SQL
+
+```python
+# NEVER use string formatting for values
+value = user_input
+query = f"SELECT * FROM users WHERE name = '{value}'"  # VULNERABLE TO SQL INJECTION
+cursor.execute(query)
+
+# NEVER concatenate user input into queries
+query = "SELECT * FROM " + user_table + " WHERE id = " + user_id  # VULNERABLE
+cursor.execute(query)
+
+# NEVER skip validation for identifiers
+table = request.args.get('table')  # No validation!
+query = f"SELECT * FROM {table}"  # VULNERABLE
+cursor.execute(query)
+
+# NEVER use datetime() SQL functions with interpolated values
+days = user_input
+query = f"DELETE FROM t WHERE created_at < datetime('now', '-{days} days')"  # VULNERABLE
+cursor.execute(query)
+```
+
+### Security Checklist for Code Review
+
+When reviewing code with subprocess or SQL operations, verify:
+
+**Subprocess Checklist:**
+- [ ] Using list form (not string commands)
+- [ ] No `shell=True` anywhere
+- [ ] Timeout specified
+- [ ] Error handling includes `TimeoutExpired` and `CalledProcessError`
+- [ ] Commands are hardcoded (no dynamic construction from user input)
+- [ ] `# nosec` comments include clear justifications
+- [ ] Arguments passed as list elements (not interpolated into commands)
+
+**SQL Checklist:**
+- [ ] Using parameterized queries for all values
+- [ ] Table and column names validated against allowlists
+- [ ] No string formatting or concatenation for SQL values
+- [ ] Query methods return `tuple[str, tuple]`
+- [ ] `# nosec` comments document validation method
+- [ ] No datetime() SQL functions with interpolated parameters
+
 ## Development Workflow
 
 ### Recommended Development Tools
