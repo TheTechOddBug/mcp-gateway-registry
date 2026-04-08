@@ -3,7 +3,7 @@
   "info": {
     "title": "MCP Gateway Registry",
     "description": "A registry and management system for Model Context Protocol (MCP) servers",
-    "version": "v1.0.17"
+    "version": "v1.0.18"
   },
   "paths": {
     "/api/version": {
@@ -37,7 +37,7 @@
           "System"
         ],
         "summary": "Get System Stats",
-        "description": "Get system statistics including uptime, deployment info, and registry metrics.\n\nThis endpoint provides operational information for monitoring and display:\n- Application uptime since last restart\n- Deployment environment and mode\n- Registry resource counts (servers, agents, skills)\n- Database health status\n\nResponse is cached for 30 seconds to reduce load.\n\nReturns:\n    System statistics dictionary with:\n    - uptime_seconds: Time since server started\n    - started_at: ISO 8601 timestamp of server start\n    - version: Application version\n    - deployment_type: Kubernetes/ECS/EC2/Local\n    - deployment_mode: with-gateway/registry-only\n    - registry_stats: Object with servers, agents, skills counts\n    - database_status: Object with backend, status, host\n    - auth_status: Object with provider, status, url",
+        "description": "Get system statistics including uptime, deployment info, and registry metrics.\n\nThis endpoint provides operational information for monitoring and display:\n- Application uptime since last restart\n- Deployment environment and mode\n- Registry resource counts (servers, agents, skills)\n- Database health status\n- Registry card initialization status\n\nResponse is cached for 30 seconds to reduce load.\n\nReturns:\n    System statistics dictionary with:\n    - uptime_seconds: Time since server started\n    - started_at: ISO 8601 timestamp of server start\n    - version: Application version\n    - deployment_type: Kubernetes/ECS/EC2/Local\n    - deployment_mode: with-gateway/registry-only\n    - registry_stats: Object with servers, agents, skills counts\n    - database_status: Object with backend, status, host\n    - auth_status: Object with provider, status, url\n    - registry_card_status: Object with initialized, registry_id, name",
         "operationId": "get_system_stats_api_stats_get",
         "responses": {
           "200": {
@@ -1493,7 +1493,7 @@
           "Server Management"
         ],
         "summary": "Register Service Api",
-        "description": "Register a service via JWT Bearer Token authentication (External API).\n\nThis endpoint provides the same functionality as POST /api/internal/register\nbut uses modern JWT Bearer token authentication via nginx headers, making it\nsuitable for external service-to-service communication.\n\n**Authentication:** JWT Bearer token (via nginx X-User header)\n**Authorization:** Requires valid JWT token from auth system\n\n**Request body (form data):**\n- `name` (required): Service name\n- `description` (required): Service description\n- `path` (required): Service path (e.g., /myservice)\n- `proxy_pass_url` (required): Proxy URL (e.g., http://localhost:8000)\n- `tags` (optional): Comma-separated tags\n- `num_tools` (optional): Number of tools\n- `license` (optional): License name\n- `overwrite` (optional): Overwrite if exists (boolean, default true)\n- `auth_provider` (optional): Auth provider name\n- `auth_scheme` (optional): Auth scheme (none, bearer, api_key)\n- `auth_credential` (optional): Plaintext credential (encrypted before storage)\n- `auth_header_name` (optional): Custom header name for API key auth\n- `supported_transports` (optional): JSON array of transports\n- `headers` (optional): JSON object of headers\n- `tool_list_json` (optional): JSON array of tool definitions\n- `mcp_endpoint` (optional): Full URL for custom MCP endpoint (overrides /mcp suffix)\n- `sse_endpoint` (optional): Full URL for custom SSE endpoint (overrides /sse suffix)\n- `version` (optional): Server version (e.g., v1.0.0, v2.0.0)\n- `status` (optional): Version status (stable, beta, deprecated)\n\n**Response:**\n- `201 Created`: Service registered successfully\n- `400 Bad Request`: Invalid input data\n- `401 Unauthorized`: Missing or invalid JWT token\n- `409 Conflict`: Service already exists with same version (different version auto-creates new version)\n- `500 Internal Server Error`: Server error\n\n**Example:**\n```bash\ncurl -X POST https://registry.example.com/api/servers/register \\\n  -H \"Authorization: Bearer $JWT_TOKEN\" \\\n  -F \"name=My Service\" \\\n  -F \"description=My MCP Service\" \\\n  -F \"path=/myservice\" \\\n  -F \"proxy_pass_url=http://localhost:8000\"\n```",
+        "description": "Register a service via JWT Bearer Token authentication (External API).\n\nThis endpoint provides the same functionality as POST /api/internal/register\nbut uses modern JWT Bearer token authentication via nginx headers, making it\nsuitable for external service-to-service communication.\n\n**Authentication:** JWT Bearer token (via nginx X-User header)\n**Authorization:** Requires valid JWT token from auth system\n\n**Request body (form data):**\n- `name` (required): Service name\n- `description` (required): Service description\n- `path` (required): Service path (e.g., /myservice)\n- `proxy_pass_url` (required): Proxy URL (e.g., http://localhost:8000)\n- `tags` (optional): Comma-separated tags\n- `num_tools` (optional): Number of tools\n- `license` (optional): License name\n- `overwrite` (optional): Overwrite if exists (boolean, default true)\n- `auth_provider` (optional): Auth provider name\n- `auth_scheme` (optional): Auth scheme (none, bearer, api_key)\n- `auth_credential` (optional): Plaintext credential (encrypted before storage)\n- `auth_header_name` (optional): Custom header name for API key auth\n- `supported_transports` (optional): JSON array of transports\n- `headers` (optional): JSON object of headers\n- `tool_list_json` (optional): JSON array of tool definitions\n- `mcp_endpoint` (optional): Full URL for custom MCP endpoint (overrides /mcp suffix)\n- `sse_endpoint` (optional): Full URL for custom SSE endpoint (overrides /sse suffix)\n- `version` (optional): Server version (e.g., v1.0.0, v2.0.0)\n- `status` (optional): Lifecycle status (active, deprecated, draft, beta)\n- `provider_organization` (optional): Provider organization name\n- `provider_url` (optional): Provider URL\n- `source_created_at` (optional): Original creation timestamp (ISO format)\n- `source_updated_at` (optional): Last update timestamp (ISO format)\n- `external_tags` (optional): Comma-separated tags from external system\n\n**Response:**\n- `201 Created`: Service registered successfully\n- `400 Bad Request`: Invalid input data\n- `401 Unauthorized`: Missing or invalid JWT token\n- `409 Conflict`: Service already exists with same version (different version auto-creates new version)\n- `500 Internal Server Error`: Server error\n\n**Example:**\n```bash\ncurl -X POST https://registry.example.com/api/servers/register \\\n  -H \"Authorization: Bearer $JWT_TOKEN\" \\\n  -F \"name=My Service\" \\\n  -F \"description=My MCP Service\" \\\n  -F \"path=/myservice\" \\\n  -F \"proxy_pass_url=http://localhost:8000\"\n```",
         "operationId": "register_service_api_api_servers_register_post",
         "requestBody": {
           "content": {
@@ -2428,6 +2428,439 @@
         ]
       }
     },
+    "/api/agents/{path}/ans/link": {
+      "post": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Link Ans To Agent Endpoint",
+        "description": "Link an ANS Agent ID to an agent.",
+        "operationId": "link_ans_to_agent_endpoint_api_agents__path__ans_link_post",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkANSRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Link Ans To Agent Endpoint Api Agents  Path  Ans Link Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Unlink Ans From Agent Endpoint",
+        "description": "Remove ANS link from an agent.",
+        "operationId": "unlink_ans_from_agent_endpoint_api_agents__path__ans_link_delete",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Unlink Ans From Agent Endpoint Api Agents  Path  Ans Link Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/agents/{path}/ans/status": {
+      "get": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Get Agent Ans Status",
+        "description": "Get ANS verification status for an agent.",
+        "operationId": "get_agent_ans_status_api_agents__path__ans_status_get",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Agent Ans Status Api Agents  Path  Ans Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/servers/{path}/ans/link": {
+      "post": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Link Ans To Server Endpoint",
+        "description": "Link an ANS Agent ID to an MCP server.",
+        "operationId": "link_ans_to_server_endpoint_api_servers__path__ans_link_post",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkANSRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Link Ans To Server Endpoint Api Servers  Path  Ans Link Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Unlink Ans From Server Endpoint",
+        "description": "Remove ANS link from a server.",
+        "operationId": "unlink_ans_from_server_endpoint_api_servers__path__ans_link_delete",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Unlink Ans From Server Endpoint Api Servers  Path  Ans Link Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/servers/{path}/ans/status": {
+      "get": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Get Server Ans Status",
+        "description": "Get ANS verification status for a server.",
+        "operationId": "get_server_ans_status_api_servers__path__ans_status_get",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Server Ans Status Api Servers  Path  Ans Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/ans/sync": {
+      "post": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Trigger Ans Sync",
+        "description": "Manually trigger ANS status sync (admin only).",
+        "operationId": "trigger_ans_sync_api_admin_ans_sync_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Trigger Ans Sync Api Admin Ans Sync Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/ans/metrics": {
+      "get": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Get Ans Metrics Endpoint",
+        "description": "Get ANS integration metrics (admin only).",
+        "operationId": "get_ans_metrics_endpoint_api_admin_ans_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Ans Metrics Endpoint Api Admin Ans Metrics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/ans/health": {
+      "get": {
+        "tags": [
+          "ANS Integration"
+        ],
+        "summary": "Get Ans Health",
+        "description": "Check ANS API reachability (admin only).",
+        "operationId": "get_ans_health_api_admin_ans_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Ans Health Api Admin Ans Health Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
     "/api/agents/register": {
       "post": {
         "tags": [
@@ -2564,7 +2997,7 @@
           "Agent Management"
         ],
         "summary": "Check Agent Health",
-        "description": "Perform a live /ping health check against an agent endpoint.",
+        "description": "Perform a health check against an A2A agent.\n\nPer the A2A spec, there is no /ping endpoint. Agent availability is\ndetermined by fetching the agent card from /.well-known/agent-card.json\non the agent's host. Falls back to the registered URL if the agent card\nendpoint is not available.",
         "operationId": "check_agent_health_api_agents__path__health_post",
         "parameters": [
           {
@@ -2731,6 +3164,98 @@
             "schema": {
               "type": "boolean",
               "title": "Enabled"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/agents/{path}/security-scan": {
+      "get": {
+        "tags": [
+          "Agent Management"
+        ],
+        "summary": "Get Agent Security Scan",
+        "description": "Get security scan results for an A2A agent.\n\nReturns the latest security scan results for the specified agent,\nincluding threat analysis, severity levels, and detailed findings\nfrom YARA, specification validation, and heuristic analyzers.\n\n**Authentication:** JWT Bearer token or session cookie\n**Authorization:** Requires admin privileges or access to the agent\n\n**Path Parameters:**\n- `path` (required): Agent path (e.g., /code-reviewer)\n\n**Response:**\nReturns security scan results with analysis_results and findings.\n\n**Example:**\n```bash\ncurl -X GET http://localhost/api/agents/code-reviewer/security-scan \\\n  --cookie-jar .cookies --cookie .cookies\n```",
+        "operationId": "get_agent_security_scan_api_agents__path__security_scan_get",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/agents/{path}/rescan": {
+      "post": {
+        "tags": [
+          "Agent Management"
+        ],
+        "summary": "Rescan Agent",
+        "description": "Trigger a manual security scan for an A2A agent.\n\nInitiates a new security scan for the specified agent and returns\nthe results. This endpoint is useful for re-scanning agents after\nupdates or for on-demand security assessments.\n\n**Authentication:** JWT Bearer token or session cookie\n**Authorization:** Requires admin privileges\n\n**Path Parameters:**\n- `path` (required): Agent path (e.g., /code-reviewer)\n\n**Response:**\nReturns the newly generated security scan results.\n\n**Example:**\n```bash\ncurl -X POST http://localhost/api/agents/code-reviewer/rescan \\\n  --cookie-jar .cookies --cookie .cookies\n```",
+        "operationId": "rescan_agent_api_agents__path__rescan_post",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
             }
           }
         ],
@@ -2992,98 +3517,6 @@
               "minimum": 1,
               "default": 10,
               "title": "Max Results"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/api/agents/{path}/security-scan": {
-      "get": {
-        "tags": [
-          "Agent Management"
-        ],
-        "summary": "Get Agent Security Scan",
-        "description": "Get security scan results for an A2A agent.\n\nReturns the latest security scan results for the specified agent,\nincluding threat analysis, severity levels, and detailed findings\nfrom YARA, specification validation, and heuristic analyzers.\n\n**Authentication:** JWT Bearer token or session cookie\n**Authorization:** Requires admin privileges or access to the agent\n\n**Path Parameters:**\n- `path` (required): Agent path (e.g., /code-reviewer)\n\n**Response:**\nReturns security scan results with analysis_results and findings.\n\n**Example:**\n```bash\ncurl -X GET http://localhost/api/agents/code-reviewer/security-scan \\\n  --cookie-jar .cookies --cookie .cookies\n```",
-        "operationId": "get_agent_security_scan_api_agents__path__security_scan_get",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "Bearer": []
-          }
-        ]
-      }
-    },
-    "/api/agents/{path}/rescan": {
-      "post": {
-        "tags": [
-          "Agent Management"
-        ],
-        "summary": "Rescan Agent",
-        "description": "Trigger a manual security scan for an A2A agent.\n\nInitiates a new security scan for the specified agent and returns\nthe results. This endpoint is useful for re-scanning agents after\nupdates or for on-demand security assessments.\n\n**Authentication:** JWT Bearer token or session cookie\n**Authorization:** Requires admin privileges\n\n**Path Parameters:**\n- `path` (required): Agent path (e.g., /code-reviewer)\n\n**Response:**\nReturns the newly generated security scan results.\n\n**Example:**\n```bash\ncurl -X POST http://localhost/api/agents/code-reviewer/rescan \\\n  --cookie-jar .cookies --cookie .cookies\n```",
-        "operationId": "rescan_agent_api_agents__path__rescan_post",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
             }
           }
         ],
@@ -3632,6 +4065,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SemanticSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/search/tags": {
+      "get": {
+        "tags": [
+          "Semantic Search"
+        ],
+        "summary": "Get all unique tags across all indexed entities",
+        "description": "Return a sorted list of all unique tags across servers, agents, skills, and virtual servers.",
+        "operationId": "get_all_tags_api_search_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "title": "Response Get All Tags Api Search Tags Get"
                 }
               }
             }
@@ -8004,15 +8481,477 @@
         ]
       }
     },
-    "/v0.1/servers": {
+    "/api/registry-management/telemetry/heartbeat": {
+      "post": {
+        "tags": [
+          "Registry Management"
+        ],
+        "summary": "Force Heartbeat",
+        "description": "Force an immediate heartbeat telemetry event (admin only).\n\nBypasses the 24-hour lock and sends a heartbeat event immediately.\nUseful for verifying telemetry pipeline or after configuration changes.\n\nReturns:\n    Status of the heartbeat send attempt.",
+        "operationId": "force_heartbeat_api_registry_management_telemetry_heartbeat_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/registry-management/telemetry/startup": {
+      "post": {
+        "tags": [
+          "Registry Management"
+        ],
+        "summary": "Force Startup Ping",
+        "description": "Force an immediate startup telemetry event (admin only).\n\nBypasses the 60-second lock and sends a startup ping immediately.\nUseful for verifying telemetry pipeline connectivity.\n\nReturns:\n    Status of the startup send attempt.",
+        "operationId": "force_startup_ping_api_registry_management_telemetry_startup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/okta/m2m/sync": {
+      "post": {
+        "tags": [
+          "Okta M2M"
+        ],
+        "summary": "Sync Okta M2M Clients",
+        "description": "Sync M2M clients from Okta to MongoDB (admin only).\n\nThis endpoint queries the Okta Admin API to fetch all M2M service applications\nand stores/updates their information in MongoDB for authorization decisions.\n\nArgs:\n    request: Sync request parameters\n    user_context: Authenticated user context\n\n\nReturns:\n    Sync statistics including number of clients added/updated\n\nRaises:\n    HTTPException: If user is not admin or sync fails",
+        "operationId": "sync_okta_m2m_clients_api_iam_okta_m2m_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OktaSyncRequest",
+                "default": {
+                  "force_full_sync": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OktaSyncResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/okta/m2m/clients": {
       "get": {
         "tags": [
-          "Anthropic Registry API",
+          "Okta M2M"
+        ],
+        "summary": "List Okta M2M Clients",
+        "description": "List all Okta M2M clients from MongoDB.\n\nReturns all M2M service accounts synced from Okta, including their\nclient IDs and group mappings.\n\nArgs:\n    user_context: Authenticated user context\n\n\nReturns:\n    List of Okta M2M clients\n\nRaises:\n    HTTPException: If user is not authenticated",
+        "operationId": "list_okta_m2m_clients_api_iam_okta_m2m_clients_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OktaM2MClient"
+                  },
+                  "type": "array",
+                  "title": "Response List Okta M2M Clients Api Iam Okta M2M Clients Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/okta/m2m/clients/{client_id}/groups": {
+      "get": {
+        "tags": [
+          "Okta M2M"
+        ],
+        "summary": "Get Client Groups",
+        "description": "Get groups for a specific Okta M2M client.\n\nArgs:\n    client_id: Okta client ID\n    user_context: Authenticated user context\n\n\nReturns:\n    List of group names\n\nRaises:\n    HTTPException: If user is not authenticated or client not found",
+        "operationId": "get_client_groups_api_iam_okta_m2m_clients__client_id__groups_get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Client Groups Api Iam Okta M2M Clients  Client Id  Groups Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Okta M2M"
+        ],
+        "summary": "Update Client Groups",
+        "description": "Update groups for an Okta M2M client (admin only).\n\nThis allows administrators to change which groups a service account belongs to\nwithout modifying the Okta authorization server expression.\n\nArgs:\n    client_id: Okta client ID\n    payload: Update payload with new groups\n    user_context: Authenticated user context\n\n\nReturns:\n    Success message\n\nRaises:\n    HTTPException: If user is not admin or update fails",
+        "operationId": "update_client_groups_api_iam_okta_m2m_clients__client_id__groups_patch",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OktaM2MClientUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/auth0/m2m/sync": {
+      "post": {
+        "tags": [
+          "Auth0 M2M"
+        ],
+        "summary": "Sync Auth0 M2M Clients",
+        "description": "Sync M2M clients from Auth0 to MongoDB (admin only).\n\nThis endpoint queries the Auth0 Management API to fetch all M2M applications\nand stores/updates their information in MongoDB for authorization decisions.\n\nArgs:\n    request: Sync request parameters\n    user_context: Authenticated user context\n\n\nReturns:\n    Sync statistics including number of clients added/updated\n\nRaises:\n    HTTPException: If user is not admin or sync fails",
+        "operationId": "sync_auth0_m2m_clients_api_iam_auth0_m2m_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Auth0SyncRequest",
+                "default": {
+                  "force_full_sync": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auth0SyncResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/auth0/m2m/clients": {
+      "get": {
+        "tags": [
+          "Auth0 M2M"
+        ],
+        "summary": "List Auth0 M2M Clients",
+        "description": "List all Auth0 M2M clients from MongoDB.\n\nReturns all M2M service accounts synced from Auth0, including their\nclient IDs and group mappings.\n\nArgs:\n    user_context: Authenticated user context\n\n\nReturns:\n    List of Auth0 M2M clients\n\nRaises:\n    HTTPException: If user is not authenticated",
+        "operationId": "list_auth0_m2m_clients_api_iam_auth0_m2m_clients_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IdPM2MClient"
+                  },
+                  "type": "array",
+                  "title": "Response List Auth0 M2M Clients Api Iam Auth0 M2M Clients Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/iam/auth0/m2m/clients/{client_id}/groups": {
+      "get": {
+        "tags": [
+          "Auth0 M2M"
+        ],
+        "summary": "Get Client Groups",
+        "description": "Get groups for a specific Auth0 M2M client.\n\nArgs:\n    client_id: Auth0 client ID\n    user_context: Authenticated user context\n\n\nReturns:\n    List of group names\n\nRaises:\n    HTTPException: If user is not authenticated or client not found",
+        "operationId": "get_client_groups_api_iam_auth0_m2m_clients__client_id__groups_get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Get Client Groups Api Iam Auth0 M2M Clients  Client Id  Groups Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Auth0 M2M"
+        ],
+        "summary": "Update Client Groups",
+        "description": "Update groups for an Auth0 M2M client (admin only).\n\nThis allows administrators to change which groups a service account belongs to.\n\nArgs:\n    client_id: Auth0 client ID\n    payload: Update payload with new groups\n    user_context: Authenticated user context\n\n\nReturns:\n    Success message\n\nRaises:\n    HTTPException: If user is not admin or update fails",
+        "operationId": "update_client_groups_api_iam_auth0_m2m_clients__client_id__groups_patch",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdPM2MClientUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/registry/v0.1/servers": {
+      "get": {
+        "tags": [
+          "Registry Card",
           "Anthropic Registry API"
         ],
         "summary": "List MCP servers",
         "description": "Returns a paginated list of all registered MCP servers that the authenticated user can access.",
-        "operationId": "list_servers_v0_1_servers_get",
+        "operationId": "list_servers_api_registry_v0_1_servers_get",
         "parameters": [
           {
             "name": "cursor",
@@ -8082,15 +9021,15 @@
         ]
       }
     },
-    "/v0.1/servers/{serverName}/versions": {
+    "/api/registry/v0.1/servers/{serverName}/versions": {
       "get": {
         "tags": [
-          "Anthropic Registry API",
+          "Registry Card",
           "Anthropic Registry API"
         ],
         "summary": "List server versions",
         "description": "Returns all available versions for a specific MCP server.",
-        "operationId": "list_server_versions_v0_1_servers__serverName__versions_get",
+        "operationId": "list_server_versions_api_registry_v0_1_servers__serverName__versions_get",
         "parameters": [
           {
             "name": "serverName",
@@ -8141,15 +9080,15 @@
         ]
       }
     },
-    "/v0.1/servers/{serverName}/versions/{version}": {
+    "/api/registry/v0.1/servers/{serverName}/versions/{version}": {
       "get": {
         "tags": [
-          "Anthropic Registry API",
+          "Registry Card",
           "Anthropic Registry API"
         ],
         "summary": "Get server version details",
         "description": "Returns detailed information about a specific version of an MCP server. Use 'latest' to get the most recent version.",
-        "operationId": "get_server_version_v0_1_servers__serverName__versions__version__get",
+        "operationId": "get_server_version_api_registry_v0_1_servers__serverName__versions__version__get",
         "parameters": [
           {
             "name": "serverName",
@@ -8187,6 +9126,132 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      }
+    },
+    "/api/registry/v0.1/card": {
+      "get": {
+        "tags": [
+          "Registry Card",
+          "Anthropic Registry API"
+        ],
+        "summary": "Get Registry Card",
+        "description": "Get the Registry Card for this instance.\n\nAuto-initializes from config if not found.\nPublic endpoint for federation discovery.\nReturns flattened contact fields for frontend compatibility.",
+        "operationId": "get_registry_card_api_registry_v0_1_card_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Registry Card",
+          "Anthropic Registry API"
+        ],
+        "summary": "Update Registry Card",
+        "description": "Create or update the Registry Card.\n\nRequires admin role. All updates are audit logged.",
+        "operationId": "update_registry_card_api_registry_v0_1_card_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Update Registry Card Api Registry V0 1 Card Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "Bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Registry Card",
+          "Anthropic Registry API"
+        ],
+        "summary": "Patch Registry Card",
+        "description": "Partially update the Registry Card.\n\nRequires admin role. Only updates provided fields.",
+        "operationId": "patch_registry_card_api_registry_v0_1_card_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Patch Registry Card Api Registry V0 1 Card Patch"
                 }
               }
             }
@@ -8250,6 +9315,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/registry-card": {
+      "get": {
+        "tags": [
+          "Discovery"
+        ],
+        "summary": "Get Well Known Registry Card",
+        "description": "Get the Registry Card via .well-known discovery endpoint.\n\nThis is the standard discovery endpoint for registry federation.\nPublic endpoint - no authentication required.",
+        "operationId": "get_well_known_registry_card__well_known_registry_card_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCard"
                 }
               }
             }
@@ -8475,14 +9562,115 @@
           "visibility": {
             "type": "string",
             "title": "Visibility",
-            "description": "Visibility: public, group-restricted, or internal (default)",
-            "default": "internal"
+            "description": "Visibility: public, private, or group-restricted (default: public). 'internal' accepted as alias for 'private'.",
+            "default": "public"
+          },
+          "trustLevel": {
+            "type": "string",
+            "title": "Trustlevel",
+            "description": "Trust level: unverified, community, verified, trusted (default: community)",
+            "default": "community"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus",
+            "description": "Lifecycle status: active, deprecated, draft, or beta",
+            "default": "active"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At",
+            "description": "Original creation timestamp from source system (ISO format)"
+          },
+          "source_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated At",
+            "description": "Last update timestamp from source system (ISO format)"
+          },
+          "external_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Tags",
+            "description": "Comma-separated tags or list of tags from external/source system"
+          },
+          "defaultInputModes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultinputmodes",
+            "description": "Supported input MIME types (e.g., ['text', 'text/plain'])"
+          },
+          "defaultOutputModes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaultoutputmodes",
+            "description": "Supported output MIME types (e.g., ['text', 'text/plain'])"
+          },
+          "ans_agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ans Agent Id",
+            "description": "Optional ANS Agent ID to link during registration"
+          },
+          "supportedProtocol": {
+            "type": "string",
+            "title": "Supportedprotocol",
+            "description": "Agent protocol: 'a2a' for A2A protocol agents, 'other' for non-A2A agents"
           }
         },
         "type": "object",
         "required": [
           "name",
-          "url"
+          "url",
+          "supportedProtocol"
         ],
         "title": "AgentRegistrationRequest",
         "description": "API request model for agent registration.\n\nThis model is used for the agent registration API endpoint and converts\nform-style inputs (e.g., comma-separated tags) into the proper types.\nAccepts both snake_case (Python) and camelCase (A2A spec JSON) field names."
@@ -8516,6 +9704,12 @@
             "type": "object",
             "title": "Agent Card",
             "description": "Full agent card with all details"
+          },
+          "trust_verified": {
+            "type": "string",
+            "title": "Trust Verified",
+            "description": "Trust verification status: none, verified, expired, revoked, not_found, pending",
+            "default": "none"
           }
         },
         "type": "object",
@@ -8742,6 +9936,55 @@
         ],
         "title": "AuditStatisticsResponse",
         "description": "Aggregated audit statistics."
+      },
+      "Auth0SyncRequest": {
+        "properties": {
+          "force_full_sync": {
+            "type": "boolean",
+            "title": "Force Full Sync",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "Auth0SyncRequest",
+        "description": "Request payload for Auth0 M2M sync."
+      },
+      "Auth0SyncResponse": {
+        "properties": {
+          "synced_count": {
+            "type": "integer",
+            "title": "Synced Count"
+          },
+          "added_count": {
+            "type": "integer",
+            "title": "Added Count"
+          },
+          "updated_count": {
+            "type": "integer",
+            "title": "Updated Count"
+          },
+          "removed_count": {
+            "type": "integer",
+            "title": "Removed Count"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "synced_count",
+          "added_count",
+          "updated_count",
+          "removed_count",
+          "errors"
+        ],
+        "title": "Auth0SyncResponse",
+        "description": "Response from Auth0 M2M sync operation."
       },
       "AuthCredentialUpdateRequest": {
         "properties": {
@@ -8970,17 +10213,12 @@
               }
             ],
             "title": "Auth Header Name"
-          },
-          "csrf_token": {
-            "type": "string",
-            "title": "Csrf Token"
           }
         },
         "type": "object",
         "required": [
           "name",
-          "proxy_pass_url",
-          "csrf_token"
+          "proxy_pass_url"
         ],
         "title": "Body_edit_server_submit_api_edit__service_path__post"
       },
@@ -9156,6 +10394,17 @@
               }
             ],
             "title": "Tool List Json"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
           },
           "visibility": {
             "type": "string",
@@ -9390,6 +10639,61 @@
               }
             ],
             "title": "Status"
+          },
+          "provider_organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Organization"
+          },
+          "provider_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Url"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At"
+          },
+          "source_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated At"
+          },
+          "external_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Tags"
           }
         },
         "type": "object",
@@ -9509,6 +10813,61 @@
               }
             ],
             "title": "Auth Header Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "provider_organization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Organization"
+          },
+          "provider_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Url"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At"
+          },
+          "source_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated At"
           }
         },
         "type": "object",
@@ -10285,6 +11644,153 @@
         "title": "HumanUserRequest",
         "description": "Payload for creating a Keycloak human user."
       },
+      "IdPM2MClient": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "title": "Client Id",
+            "description": "IdP application client ID"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Application name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Application description"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Groups",
+            "description": "Groups this client belongs to"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether client is active",
+            "default": true
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "Identity provider (okta, keycloak, entra)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When record was created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When record was last updated"
+          },
+          "idp_app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idp App Id",
+            "description": "IdP internal app ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "name",
+          "provider"
+        ],
+        "title": "IdPM2MClient",
+        "description": "IdP M2M client application with group mappings.\n\nStores information about M2M service accounts from any identity provider\nincluding their client IDs, groups, and metadata. This data is used for\nauthorization decisions when JWT tokens have empty groups claim.",
+        "example": {
+          "client_id": "0oa1100req1AzfKaY698",
+          "description": "AI agent with admin access",
+          "enabled": true,
+          "groups": [
+            "registry-admins"
+          ],
+          "idp_app_id": "0oa1100req1AzfKaY698",
+          "name": "ai-agent",
+          "provider": "okta"
+        }
+      },
+      "IdPM2MClientUpdate": {
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Groups",
+            "description": "New list of groups for this client"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Updated description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "IdPM2MClientUpdate",
+        "description": "Payload for updating an IdP M2M client's group mappings."
+      },
+      "LifecycleStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "deprecated",
+          "draft",
+          "beta"
+        ],
+        "title": "LifecycleStatus",
+        "description": "Lifecycle status for servers and agents."
+      },
+      "LinkANSRequest": {
+        "properties": {
+          "ans_agent_id": {
+            "type": "string",
+            "minLength": 5,
+            "pattern": "^ans://v[\\d.]+\\.[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$",
+            "title": "Ans Agent Id",
+            "description": "ANS Agent ID to link"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ans_agent_id"
+        ],
+        "title": "LinkANSRequest",
+        "description": "Request to link an ANS Agent ID."
+      },
       "M2MAccountRequest": {
         "properties": {
           "name": {
@@ -10375,6 +11881,168 @@
         ],
         "title": "MatchingToolResult",
         "description": "Tool matching result with optional schema for display."
+      },
+      "OktaM2MClient": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "title": "Client Id",
+            "description": "Okta application client ID"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Application name/label"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Application description"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Groups",
+            "description": "Groups this client belongs to"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether client is active",
+            "default": true
+          },
+          "okta_app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Okta App Id",
+            "description": "Okta internal app ID"
+          },
+          "last_synced": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced",
+            "description": "Last sync timestamp"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When record was created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When record was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "name"
+        ],
+        "title": "OktaM2MClient",
+        "description": "Okta M2M client application with group mappings.",
+        "example": {
+          "client_id": "0oa1100req1AzfKaY698",
+          "description": "AI agent with admin access",
+          "enabled": true,
+          "groups": [
+            "registry-admins"
+          ],
+          "name": "ai-agent",
+          "okta_app_id": "0oa1100req1AzfKaY698"
+        }
+      },
+      "OktaM2MClientUpdate": {
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Groups",
+            "description": "New list of groups for this client"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "OktaM2MClientUpdate",
+        "description": "Payload for updating an Okta M2M client's group mappings."
+      },
+      "OktaSyncRequest": {
+        "properties": {
+          "force_full_sync": {
+            "type": "boolean",
+            "title": "Force Full Sync",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "OktaSyncRequest",
+        "description": "Request payload for Okta M2M sync."
+      },
+      "OktaSyncResponse": {
+        "properties": {
+          "synced_count": {
+            "type": "integer",
+            "title": "Synced Count"
+          },
+          "added_count": {
+            "type": "integer",
+            "title": "Added Count"
+          },
+          "updated_count": {
+            "type": "integer",
+            "title": "Updated Count"
+          },
+          "removed_count": {
+            "type": "integer",
+            "title": "Removed Count"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "synced_count",
+          "added_count",
+          "updated_count",
+          "removed_count",
+          "errors"
+        ],
+        "title": "OktaSyncResponse",
+        "description": "Response from Okta M2M sync operation."
       },
       "Package": {
         "properties": {
@@ -10799,6 +12467,269 @@
         "title": "PeerSyncSummary",
         "description": "Summary of resources shared with a peer."
       },
+      "RegistryAuthConfig": {
+        "properties": {
+          "schemes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Schemes",
+            "description": "Supported auth schemes"
+          },
+          "oauth2_issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oauth2 Issuer",
+            "description": "OAuth2/OIDC issuer URL"
+          },
+          "oauth2_token_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oauth2 Token Endpoint",
+            "description": "OAuth2 token endpoint"
+          },
+          "scopes_supported": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes Supported",
+            "description": "OAuth2 scopes"
+          }
+        },
+        "type": "object",
+        "title": "RegistryAuthConfig",
+        "description": "Authentication configuration for federation."
+      },
+      "RegistryCapabilities": {
+        "properties": {
+          "servers": {
+            "type": "boolean",
+            "title": "Servers",
+            "description": "Supports MCP servers",
+            "default": true
+          },
+          "agents": {
+            "type": "boolean",
+            "title": "Agents",
+            "description": "Supports A2A agents",
+            "default": true
+          },
+          "skills": {
+            "type": "boolean",
+            "title": "Skills",
+            "description": "Supports AI agent skills",
+            "default": true
+          },
+          "prompts": {
+            "type": "boolean",
+            "title": "Prompts",
+            "description": "Supports prompt templates",
+            "default": false
+          },
+          "security_scans": {
+            "type": "boolean",
+            "title": "Security Scans",
+            "description": "Runs security scans",
+            "default": true
+          },
+          "incremental_sync": {
+            "type": "boolean",
+            "title": "Incremental Sync",
+            "description": "Supports incremental sync",
+            "default": false
+          },
+          "webhooks": {
+            "type": "boolean",
+            "title": "Webhooks",
+            "description": "Supports webhook notifications",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "RegistryCapabilities",
+        "description": "Capabilities supported by this registry."
+      },
+      "RegistryCard": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "description": "Schema version for forward/backward compatibility",
+            "default": "1.0.0"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Unique identifier (UUID) for this registry instance"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable registry name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Registry description (max 1000 chars)"
+          },
+          "registry_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registry Url",
+            "description": "Base URL of this registry instance"
+          },
+          "organization_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Name",
+            "description": "Organization name that operates this registry"
+          },
+          "federation_api_version": {
+            "type": "string",
+            "title": "Federation Api Version",
+            "description": "Federation API version",
+            "default": "1.0"
+          },
+          "federation_endpoint": {
+            "type": "string",
+            "maxLength": 2083,
+            "minLength": 1,
+            "format": "uri",
+            "title": "Federation Endpoint",
+            "description": "Federation API base URL (HTTPS required)"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/RegistryCapabilities",
+            "description": "Registry capabilities"
+          },
+          "authentication": {
+            "$ref": "#/components/schemas/RegistryAuthConfig",
+            "description": "Auth configuration"
+          },
+          "visibility_policy": {
+            "type": "string",
+            "title": "Visibility Policy",
+            "description": "Visibility policy: public_only, authenticated, private",
+            "default": "public_only"
+          },
+          "contact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegistryContact"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Contact information"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata",
+            "description": "Additional metadata (max 10KB serialized)"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "Created timestamp"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Last updated timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "federation_endpoint"
+        ],
+        "title": "RegistryCard",
+        "description": "Registry Card describing this registry instance.\n\nUsed for federation discovery and registry metadata."
+      },
+      "RegistryContact": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email",
+            "description": "Contact email"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "Documentation or support URL"
+          }
+        },
+        "type": "object",
+        "title": "RegistryContact",
+        "description": "Contact information for registry operators."
+      },
       "Repository": {
         "properties": {
           "url": {
@@ -10849,9 +12780,9 @@
           "query": {
             "type": "string",
             "maxLength": 512,
-            "minLength": 1,
             "title": "Query",
-            "description": "Natural language query"
+            "description": "Natural language query. Can be empty when filtering by tags only.",
+            "default": ""
           },
           "entity_types": {
             "anyOf": [
@@ -10875,6 +12806,21 @@
             "title": "Entity Types",
             "description": "Optional entity filters"
           },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags",
+            "description": "Exact tag filters. Only return entities that have ALL specified tags."
+          },
           "max_results": {
             "type": "integer",
             "maximum": 50.0,
@@ -10885,9 +12831,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "query"
-        ],
         "title": "SemanticSearchRequest"
       },
       "SemanticSearchResponse": {
@@ -11242,6 +13185,12 @@
             "type": "array",
             "title": "Supported Transports",
             "description": "Supported transport types (e.g., streamable-http, sse)"
+          },
+          "trust_verified": {
+            "type": "string",
+            "title": "Trust Verified",
+            "description": "Trust verification status: none, verified, expired, revoked, not_found, pending",
+            "default": "none"
           }
         },
         "type": "object",
@@ -11268,6 +13217,12 @@
       },
       "SkillCard": {
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Unique identifier (UUID) for this skill"
+          },
           "path": {
             "type": "string",
             "title": "Path",
@@ -11505,6 +13460,45 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus",
+            "description": "Lifecycle status: active, deprecated, draft, or beta",
+            "default": "active"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At",
+            "description": "Creation timestamp from federated source"
+          },
+          "source_updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Updated At",
+            "description": "Last update timestamp from federated source"
+          },
+          "external_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "External Tags",
+            "description": "Tags from external/federated registries"
           }
         },
         "type": "object",
@@ -11673,6 +13667,11 @@
             },
             "type": "array",
             "title": "Allowed Groups"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus",
+            "description": "Lifecycle status: active, deprecated, draft, or beta",
+            "default": "active"
           }
         },
         "type": "object",
@@ -11884,6 +13883,11 @@
             },
             "type": "array",
             "title": "Target Agents"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus",
+            "description": "Lifecycle status: active, deprecated, draft, or beta",
+            "default": "active"
           }
         },
         "type": "object",
