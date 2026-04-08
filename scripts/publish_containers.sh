@@ -48,7 +48,6 @@ declare -a COMPONENTS=(
 
 # External images to mirror (pull from source and push to our registries)
 declare -a EXTERNAL_IMAGES=(
-    "atlassian:ghcr.io/sooperset/mcp-atlassian:latest"
     "postgres:postgres:16-alpine"
     "prometheus:prom/prometheus:latest"
     "grafana:grafana/grafana:latest"
