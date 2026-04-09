@@ -199,3 +199,158 @@ class TestJWTCreation:
 
         header = jwt.get_unverified_header(token)
         assert header["alg"] == "RS256"
+
+
+class TestTokenExchange:
+    """Tests for GitHub App token exchange and caching."""
+
+    @patch("registry.services.github_auth.settings")
+    async def test_successful_token_exchange(self, mock_settings):
+        """Successful token exchange returns bearer header."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+
+        mock_settings.github_pat = "ghp_fallback"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_installation_id = "67890"
+        mock_settings.github_app_private_key = pem
+        mock_settings.github_extra_hosts = ""
+
+        from registry.services.github_auth import GitHubAuthProvider
+
+        provider = GitHubAuthProvider()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {"token": "ghs_installation_token_abc"}
+
+        with patch("registry.services.github_auth.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            headers = await provider.get_auth_headers("https://github.com/owner/repo")
+            assert headers == {"Authorization": "Bearer ghs_installation_token_abc"}
+
+    @patch("registry.services.github_auth.settings")
+    async def test_cached_token_reused(self, mock_settings):
+        """Second call within TTL reuses cached token."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+
+        mock_settings.github_pat = ""
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_installation_id = "67890"
+        mock_settings.github_app_private_key = pem
+        mock_settings.github_extra_hosts = ""
+
+        from registry.services.github_auth import GitHubAuthProvider
+
+        provider = GitHubAuthProvider()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {"token": "ghs_cached_token"}
+
+        with patch("registry.services.github_auth.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            # First call -- fetches token
+            headers1 = await provider.get_auth_headers("https://github.com/owner/repo")
+            # Second call -- should reuse cache, no new POST
+            headers2 = await provider.get_auth_headers("https://github.com/owner/repo")
+
+            assert headers1 == {"Authorization": "Bearer ghs_cached_token"}
+            assert headers2 == {"Authorization": "Bearer ghs_cached_token"}
+            # POST should only be called once
+            assert mock_client.post.call_count == 1
+
+    @patch("registry.services.github_auth.settings")
+    async def test_exchange_failure_falls_back_to_pat(self, mock_settings):
+        """Failed token exchange falls back to PAT."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+
+        mock_settings.github_pat = "ghp_fallback_token"
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_installation_id = "67890"
+        mock_settings.github_app_private_key = pem
+        mock_settings.github_extra_hosts = ""
+
+        from registry.services.github_auth import GitHubAuthProvider
+
+        provider = GitHubAuthProvider()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = "Bad credentials"
+
+        with patch("registry.services.github_auth.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            headers = await provider.get_auth_headers("https://github.com/owner/repo")
+            assert headers == {"Authorization": "Bearer ghp_fallback_token"}
+
+    @patch("registry.services.github_auth.settings")
+    async def test_exchange_failure_no_pat_returns_empty(self, mock_settings):
+        """Failed token exchange with no PAT returns empty headers."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode()
+
+        mock_settings.github_pat = ""
+        mock_settings.github_app_id = "12345"
+        mock_settings.github_app_installation_id = "67890"
+        mock_settings.github_app_private_key = pem
+        mock_settings.github_extra_hosts = ""
+
+        from registry.services.github_auth import GitHubAuthProvider
+
+        provider = GitHubAuthProvider()
+
+        with patch("registry.services.github_auth.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            headers = await provider.get_auth_headers("https://github.com/owner/repo")
+            assert headers == {}
