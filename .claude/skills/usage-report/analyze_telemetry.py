@@ -446,8 +446,9 @@ def _compute_instance_table(
             _safe_int(e.get("search_queries_total", "")) for e in events
         )
 
-        # Sum total search queries across all events
-        total_search = sum(
+        # search_queries_total is already a lifetime cumulative counter
+        # in each event, so take the max (latest value) not the sum
+        total_search = max(
             _safe_int(e.get("search_queries_total", "")) for e in events
         )
 
@@ -510,7 +511,9 @@ def _compute_unidentified_profiles(
         max_search = max(
             _safe_int(e.get("search_queries_total", "")) for e in events
         )
-        total_search = sum(
+        # search_queries_total is already a lifetime cumulative counter
+        # in each event, so take the max (latest value) not the sum
+        total_search = max(
             _safe_int(e.get("search_queries_total", "")) for e in events
         )
 
@@ -621,30 +624,52 @@ def _compute_version_table(
 def _compute_search_stats(
     rows: list[dict[str, str]],
 ) -> dict:
-    """Compute search usage statistics."""
-    total_sum = sum(_safe_int(r.get("search_queries_total", "")) for r in rows)
-    total_24h = sum(_safe_int(r.get("search_queries_24h", "")) for r in rows)
-    total_1h = sum(_safe_int(r.get("search_queries_1h", "")) for r in rows)
+    """Compute search usage statistics.
 
-    max_total = max(
-        (_safe_int(r.get("search_queries_total", "")) for r in rows),
-        default=0,
-    )
+    search_queries_total is a lifetime cumulative counter in each event,
+    so we take the max per instance (latest reported value) then sum
+    across instances to get the fleet-wide total.
+    """
+    # Group by instance to get the max (latest) lifetime count per instance
+    instance_max_total: dict[str, int] = {}
+    instance_max_24h: dict[str, int] = {}
+    instance_max_1h: dict[str, int] = {}
 
-    # Instances with any search activity
-    active_instances = set()
+    active_instances: set[str] = set()
+
     for r in rows:
-        if _safe_int(r.get("search_queries_total", "")) > 0:
-            rid = r.get("registry_id", "").strip()
-            if rid:
-                active_instances.add(rid[:12] + "...")
-            else:
-                # Use profile key for unidentified
-                key = f"{r.get('cloud')}/{r.get('compute')}"
-                active_instances.add(key)
+        rid = r.get("registry_id", "").strip()
+        if rid:
+            instance_key = rid[:12] + "..."
+        else:
+            instance_key = f"{r.get('cloud')}/{r.get('compute')}"
 
-    total = len(rows)
-    avg = total_sum / total if total > 0 else 0
+        sq_total = _safe_int(r.get("search_queries_total", ""))
+        sq_24h = _safe_int(r.get("search_queries_24h", ""))
+        sq_1h = _safe_int(r.get("search_queries_1h", ""))
+
+        instance_max_total[instance_key] = max(
+            instance_max_total.get(instance_key, 0), sq_total
+        )
+        instance_max_24h[instance_key] = max(
+            instance_max_24h.get(instance_key, 0), sq_24h
+        )
+        instance_max_1h[instance_key] = max(
+            instance_max_1h.get(instance_key, 0), sq_1h
+        )
+
+        if sq_total > 0:
+            active_instances.add(instance_key)
+
+    # Fleet-wide totals: sum of per-instance max values
+    total_sum = sum(instance_max_total.values())
+    total_24h = sum(instance_max_24h.values())
+    total_1h = sum(instance_max_1h.values())
+
+    max_total = max(instance_max_total.values(), default=0)
+
+    instance_count = len(instance_max_total)
+    avg = total_sum / instance_count if instance_count > 0 else 0
 
     return {
         "instances_with_search": len(active_instances),
@@ -802,12 +827,12 @@ def _build_markdown_tables(
     lines.append(
         "| Registry ID | Cloud | Compute | Storage | Auth "
         "| Federation | Arch | Servers | Agents | Skills "
-        "| Search (Max) | Search (Total) | Events | First Seen |"
+        "| Search (Lifetime) | Events | First Seen |"
     )
     lines.append(
         "|-------------|-------|---------|---------|------"
         "|------------|------|---------|--------|--------"
-        "|--------------|----------------|--------|------------|"
+        "|-------------------|--------|------------|"
     )
     for inst in instances:
         fed = "Yes" if inst["federation"] else "No"
@@ -822,7 +847,6 @@ def _build_markdown_tables(
             f"| {inst['max_servers']} "
             f"| {inst['max_agents']} "
             f"| {inst['max_skills']} "
-            f"| {inst['max_search_queries']} "
             f"| {inst['total_search_queries']} "
             f"| {inst['events']} "
             f"| {inst['first_seen']} |"
@@ -835,12 +859,12 @@ def _build_markdown_tables(
     lines.append(
         "| Cloud | Compute | Arch | Storage | Auth "
         "| Mode | Servers | Agents | Skills "
-        "| Search (Max) | Search (Total) | Events | Period |"
+        "| Search (Lifetime) | Events | Period |"
     )
     lines.append(
         "|-------|---------|------|---------|------"
         "|------|---------|--------|--------"
-        "|--------------|----------------|--------|--------|"
+        "|-------------------|--------|--------|"
     )
     for prof in unidentified:
         period = prof["first_seen"]
@@ -856,7 +880,6 @@ def _build_markdown_tables(
             f"| {prof['max_servers']} "
             f"| {prof['max_agents']} "
             f"| {prof['max_skills']} "
-            f"| {prof['max_search_queries']} "
             f"| {prof['total_search_queries']} "
             f"| {prof['events']} "
             f"| {period} |"
@@ -915,14 +938,14 @@ def _build_markdown_tables(
         f"({', '.join(search['active_instance_names'])}) |"
     )
     lines.append(
-        f"| Total search queries (lifetime sum) "
+        f"| Total search queries (sum of per-instance lifetime counts) "
         f"| {search['lifetime_sum']} |"
     )
     lines.append(
-        f"| Average per event | {search['lifetime_avg']} |"
+        f"| Average per instance | {search['lifetime_avg']} |"
     )
     lines.append(
-        f"| Max from single event | {search['lifetime_max']} |"
+        f"| Max from single instance | {search['lifetime_max']} |"
     )
     lines.append("")
 
