@@ -40,6 +40,10 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("deployment_mode", "Deployment Mode", False),
             ("registry_mode", "Registry Mode", False),
             ("nginx_updates_enabled", "Nginx Updates Enabled", False),
+            ("show_servers_tab", "Show MCP Servers Tab", False),
+            ("show_virtual_servers_tab", "Show Virtual MCP Servers Tab", False),
+            ("show_skills_tab", "Show Skills Tab", False),
+            ("show_agents_tab", "Show Agents Tab", False),
         ],
     },
     "storage": {
@@ -589,7 +593,10 @@ async def get_config() -> dict[str, Any]:
                 settings.registry_mode in (RegistryMode.FULL, RegistryMode.SKILLS_ONLY)
                 and settings.show_skills_tab
             ),
-            "virtual_servers": settings.show_virtual_servers_tab,
+            "virtual_servers": (
+                settings.registry_mode in (RegistryMode.FULL, RegistryMode.MCP_SERVERS_ONLY)
+                and settings.show_virtual_servers_tab
+            ),
             "federation": settings.registry_mode == RegistryMode.FULL,
             "gateway_proxy": settings.deployment_mode == DeploymentMode.WITH_GATEWAY,
         },

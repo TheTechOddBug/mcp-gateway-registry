@@ -38,6 +38,59 @@ Based on your selection, configure the corresponding provider-specific variables
 | `AUTH_PROVIDER` | Authentication provider (`cognito` or `keycloak`) | `keycloak` | ✅ |
 | `AWS_REGION` | AWS region for services | `us-east-1` | ✅ |
 
+### Deployment Mode Configuration
+
+Controls how the registry operates and which UI tabs are visible.
+
+| Variable | Description | Values | Default |
+|----------|-------------|--------|---------|
+| `DEPLOYMENT_MODE` | How registry integrates with the gateway | `with-gateway`, `registry-only` | `with-gateway` |
+| `REGISTRY_MODE` | Which feature categories are enabled | `full`, `mcp-servers-only`, `agents-only`, `skills-only` | `full` |
+
+**Deployment Mode Options:**
+
+- **`with-gateway`**: Full integration with nginx reverse proxy. Nginx config is regenerated when servers are registered or deleted.
+- **`registry-only`**: Registry operates as a catalog/discovery service only. Nginx config is not updated on server changes.
+
+**Registry Mode Options:**
+
+- **`full`**: All features enabled (MCP servers, agents, skills, federation)
+- **`mcp-servers-only`**: Only MCP server and virtual server features enabled
+- **`agents-only`**: Only A2A agent features enabled
+- **`skills-only`**: Only skills features enabled
+
+**Note:** `with-gateway` + `skills-only` is an invalid combination and auto-corrects to `registry-only` + `skills-only` at startup.
+
+### Tab Visibility Overrides
+
+These variables allow hiding specific UI tabs independently of `REGISTRY_MODE`. The visibility formula is:
+
+```
+tab_visible = REGISTRY_MODE enables the feature AND SHOW_*_TAB is true
+```
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SHOW_SERVERS_TAB` | Show the MCP Servers tab in the UI | `true` |
+| `SHOW_VIRTUAL_SERVERS_TAB` | Show the Virtual MCP Servers tab in the UI | `true` |
+| `SHOW_SKILLS_TAB` | Show the Skills tab in the UI | `true` |
+| `SHOW_AGENTS_TAB` | Show the Agents tab in the UI | `true` |
+
+**Precedence Matrix:**
+
+| Scenario | Result |
+|----------|--------|
+| `REGISTRY_MODE=full` + `SHOW_AGENTS_TAB=true` | Agents tab shown |
+| `REGISTRY_MODE=full` + `SHOW_AGENTS_TAB=false` | Agents tab hidden (backend APIs still work) |
+| `REGISTRY_MODE=mcp-servers-only` + `SHOW_AGENTS_TAB=true` | Agents tab hidden (mode blocks it) |
+| `REGISTRY_MODE=mcp-servers-only` + `SHOW_AGENTS_TAB=false` | Agents tab hidden |
+
+**Important:**
+- Setting `SHOW_*_TAB=false` only hides the UI tab. Backend APIs remain fully functional.
+- If a `SHOW_*_TAB` is set to `true` but `REGISTRY_MODE` does not enable that feature, a warning is logged at startup.
+- All defaults are `true` for backward compatibility.
+- These settings are visible in the **Settings > System Config** page under the "Deployment Mode" group.
+
 ### Keycloak Configuration (if AUTH_PROVIDER=keycloak)
 
 | Variable | Description | Example | Required |
@@ -709,8 +762,8 @@ Administrators can view and export the current system configuration through the 
 
 The Configuration Viewer provides:
 
-- **Grouped View**: Configuration parameters organized into 11 categories:
-  - Deployment Mode
+- **Grouped View**: Configuration parameters organized into categories:
+  - Deployment Mode (includes tab visibility overrides)
   - Storage Backend
   - Authentication
   - Embeddings / Vector Search
@@ -760,10 +813,14 @@ curl -X GET "https://your-registry/api/config"
   "deployment_mode": "with-gateway",
   "registry_mode": "full",
   "nginx_updates_enabled": true,
+  "asset_lifecycle_statuses": ["active", "deprecated", "experimental"],
   "features": {
     "mcp_servers": true,
     "agents": true,
-    "skills": true
+    "skills": true,
+    "virtual_servers": true,
+    "federation": true,
+    "gateway_proxy": true
   }
 }
 ```
