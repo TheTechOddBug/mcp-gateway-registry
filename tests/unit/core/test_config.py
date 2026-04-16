@@ -859,3 +859,120 @@ class TestSettingsAuthServerUrls:
         # Assert
         assert settings.auth_server_url == "http://auth-internal:8888"
         assert settings.auth_server_external_url == "https://auth.example.com"
+
+
+# =============================================================================
+# TEST CLASS: Settings Tab Visibility Feature Flags
+# =============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.core
+class TestSettingsTabVisibilityFeatureFlags:
+    """Test SHOW_*_TAB + REGISTRY_MODE precedence in get_config() response."""
+
+    @pytest.mark.asyncio
+    async def test_settings_tab_defaults_match_current_behavior(self):
+        """All defaults (true) produce same features as REGISTRY_MODE=full."""
+        from registry.api.config_routes import get_config
+
+        result = await get_config()
+        features = result["features"]
+
+        assert features["mcp_servers"] is True
+        assert features["agents"] is True
+        assert features["skills"] is True
+        assert features["virtual_servers"] is True
+
+    @pytest.mark.asyncio
+    async def test_settings_tab_show_false_hides_feature(self, monkeypatch, tmp_path):
+        """Setting SHOW_AGENTS_TAB=false hides the tab even with REGISTRY_MODE=full."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("SHOW_AGENTS_TAB", "false")
+
+        new_settings = Settings()
+        with patch("registry.api.config_routes.settings", new_settings):
+            from registry.api.config_routes import get_config
+            result = await get_config()
+            assert result["features"]["agents"] is False
+            assert result["features"]["mcp_servers"] is True
+
+    @pytest.mark.asyncio
+    async def test_settings_tab_mode_disables_feature_regardless(self, monkeypatch, tmp_path):
+        """REGISTRY_MODE=mcp-servers-only hides agents even if SHOW_AGENTS_TAB=true."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REGISTRY_MODE", "mcp-servers-only")
+        monkeypatch.setenv("SHOW_AGENTS_TAB", "true")
+
+        new_settings = Settings()
+        with patch("registry.api.config_routes.settings", new_settings):
+            from registry.api.config_routes import get_config
+            result = await get_config()
+            assert result["features"]["agents"] is False
+            assert result["features"]["mcp_servers"] is True
+
+    @pytest.mark.asyncio
+    async def test_settings_tab_virtual_servers_key_present(self):
+        """virtual_servers key is present in features dict."""
+        from registry.api.config_routes import get_config
+
+        result = await get_config()
+        assert "virtual_servers" in result["features"]
+        assert result["features"]["virtual_servers"] is True
+
+    @pytest.mark.asyncio
+    async def test_settings_tab_virtual_servers_false(self, monkeypatch, tmp_path):
+        """SHOW_VIRTUAL_SERVERS_TAB=false hides virtual servers."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("SHOW_VIRTUAL_SERVERS_TAB", "false")
+
+        new_settings = Settings()
+        with patch("registry.api.config_routes.settings", new_settings):
+            from registry.api.config_routes import get_config
+            result = await get_config()
+            assert result["features"]["virtual_servers"] is False
+
+
+# =============================================================================
+# TEST CLASS: Settings Tab Visibility Startup Warnings
+# =============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.core
+class TestSettingsTabVisibilityStartupWarnings:
+    """Test log_tab_visibility_warnings() logs correctly."""
+
+    def test_settings_tab_warning_for_ineffective_override(self, monkeypatch, tmp_path, caplog):
+        """Warning logged when SHOW_AGENTS_TAB=true but mode disables agents."""
+        monkeypatch.delenv("SHOW_AGENTS_TAB", raising=False)
+        monkeypatch.setenv("REGISTRY_MODE", "mcp-servers-only")
+        monkeypatch.chdir(tmp_path)
+
+        import logging
+
+        from registry.core.config import log_tab_visibility_warnings
+
+        s = Settings()
+        with caplog.at_level(logging.WARNING):
+            log_tab_visibility_warnings(s)
+
+        assert any(
+            "SHOW_AGENTS_TAB" in msg and "mcp-servers-only" in msg
+            for msg in caplog.messages
+        )
+
+    def test_settings_tab_no_warning_when_consistent(self, monkeypatch, tmp_path, caplog):
+        """No warning when all SHOW_*_TAB are consistent with REGISTRY_MODE=full."""
+        monkeypatch.setenv("REGISTRY_MODE", "full")
+        monkeypatch.chdir(tmp_path)
+
+        import logging
+
+        from registry.core.config import log_tab_visibility_warnings
+
+        s = Settings()
+        with caplog.at_level(logging.WARNING):
+            log_tab_visibility_warnings(s)
+
+        assert not any("SHOW_" in msg for msg in caplog.messages)

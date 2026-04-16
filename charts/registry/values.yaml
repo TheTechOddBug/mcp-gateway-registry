@@ -61,6 +61,12 @@ app:
   # Registry mode: full, skills-only, mcp-servers-only, agents-only
   registryMode: full
 
+  # Tab visibility overrides (AND-ed with registryMode)
+  showServersTab: true
+  showVirtualServersTab: true
+  showSkillsTab: true
+  showAgentsTab: true
+
 # AWS Agent Registry Federation
 awsRegistry:
   federationEnabled: false  # Enable AWS Agent Registry federation (overrides MongoDB config on startup)

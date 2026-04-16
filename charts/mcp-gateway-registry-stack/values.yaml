@@ -193,6 +193,12 @@ registry:
     # Registry mode: full, skills-only, mcp-servers-only, agents-only
     registryMode: full
 
+    # Tab visibility overrides (AND-ed with registryMode)
+    showServersTab: true
+    showVirtualServersTab: true
+    showSkillsTab: true
+    showAgentsTab: true
+
     # Federation OAuth2 authentication (alternative to static token)
     federationTokenEndpoint: ""
     federationClientId: ""

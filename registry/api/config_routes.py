@@ -565,10 +565,19 @@ async def get_config() -> dict[str, Any]:
         "nginx_updates_enabled": settings.nginx_updates_enabled,
         "asset_lifecycle_statuses": [s.value for s in LifecycleStatus],
         "features": {
-            "mcp_servers": settings.registry_mode
-            in (RegistryMode.FULL, RegistryMode.MCP_SERVERS_ONLY),
-            "agents": settings.registry_mode in (RegistryMode.FULL, RegistryMode.AGENTS_ONLY),
-            "skills": settings.registry_mode in (RegistryMode.FULL, RegistryMode.SKILLS_ONLY),
+            "mcp_servers": (
+                settings.registry_mode in (RegistryMode.FULL, RegistryMode.MCP_SERVERS_ONLY)
+                and settings.show_servers_tab
+            ),
+            "agents": (
+                settings.registry_mode in (RegistryMode.FULL, RegistryMode.AGENTS_ONLY)
+                and settings.show_agents_tab
+            ),
+            "skills": (
+                settings.registry_mode in (RegistryMode.FULL, RegistryMode.SKILLS_ONLY)
+                and settings.show_skills_tab
+            ),
+            "virtual_servers": settings.show_virtual_servers_tab,
             "federation": settings.registry_mode == RegistryMode.FULL,
             "gateway_proxy": settings.deployment_mode == DeploymentMode.WITH_GATEWAY,
         },
