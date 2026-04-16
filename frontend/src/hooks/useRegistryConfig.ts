@@ -9,6 +9,7 @@ interface RegistryConfig {
     mcp_servers: boolean;
     agents: boolean;
     skills: boolean;
+    virtual_servers: boolean;
     federation: boolean;
     gateway_proxy: boolean;
   };
@@ -22,6 +23,7 @@ const DEFAULT_CONFIG: RegistryConfig = {
     mcp_servers: true,
     agents: true,
     skills: true,
+    virtual_servers: true,
     federation: true,
     gateway_proxy: true,
   },

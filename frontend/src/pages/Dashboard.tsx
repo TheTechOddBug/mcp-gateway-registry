@@ -2224,7 +2224,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
         )}
 
       {/* Virtual MCP Servers Section */}
-      {(viewFilter === 'virtual') &&
+      {registryConfig?.features.virtual_servers !== false &&
+        (viewFilter === 'virtual') &&
         (filteredVirtualServers.length > 0 || viewFilter === 'virtual') && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
@@ -2514,16 +2515,18 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 MCP Servers
               </button>
             )}
-            <button
-              onClick={() => handleChangeViewFilter('virtual')}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
-                viewFilter === 'virtual'
-                  ? 'border-teal-500 text-teal-600 dark:text-teal-400'
-                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              Virtual MCP Servers
-            </button>
+            {registryConfig?.features.virtual_servers !== false && (
+              <button
+                onClick={() => handleChangeViewFilter('virtual')}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
+                  viewFilter === 'virtual'
+                    ? 'border-teal-500 text-teal-600 dark:text-teal-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Virtual MCP Servers
+              </button>
+            )}
             {registryConfig?.features.agents !== false && (
               <button
                 onClick={() => handleChangeViewFilter('agents')}

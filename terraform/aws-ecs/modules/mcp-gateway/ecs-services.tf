@@ -832,6 +832,22 @@ module "ecs_service_registry" {
           value = var.registry_mode
         },
         {
+          name  = "SHOW_SERVERS_TAB"
+          value = tostring(var.show_servers_tab)
+        },
+        {
+          name  = "SHOW_VIRTUAL_SERVERS_TAB"
+          value = tostring(var.show_virtual_servers_tab)
+        },
+        {
+          name  = "SHOW_SKILLS_TAB"
+          value = tostring(var.show_skills_tab)
+        },
+        {
+          name  = "SHOW_AGENTS_TAB"
+          value = tostring(var.show_agents_tab)
+        },
+        {
           name  = "OAUTH_STORE_TOKENS_IN_SESSION"
           value = tostring(var.oauth_store_tokens_in_session)
         },

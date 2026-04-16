@@ -339,6 +339,12 @@ class Settings(BaseSettings):
         default=RegistryMode.FULL, description="Registry operating mode"
     )
 
+    # Tab visibility overrides (AND-ed with REGISTRY_MODE feature flags)
+    show_servers_tab: bool = True
+    show_virtual_servers_tab: bool = True
+    show_skills_tab: bool = True
+    show_agents_tab: bool = True
+
     # Telemetry settings (anonymous usage tracking)
     telemetry_enabled: bool = Field(
         default=True,
@@ -629,6 +635,35 @@ Auto-converting to:
 """
     logger.warning(banner)
     print(banner)
+
+
+def log_tab_visibility_warnings(s: Settings) -> None:
+    """Log warnings for SHOW_*_TAB parameters that are ineffective given REGISTRY_MODE."""
+    mode = s.registry_mode
+    checks = [
+        (
+            s.show_servers_tab,
+            "SHOW_SERVERS_TAB",
+            mode in (RegistryMode.FULL, RegistryMode.MCP_SERVERS_ONLY),
+        ),
+        (
+            s.show_agents_tab,
+            "SHOW_AGENTS_TAB",
+            mode in (RegistryMode.FULL, RegistryMode.AGENTS_ONLY),
+        ),
+        (
+            s.show_skills_tab,
+            "SHOW_SKILLS_TAB",
+            mode in (RegistryMode.FULL, RegistryMode.SKILLS_ONLY),
+        ),
+    ]
+    for show_tab, param_name, mode_enables in checks:
+        if show_tab and not mode_enables:
+            logger.warning(
+                "%s is true but REGISTRY_MODE=%s does not enable this feature; "
+                "the tab will remain hidden.",
+                param_name, mode.value,
+            )
 
 
 # Global settings instance

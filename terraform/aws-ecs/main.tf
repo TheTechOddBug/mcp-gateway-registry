@@ -193,6 +193,12 @@ module "mcp_gateway" {
   deployment_mode = var.deployment_mode
   registry_mode   = var.registry_mode
 
+  # Tab visibility overrides
+  show_servers_tab         = var.show_servers_tab
+  show_virtual_servers_tab = var.show_virtual_servers_tab
+  show_skills_tab          = var.show_skills_tab
+  show_agents_tab          = var.show_agents_tab
+
   # Observability configuration
   enable_observability      = var.enable_observability
   metrics_service_image_uri = var.metrics_service_image_uri

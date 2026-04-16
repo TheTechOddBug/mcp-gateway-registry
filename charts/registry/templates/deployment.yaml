@@ -69,6 +69,14 @@ spec:
               value: {{ .Values.app.deploymentMode | default "with-gateway" | quote }}
             - name: REGISTRY_MODE
               value: {{ .Values.app.registryMode | default "full" | quote }}
+            - name: SHOW_SERVERS_TAB
+              value: {{ .Values.app.showServersTab | default true | quote }}
+            - name: SHOW_VIRTUAL_SERVERS_TAB
+              value: {{ .Values.app.showVirtualServersTab | default true | quote }}
+            - name: SHOW_SKILLS_TAB
+              value: {{ .Values.app.showSkillsTab | default true | quote }}
+            - name: SHOW_AGENTS_TAB
+              value: {{ .Values.app.showAgentsTab | default true | quote }}
             {{- if .Values.awsRegistry.federationEnabled }}
             - name: AWS_REGISTRY_FEDERATION_ENABLED
               value: "true"

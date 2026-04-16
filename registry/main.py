@@ -61,6 +61,7 @@ from registry.core.config import (
     RegistryMode,
     _print_config_warning_banner,
     _validate_mode_combination,
+    log_tab_visibility_warnings,
     settings,
 )
 from registry.core.metrics import DEPLOYMENT_MODE_INFO
@@ -402,6 +403,9 @@ async def lifespan(app: FastAPI):
 
     # Log startup configuration
     _log_startup_configuration()
+
+    # Log warnings for ineffective SHOW_*_TAB overrides
+    log_tab_visibility_warnings(settings)
 
     # Initialize Prometheus metrics
     _initialize_deployment_metrics()

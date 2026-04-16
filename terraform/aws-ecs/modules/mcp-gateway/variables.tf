@@ -805,6 +805,30 @@ variable "registry_mode" {
   default     = "full"
 }
 
+variable "show_servers_tab" {
+  description = "Show the MCP Servers tab in the UI. AND-ed with registry_mode."
+  type        = bool
+  default     = true
+}
+
+variable "show_virtual_servers_tab" {
+  description = "Show the Virtual MCP Servers tab in the UI."
+  type        = bool
+  default     = true
+}
+
+variable "show_skills_tab" {
+  description = "Show the Skills tab in the UI. AND-ed with registry_mode."
+  type        = bool
+  default     = true
+}
+
+variable "show_agents_tab" {
+  description = "Show the Agents tab in the UI. AND-ed with registry_mode."
+  type        = bool
+  default     = true
+}
+
 # =============================================================================
 # OBSERVABILITY CONFIGURATION (Metrics Pipeline)
 # =============================================================================
