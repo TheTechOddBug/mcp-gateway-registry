@@ -376,7 +376,7 @@ const AgentCard: React.FC<AgentCardProps> = React.memo(({
                     <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate">
                       {agent.name}
                     </h3>
-                    {agent.lifecycle_status && (
+                    {agent.lifecycle_status && agent.lifecycle_status !== 'active' && (
                       <StatusBadge status={agent.lifecycle_status} />
                     )}
                     {/* Check if this is an ASOR agent */}

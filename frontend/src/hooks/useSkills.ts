@@ -49,6 +49,7 @@ export const useSkills = (): UseSkillsReturn => {
         requirements: skillInfo.requirements || [],
         metadata: skillInfo.metadata || null,
         num_stars: skillInfo.num_stars || 0,
+        status: skillInfo.status || 'active',
         health_status: skillInfo.health_status || 'unknown',
         last_checked_time: skillInfo.last_checked_time,
         created_at: skillInfo.created_at,

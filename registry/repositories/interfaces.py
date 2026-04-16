@@ -895,6 +895,9 @@ class SearchRepositoryBase(ABC):
         query: str,
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Perform search."""
         pass
@@ -940,6 +943,9 @@ class SearchRepositoryBase(ABC):
         tags: list[str],
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Search entities by exact tag match (case-insensitive).
 

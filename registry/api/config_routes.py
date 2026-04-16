@@ -12,6 +12,7 @@ from fastapi.responses import PlainTextResponse
 
 from ..auth.dependencies import enhanced_auth
 from ..core.config import DeploymentMode, RegistryMode, settings
+from ..schemas.registry_card import LifecycleStatus
 from ..core.metrics import CONFIG_EXPORT_REQUESTS, CONFIG_VIEW_REQUESTS
 
 logger = logging.getLogger(__name__)
@@ -562,6 +563,7 @@ async def get_config() -> dict[str, Any]:
         "deployment_mode": settings.deployment_mode.value,
         "registry_mode": settings.registry_mode.value,
         "nginx_updates_enabled": settings.nginx_updates_enabled,
+        "asset_lifecycle_statuses": [s.value for s in LifecycleStatus],
         "features": {
             "mcp_servers": settings.registry_mode
             in (RegistryMode.FULL, RegistryMode.MCP_SERVERS_ONLY),

@@ -171,6 +171,7 @@ class SkillSearchResult(BaseModel):
     is_enabled: bool = False
     health_status: Literal["healthy", "unhealthy", "unknown"] = "unknown"
     last_checked_time: str | None = None
+    status: str = Field(default="active", description="Lifecycle status")
     relevance_score: float = Field(..., ge=0.0, le=1.0)
     match_context: str | None = None
 
@@ -208,6 +209,18 @@ class SemanticSearchRequest(BaseModel):
     )
     max_results: int = Field(
         default=10, ge=1, le=50, description="Maximum results per entity collection"
+    )
+    include_draft: bool = Field(
+        default=False,
+        description="Include draft assets in search results",
+    )
+    include_deprecated: bool = Field(
+        default=False,
+        description="Include deprecated assets in search results",
+    )
+    include_disabled: bool = Field(
+        default=False,
+        description="Include disabled assets (is_enabled=False) in search results",
     )
 
 
@@ -463,6 +476,9 @@ async def semantic_search(
                 tags=required_tags,
                 entity_types=request.entity_types,
                 max_results=request.max_results,
+                include_draft=request.include_draft,
+                include_deprecated=request.include_deprecated,
+                include_disabled=request.include_disabled,
             )
         else:
             # Text search (possibly combined with tags filtered after)
@@ -470,6 +486,9 @@ async def semantic_search(
                 query=effective_query,
                 entity_types=request.entity_types,
                 max_results=request.max_results,
+                include_draft=request.include_draft,
+                include_deprecated=request.include_deprecated,
+                include_disabled=request.include_disabled,
             )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -649,6 +668,7 @@ async def semantic_search(
                 is_enabled=skill.get("is_enabled", False),
                 health_status=skill.get("health_status", "unknown"),
                 last_checked_time=skill.get("last_checked_time"),
+                status=skill.get("status", "active"),
                 relevance_score=skill.get("relevance_score", 0.0),
                 match_context=skill.get("match_context"),
             )

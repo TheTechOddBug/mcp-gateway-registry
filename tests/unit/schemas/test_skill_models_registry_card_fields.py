@@ -310,13 +310,13 @@ class TestSkillRegistrationRequestStatus:
     """Tests for status field in SkillRegistrationRequest."""
 
     def test_default_status(self):
-        """Test that default status is ACTIVE."""
+        """Test that default status is DRAFT for new registrations."""
         request = SkillRegistrationRequest(
             name="test-skill",
             description="Test skill",
             skill_md_url=HttpUrl("https://example.com/SKILL.md"),
         )
-        assert request.status == LifecycleStatus.ACTIVE
+        assert request.status == "draft"
 
     def test_custom_status(self):
         """Test setting custom status during registration."""

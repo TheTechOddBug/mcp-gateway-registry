@@ -668,11 +668,14 @@ def cmd_list(args: argparse.Namespace) -> int:
                 "disabled": "⚫",
             }.get(server.health_status.value, "⚪")
 
-            print(f"{status_icon} {health_icon} {server.path}")
+            lifecycle = f" [{server.status}]" if server.status != "active" else ""
+            print(f"{status_icon} {health_icon} {server.path}{lifecycle}")
             print(f"   Name: {server.display_name}")
             print(f"   Description: {server.description}")
             print(f"   Enabled: {server.is_enabled}")
             print(f"   Health: {server.health_status.value}")
+            if server.status != "active":
+                print(f"   Lifecycle: {server.status}")
             print()
 
         return 0
@@ -1741,9 +1744,12 @@ def cmd_agent_list(args: argparse.Namespace) -> int:
             f"(total: {response.total_count}, offset: {response.offset}, limit: {response.limit}):\n"
         )
         for agent in response.agents:
-            status = "✓" if agent.is_enabled else "✗"
-            print(f"{status} {agent.name} ({agent.path})")
+            status_icon = "✓" if agent.is_enabled else "✗"
+            lifecycle = f" [{agent.status}]" if agent.status != "active" else ""
+            print(f"{status_icon} {agent.name} ({agent.path}){lifecycle}")
             print(f"  {agent.description}")
+            if agent.status != "active":
+                print(f"  Lifecycle: {agent.status}")
             print()
 
         return 0
@@ -2372,12 +2378,15 @@ def cmd_skill_list(args: argparse.Namespace) -> int:
             f"(total: {response.total_count}, offset: {response.offset}, limit: {response.limit}):\n"
         )
         for skill in response.skills:
-            status = "[+]" if skill.is_enabled else "[-]"
+            status_icon = "[+]" if skill.is_enabled else "[-]"
             health = f"({skill.health_status})" if skill.health_status else ""
-            print(f"{status} {skill.name} {health}")
+            lifecycle = f" [{skill.status}]" if skill.status != "active" else ""
+            print(f"{status_icon} {skill.name} {health}{lifecycle}")
             print(f"    Path: {skill.path}")
             if skill.description:
                 print(f"    {skill.description[:80]}...")
+            if skill.status != "active":
+                print(f"    Lifecycle: {skill.status}")
             if skill.tags:
                 print(f"    Tags: {', '.join(skill.tags)}")
             print()

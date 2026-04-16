@@ -414,7 +414,7 @@ const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, on
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white truncate min-w-[120px]">
                   {server.name}
                 </h3>
-                {server.lifecycle_status && (
+                {server.lifecycle_status && server.lifecycle_status !== 'active' && (
                   <StatusBadge status={server.lifecycle_status} />
                 )}
                 {server.official && (

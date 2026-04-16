@@ -25,12 +25,31 @@ logger = logging.getLogger(__name__)
 
 
 class LifecycleStatus(str, Enum):
-    """Lifecycle status for servers and agents."""
+    """Lifecycle status values for registry assets."""
 
     ACTIVE = "active"
     DEPRECATED = "deprecated"
     DRAFT = "draft"
     BETA = "beta"
+
+
+def _validate_lifecycle_status(
+    status_value: str,
+) -> str:
+    """Validate that status is one of the known lifecycle values.
+
+    Returns the normalized (lowercase) status value.
+
+    Raises:
+        ValueError: If status is not a valid LifecycleStatus value.
+    """
+    normalized = status_value.lower().strip()
+    allowed = {s.value for s in LifecycleStatus}
+    if normalized not in allowed:
+        raise ValueError(
+            f"Invalid status '{status_value}'. Allowed values: {', '.join(sorted(allowed))}"
+        )
+    return normalized
 
 
 class RegistryCapabilities(BaseModel):

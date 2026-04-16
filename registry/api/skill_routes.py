@@ -195,6 +195,7 @@ async def list_skills(
                 num_stars=s.num_stars,
                 health_status=s.health_status,
                 last_checked_time=s.last_checked_time,
+                status=s.status,
             )
             for s in skill_cards
         ]
@@ -261,10 +262,17 @@ async def search_skills(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     q: str = Query(..., description="Search query"),
     tags: str | None = Query(None, description="Comma-separated tags to filter by"),
+    include_deprecated: bool = Query(
+        False, description="Include deprecated skills in results"
+    ),
+    include_draft: bool = Query(
+        False, description="Include draft skills in results"
+    ),
 ) -> dict:
     """Search for skills by name, description, or tags.
 
     Returns skills matching the query with basic relevance scoring.
+    Deprecated and draft skills are excluded by default.
     """
     service = get_skill_service()
     skills = await service.list_skills_for_user(user_context)
@@ -272,8 +280,20 @@ async def search_skills(
     query_lower = q.lower()
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
 
+    # Build set of excluded lifecycle statuses
+    excluded_statuses: set[str] = set()
+    if not include_deprecated:
+        excluded_statuses.add("deprecated")
+    if not include_draft:
+        excluded_statuses.add("draft")
+
     matching_skills = []
     for skill in skills:
+        # Filter by lifecycle status
+        skill_status = getattr(skill, "status", "active") or "active"
+        if skill_status in excluded_statuses:
+            continue
+
         score = 0.0
 
         # Match in name (highest priority)
@@ -303,6 +323,7 @@ async def search_skills(
                     "tags": skill.tags,
                     "visibility": skill.visibility,
                     "is_enabled": skill.is_enabled,
+                    "status": skill_status,
                     "relevance_score": score,
                 }
             )

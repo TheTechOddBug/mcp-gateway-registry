@@ -353,7 +353,23 @@ const fetchAdminTokens = async () => {
                   </div>
                 </button>
               ))}
+
+              {/* Deprecated toggle - separate from main filters */}
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => setActiveFilter(activeFilter === 'deprecated' ? 'all' : 'deprecated')}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                    activeFilter === 'deprecated'
+                      ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                  tabIndex={0}
+                >
+                  <span>{activeFilter === 'deprecated' ? 'Showing deprecated' : 'Also show deprecated'}</span>
+                </button>
+              </div>
             </div>
+
           </div>
 
           {/* Tags Section */}

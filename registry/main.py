@@ -491,6 +491,25 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"✅ {backend_name} index updated with {len(all_agents)} agents")
 
+        logger.info(f"📊 Updating {backend_name} index with all registered skills...")
+        from registry.repositories.factory import get_skill_repository
+
+        skill_repo = get_skill_repository()
+        all_skills = await skill_repo.list_all(skip=0, limit=10000)
+        for skill_card in all_skills:
+            try:
+                await search_repo.index_skill(
+                    skill_card.path, skill_card, skill_card.is_enabled
+                )
+                logger.debug(f"Updated {backend_name} index for skill: {skill_card.path}")
+            except Exception as e:
+                logger.error(
+                    f"Failed to update {backend_name} index for skill {skill_card.path}: {e}",
+                    exc_info=True,
+                )
+
+        logger.info(f"✅ {backend_name} index updated with {len(all_skills)} skills")
+
         logger.info("🏥 Initializing health monitoring service...")
         await health_service.initialize()
 

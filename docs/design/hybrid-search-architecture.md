@@ -544,6 +544,79 @@ The DocumentDB `$search` pipeline includes two tunable parameters:
 
 The `efSearch` setting is configured in `registry/core/config.py` as `vector_search_ef_search`.
 
+## Lifecycle Status Filtering
+
+Search results respect the lifecycle status of assets (servers, agents, skills). By default, **deprecated** and **draft** assets are excluded from search results. Only **active** and **beta** assets appear.
+
+### How It Works
+
+1. **Index-Time**: When an asset is indexed for search, its `status` field is stored in the search document alongside other fields (`path`, `name`, `description`, `tags`, `is_enabled`, etc.)
+
+2. **Query-Time**: The `_build_status_filter()` function constructs a MongoDB `$match` filter that excludes assets by lifecycle status:
+
+```python
+# Default behavior: exclude deprecated and draft
+{
+    "$or": [
+        {"status": {"$nin": ["deprecated", "draft"]}},
+        {"status": {"$exists": False}}  # Treat missing field as active
+    ]
+}
+```
+
+3. **Opt-In Inclusion**: Callers can include filtered assets using request parameters:
+   - `include_deprecated: true` -- Include deprecated assets in results
+   - `include_draft: true` -- Include draft assets in results
+   - `include_disabled: true` -- Include disabled assets (is_enabled=False) in results
+
+### Search Request Example
+
+```json
+{
+    "query": "feature flags",
+    "entity_types": ["skill"],
+    "max_results": 10,
+    "include_deprecated": true,
+    "include_draft": false
+}
+```
+
+### Status Values
+
+| Status | Default in Search | Description |
+|--------|-------------------|-------------|
+| `active` | Included | Asset is active and ready for use |
+| `beta` | Included | Asset is in beta testing phase |
+| `deprecated` | **Excluded** | Asset is deprecated and may be removed |
+| `draft` | **Excluded** | Asset is in draft mode, not ready for production |
+
+### Indexed Document Fields
+
+The `status` field is stored in the search document for all entity types:
+
+| Entity Type | Status Source |
+|-------------|--------------|
+| MCP Server | `server_info.get("status", "active")` |
+| A2A Agent | `agent_card.status` (default: `"active"`) |
+| Agent Skill | `skill.status` (default: `"active"`) |
+| Virtual Server | Not applicable (always active) |
+
+Documents indexed before this feature (without a `status` field) are treated as `active` by the `$exists: False` fallback in the filter.
+
+### Filter Application
+
+The status filter is applied consistently across all three search code paths:
+
+| Search Path | Filter Location |
+|-------------|-----------------|
+| Hybrid (DocumentDB) | Pre-filter in `$search` pipeline via `_build_status_filter()` |
+| Client-side (MongoDB CE) | Query filter in `collection.find()` |
+| Lexical-only | Aggregation `$match` stage |
+
+### Re-indexing
+
+When an asset's lifecycle status changes (e.g., from `active` to `deprecated`), the asset is re-indexed via the normal update flow. The search document's `status` field is updated, and subsequent searches will respect the new status.
+
 ## Performance Considerations
 
 1. **Result Distribution**: Global ranking with competitive soft caps limits results to `max_results` (default 10, max 50). The distribution algorithm is O(n) where n is the candidate set size (at most 150 documents).

@@ -30,8 +30,6 @@ from pydantic import (
     field_validator,
 )
 
-from registry.schemas.registry_card import LifecycleStatus
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -196,9 +194,9 @@ class SkillCard(BaseModel):
     updated_at: datetime = Field(default_factory=_utc_now)
 
     # Registry Card fields for federation
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status: active, deprecated, draft, or beta",
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (default: active for existing assets)",
     )
     source_created_at: datetime | None = Field(
         None, description="Creation timestamp from federated source"
@@ -269,9 +267,9 @@ class SkillInfo(BaseModel):
     last_checked_time: datetime | None = Field(None, description="When health was last checked")
 
     # Registry Card fields for federation
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status: active, deprecated, draft, or beta",
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (default: active for existing assets)",
     )
     source_created_at: datetime | None = Field(
         None, description="Creation timestamp from federated source"
@@ -303,9 +301,9 @@ class SkillRegistrationRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     visibility: VisibilityEnum = Field(default=VisibilityEnum.PUBLIC)
     allowed_groups: list[str] = Field(default_factory=list)
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status: active, deprecated, draft, or beta",
+    status: str = Field(
+        default="draft",
+        description="Lifecycle status (default: draft). Allowed: active, deprecated, draft, beta",
     )
 
     @field_validator("name")
@@ -359,9 +357,9 @@ class SkillTier1_Metadata(BaseModel):
     tags: list[str] = Field(default_factory=list)
     compatibility: str | None = None
     target_agents: list[str] = Field(default_factory=list)
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status: active, deprecated, draft, or beta",
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (default: active for existing assets)",
     )
 
 

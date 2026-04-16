@@ -668,7 +668,7 @@ async def list_agents(
                 sync_metadata=agent.sync_metadata,
                 ans_metadata=agent.ans_metadata,
                 registered_by=agent.registered_by,
-                status=agent.status.value
+                status=agent.status
                 if hasattr(agent, "status") and agent.status
                 else "active",
                 provider_organization=agent.provider.organization if agent.provider else None,
@@ -1283,6 +1283,7 @@ async def update_agent(
             last_health_check=existing_agent.last_health_check,
             rating_details=existing_agent.rating_details,
             sync_metadata=existing_agent.sync_metadata,
+            status=request.status if request.status else existing_agent.status,
             **update_optional_kwargs,
         )
 

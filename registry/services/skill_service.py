@@ -523,6 +523,7 @@ def _build_skill_card(
         allowed_groups=request.allowed_groups,
         owner=owner,
         is_enabled=True,
+        status=request.status,
         content_version=content_version,
         content_updated_at=content_updated_at,
         created_at=datetime.now(UTC),
@@ -675,6 +676,7 @@ class SkillService:
                 num_stars=s.num_stars,
                 health_status=s.health_status,
                 last_checked_time=s.last_checked_time,
+                status=s.status,
             )
             for s in skills
         ]

@@ -1045,6 +1045,9 @@ class TestSemanticSearchSuccess:
             query="test query",
             entity_types=["mcp_server"],
             max_results=10,
+            include_draft=False,
+            include_deprecated=False,
+            include_disabled=False,
         )
 
     @pytest.mark.asyncio
@@ -1069,6 +1072,9 @@ class TestSemanticSearchSuccess:
             query="test query",
             entity_types=None,
             max_results=25,
+            include_draft=False,
+            include_deprecated=False,
+            include_disabled=False,
         )
 
     @pytest.mark.asyncio

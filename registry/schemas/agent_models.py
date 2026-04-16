@@ -20,8 +20,6 @@ from pydantic import (
     model_validator,
 )
 
-from registry.schemas.registry_card import LifecycleStatus
-
 # Configure logging with basicConfig
 logging.basicConfig(
     level=logging.INFO,
@@ -543,9 +541,9 @@ class AgentCard(BaseModel):
     )
 
     # Lifecycle and federation metadata
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status",
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (default: active for existing assets)",
     )
     source_created_at: datetime | None = Field(
         default=None,
@@ -888,9 +886,9 @@ class AgentRegistrationRequest(BaseModel):
         description="Trust level: unverified, community, verified, trusted (default: community)",
     )
 
-    status: LifecycleStatus = Field(
-        default=LifecycleStatus.ACTIVE,
-        description="Lifecycle status: active, deprecated, draft, or beta",
+    status: str = Field(
+        default="draft",
+        description="Lifecycle status (default: draft). Allowed: active, deprecated, draft, beta",
     )
     source_created_at: str | None = Field(
         None,

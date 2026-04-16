@@ -54,6 +54,7 @@ export interface Skill {
   requirements?: SkillRequirement[];
   metadata?: SkillMetadata | null;
   num_stars?: number;
+  status?: 'active' | 'draft' | 'deprecated' | 'beta';
   health_status?: 'healthy' | 'unhealthy' | 'unknown';
   last_checked_time?: string;
   created_at?: string;

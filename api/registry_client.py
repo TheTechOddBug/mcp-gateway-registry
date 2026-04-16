@@ -105,6 +105,10 @@ class Server(BaseModel):
     description: str = Field(..., description="Service description")
     is_enabled: bool = Field(..., description="Whether service is enabled")
     health_status: HealthStatus = Field(..., description="Health status")
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (active, deprecated, draft, beta)",
+    )
 
 
 class ServerDetail(BaseModel):
@@ -672,6 +676,10 @@ class AgentListItem(BaseModel):
         default=None,
         alias="syncMetadata",
         description="Federation sync metadata for items from peer registries",
+    )
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (active, deprecated, draft, beta)",
     )
 
     class Config:
@@ -1325,6 +1333,10 @@ class SkillCard(BaseModel):
     registry_name: str | None = Field(None, description="Source registry")
     num_stars: float = Field(default=0, description="Average rating")
     health_status: str = Field(default="unknown", description="Health status")
+    status: str = Field(
+        default="active",
+        description="Lifecycle status (active, deprecated, draft, beta)",
+    )
     created_at: str | None = Field(None, description="Creation timestamp")
     updated_at: str | None = Field(None, description="Last update timestamp")
 
@@ -2209,7 +2221,12 @@ class RegistryClient:
         return result
 
     def semantic_search_servers(
-        self, query: str, max_results: int = 10
+        self,
+        query: str,
+        max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> ServerSemanticSearchResponse:
         """
         Search for servers using semantic search (vector search).
@@ -2217,6 +2234,9 @@ class RegistryClient:
         Args:
             query: Natural language query (e.g., "time and date services")
             max_results: Maximum number of results (default: 10, max: 100)
+            include_draft: Include draft assets in results (default: False)
+            include_deprecated: Include deprecated assets in results (default: False)
+            include_disabled: Include disabled assets in results (default: False)
 
         Returns:
             Server semantic search response
@@ -2226,7 +2246,14 @@ class RegistryClient:
         """
         logger.info(f"Searching servers semantically: {query}")
 
-        request_data = {"query": query, "entity_types": ["mcp_server"], "max_results": max_results}
+        request_data: dict[str, Any] = {
+            "query": query,
+            "entity_types": ["mcp_server"],
+            "max_results": max_results,
+            "include_draft": include_draft,
+            "include_deprecated": include_deprecated,
+            "include_disabled": include_disabled,
+        }
 
         response = self._make_request(
             method="POST", endpoint="/api/search/semantic", data=request_data
@@ -2237,7 +2264,13 @@ class RegistryClient:
         return result
 
     def semantic_search(
-        self, query: str, entity_types: list[str] | None = None, max_results: int = 10
+        self,
+        query: str,
+        entity_types: list[str] | None = None,
+        max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> SemanticSearchResponse:
         """
         Comprehensive semantic search across all entity types.
@@ -2248,6 +2281,9 @@ class RegistryClient:
                          Valid values: "mcp_server", "tool", "a2a_agent", "skill", "virtual_server"
                          If None, searches all entity types.
             max_results: Maximum number of results per entity type (default: 10, max: 50)
+            include_draft: Include draft assets in results (default: False)
+            include_deprecated: Include deprecated assets in results (default: False)
+            include_disabled: Include disabled assets in results (default: False)
 
         Returns:
             SemanticSearchResponse with servers, tools, agents, skills, and virtual_servers
@@ -2257,7 +2293,13 @@ class RegistryClient:
         """
         logger.info(f"Semantic search: {query} (entity_types={entity_types})")
 
-        request_data: dict[str, Any] = {"query": query, "max_results": max_results}
+        request_data: dict[str, Any] = {
+            "query": query,
+            "max_results": max_results,
+            "include_draft": include_draft,
+            "include_deprecated": include_deprecated,
+            "include_disabled": include_disabled,
+        }
         if entity_types:
             request_data["entity_types"] = entity_types
 

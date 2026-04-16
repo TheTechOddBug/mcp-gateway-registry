@@ -68,6 +68,7 @@ interface Agent {
   usersCount?: number;
   rating?: number;
   status?: 'healthy' | 'healthy-auth-expired' | 'unhealthy' | 'unknown';
+  lifecycle_status?: 'active' | 'draft' | 'deprecated' | 'beta';
   sync_metadata?: SyncMetadata;
   ans_metadata?: {
     ans_agent_id: string;
@@ -138,10 +139,11 @@ const buildAgentAuthHeaders = (token?: string | null) =>
 
 interface DashboardProps {
   activeFilter?: string;
+  setActiveFilter?: (filter: string) => void;
   selectedTags?: string[];
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTags = [] }) => {
+const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFilter, selectedTags = [] }) => {
   const navigate = useNavigate();
   const { servers, agents: agentsFromStats, loading, error, refreshData, setServers, setAgents } = useServerStats();
   const { skills, setSkills, loading: skillsLoading, error: skillsError, refreshData: refreshSkills } = useSkills();
@@ -188,6 +190,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     auth_scheme: 'none',
     auth_credential: '',
     auth_header_name: 'X-API-Key',
+    status: 'active' as 'active' | 'draft' | 'deprecated' | 'beta',
   });
   const [editLoading, setEditLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -263,6 +266,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     tags: [] as string[],
     skillsJson: '[]',
     metadata: '',
+    status: 'active' as 'active' | 'draft' | 'deprecated' | 'beta',
   });
   const [editAgentLoading, setEditAgentLoading] = useState(false);
   const [skillsJsonError, setSkillsJsonError] = useState<string | null>(null);
@@ -280,6 +284,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     tags: '',  // Raw string, parsed on save
     target_agents: '',  // Raw string, parsed on save
     metadata: '',  // JSON string for custom metadata
+    status: 'draft' as 'active' | 'draft' | 'deprecated' | 'beta',
   });
   const [skillFormLoading, setSkillFormLoading] = useState(false);
   const [showDeleteSkillConfirm, setShowDeleteSkillConfirm] = useState<string | null>(null);
@@ -590,6 +595,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     else if (activeFilter === 'disabled') filtered = filtered.filter(s => !s.enabled);
     else if (activeFilter === 'unhealthy') filtered = filtered.filter(s => s.status === 'unhealthy');
 
+    // Hide deprecated by default; show all when deprecated toggle is active
+    if (activeFilter !== 'deprecated') {
+      filtered = filtered.filter(s => s.lifecycle_status !== 'deprecated');
+    }
+
     // Apply sidebar tag filter
     if (selectedTags.length > 0) {
       filtered = filtered.filter(s => matchesSelectedTags(s.tags));
@@ -708,6 +718,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     else if (activeFilter === 'disabled') filtered = filtered.filter(a => !a.enabled);
     else if (activeFilter === 'unhealthy') filtered = filtered.filter(a => a.status === 'unhealthy');
 
+    // Hide deprecated by default; show all when deprecated toggle is active
+    if (activeFilter !== 'deprecated') {
+      filtered = filtered.filter(a => a.lifecycle_status !== 'deprecated');
+    }
+
     // Apply sidebar tag filter
     if (selectedTags.length > 0) {
       filtered = filtered.filter(a => matchesSelectedTags(a.tags));
@@ -737,6 +752,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
     // Apply filter first
     if (activeFilter === 'enabled') filtered = filtered.filter(s => s.is_enabled);
     else if (activeFilter === 'disabled') filtered = filtered.filter(s => !s.is_enabled);
+
+    // Hide deprecated by default; show all when deprecated toggle is active
+    if (activeFilter !== 'deprecated') {
+      filtered = filtered.filter(s => s.status !== 'deprecated');
+    }
 
     // Apply sidebar tag filter
     if (selectedTags.length > 0) {
@@ -980,6 +1000,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         auth_scheme: serverDetails.auth_scheme || 'none',
         auth_credential: '',
         auth_header_name: serverDetails.auth_header_name || 'X-API-Key',
+        status: serverDetails.status || 'active',
       });
     } catch (error) {
       console.error('Failed to fetch server details:', error);
@@ -998,6 +1019,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         auth_scheme: server.auth_scheme || 'none',
         auth_credential: '',
         auth_header_name: server.auth_header_name || 'X-API-Key',
+        status: (server as any).status || 'active',
       });
     }
   }, []);
@@ -1031,6 +1053,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         metadata: fullAgent.metadata && Object.keys(fullAgent.metadata).length > 0
           ? JSON.stringify(fullAgent.metadata, null, 2)
           : '',
+        status: (fullAgent.status || agent.lifecycle_status || 'active') as 'active' | 'draft' | 'deprecated' | 'beta',
       });
     } catch (error) {
       console.error('Failed to fetch agent details for editing:', error);
@@ -1047,6 +1070,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         tags: agent.tags || [],
         skillsJson: '[]',
         metadata: '',
+        status: agent.lifecycle_status || 'active',
       });
     }
   }, [agentApiToken]);
@@ -1094,6 +1118,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
       } else {
         params.append('auth_scheme', 'none');
       }
+      params.append('status', editForm.status);
 
       // Use the correct edit endpoint with the server path
       await axios.post(`/api/edit${editingServer.path}`, params, {
@@ -1154,6 +1179,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         supportedProtocol: editAgentForm.supported_protocol,
         tags: editAgentForm.tags,
         skills: parsedSkills,
+        status: editAgentForm.status,
         ...(editAgentForm.metadata.trim() ? { metadata: JSON.parse(editAgentForm.metadata) } : {}),
       };
 
@@ -1347,7 +1373,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         visibility: skill.visibility || 'public',
         tags: (skill.tags || []).join(', '),
         target_agents: (skill.target_agents || []).join(', '),
-        metadata: skill.metadata?.extra ? JSON.stringify(skill.metadata.extra, null, 2) : ''
+        metadata: skill.metadata?.extra ? JSON.stringify(skill.metadata.extra, null, 2) : '',
+        status: (skill.status || 'active') as 'active' | 'draft' | 'deprecated' | 'beta',
       });
     } else {
       // Create mode - reset form
@@ -1362,7 +1389,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         visibility: 'public',
         tags: '',
         target_agents: '',
-        metadata: ''
+        metadata: '',
+        status: 'draft',
       });
     }
     setShowSkillModal(true);
@@ -1440,7 +1468,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
         visibility: skillForm.visibility,
         tags: parseTags(skillForm.tags),
         target_agents: parseTags(skillForm.target_agents),
-        metadata: parsedMetadata
+        metadata: parsedMetadata,
+        status: skillForm.status,
       };
 
       if (editingSkill) {
@@ -1477,7 +1506,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
       await axios.delete(`/api/skills${path}`);
 
       // Remove from local state immediately for responsive UI
-      setSkills(prevSkills => prevSkills.filter(s => s.path !== path));
+      // path may be shortened (e.g. "/add") while s.path is full (e.g. "/skills/add")
+      const fullPath = path.startsWith('/skills/') ? path : `/skills${path}`;
+      setSkills(prevSkills => prevSkills.filter(s => s.path !== path && s.path !== fullPath));
       showToast('Skill deleted successfully', 'success');
       notifyDataChanged();
       setShowDeleteSkillConfirm(null);
@@ -2583,36 +2614,32 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
             </button>
           </div>
 
-          {/* Results count */}
+          {/* Results count and lifecycle filter chips */}
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500 dark:text-gray-300">
-              {semanticSectionVisible ? (
-                <>
-                  Showing {semanticServers.length} servers, {semanticAgents.length} agents
-                </>
-              ) : (
-                <>
-                  {/* Dynamic count display based on enabled features */}
-                  Showing{' '}
-                  {registryConfig?.features.mcp_servers !== false && (
-                    <>{filteredServers.length} servers</>
-                  )}
-                  {registryConfig?.features.mcp_servers !== false && registryConfig?.features.agents !== false && ', '}
-                  {registryConfig?.features.agents !== false && (
-                    <>{filteredAgents.length} agents</>
-                  )}
-                  {(registryConfig?.features.mcp_servers !== false || registryConfig?.features.agents !== false) && registryConfig?.features.skills !== false && ', '}
-                  {registryConfig?.features.skills !== false && (
-                    <>{filteredSkills.length} skills</>
-                  )}
-                </>
-              )}
-              {activeFilter !== 'all' && (
-                <span className="ml-2 px-2 py-1 text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300 rounded-full">
-                  {activeFilter} filter active
-                </span>
-              )}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
+                {semanticSectionVisible ? (
+                  <>
+                    Showing {semanticServers.length} servers, {semanticAgents.length} agents
+                  </>
+                ) : (
+                  <>
+                    Showing{' '}
+                    {registryConfig?.features.mcp_servers !== false && (
+                      <>{filteredServers.length} servers</>
+                    )}
+                    {registryConfig?.features.mcp_servers !== false && registryConfig?.features.agents !== false && ', '}
+                    {registryConfig?.features.agents !== false && (
+                      <>{filteredAgents.length} agents</>
+                    )}
+                    {(registryConfig?.features.mcp_servers !== false || registryConfig?.features.agents !== false) && registryConfig?.features.skills !== false && ', '}
+                    {registryConfig?.features.skills !== false && (
+                      <>{filteredSkills.length} skills</>
+                    )}
+                  </>
+                )}
+              </p>
+            </div>
             <p className="text-xs text-gray-400 dark:text-gray-500">
               Press Enter to run semantic search; typing filters locally.
             </p>
@@ -2855,6 +2882,22 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Lifecycle Status
+                </label>
+                <select
+                  value={editForm.status}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as 'active' | 'draft' | 'deprecated' | 'beta' }))}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="draft">Draft</option>
+                  <option value="beta">Beta</option>
+                  <option value="deprecated">Deprecated</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Tags
                 </label>
                 <input
@@ -3057,6 +3100,22 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
                   rows={3}
                   placeholder="Brief description of the agent"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Lifecycle Status
+                </label>
+                <select
+                  value={editAgentForm.status}
+                  onChange={(e) => setEditAgentForm(prev => ({ ...prev, status: e.target.value as 'active' | 'draft' | 'deprecated' | 'beta' }))}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-cyan-500 focus:border-cyan-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="draft">Draft</option>
+                  <option value="beta">Beta</option>
+                  <option value="deprecated">Deprecated</option>
+                </select>
               </div>
 
               <div>
@@ -3357,6 +3416,22 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', selectedTag
                   <option value="public">Public</option>
                   <option value="private">Private</option>
                   <option value="group">Group</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                  Lifecycle Status
+                </label>
+                <select
+                  value={skillForm.status}
+                  onChange={(e) => setSkillForm(prev => ({ ...prev, status: e.target.value as 'active' | 'draft' | 'deprecated' | 'beta' }))}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-amber-500 focus:border-amber-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="draft">Draft</option>
+                  <option value="beta">Beta</option>
+                  <option value="deprecated">Deprecated</option>
                 </select>
               </div>
 

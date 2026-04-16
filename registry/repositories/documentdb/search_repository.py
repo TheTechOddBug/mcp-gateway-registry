@@ -229,6 +229,64 @@ def _flatten_metadata_to_text(metadata: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _build_status_filter(
+    include_draft: bool = False,
+    include_deprecated: bool = False,
+    include_disabled: bool = False,
+) -> dict:
+    """Build MongoDB $match filter to exclude statuses and disabled entities.
+
+    By default, draft, deprecated, and disabled assets are excluded from search.
+    Existing documents without a status field are treated as active.
+    Existing documents without is_enabled field are treated as enabled.
+
+    Applied consistently across servers, agents, and skills.
+
+    Args:
+        include_draft: If True, include draft assets in results
+        include_deprecated: If True, include deprecated assets in results
+        include_disabled: If True, include disabled assets in results
+
+    Returns:
+        MongoDB filter dict (empty dict if no filtering needed)
+    """
+    conditions: list[dict] = []
+
+    # Status filtering
+    excluded_statuses = []
+    if not include_draft:
+        excluded_statuses.append("draft")
+    if not include_deprecated:
+        excluded_statuses.append("deprecated")
+
+    if excluded_statuses:
+        # Exclude listed statuses; documents missing the field are treated as active
+        conditions.append({
+            "$or": [
+                {"status": {"$nin": excluded_statuses}},
+                {"status": {"$exists": False}},
+            ]
+        })
+
+    # Enabled filtering
+    if not include_disabled:
+        # Exclude disabled entities; documents missing is_enabled are treated as enabled
+        conditions.append({
+            "$or": [
+                {"is_enabled": True},
+                {"is_enabled": {"$exists": False}},
+            ]
+        })
+
+    if not conditions:
+        return {}
+
+    if len(conditions) == 1:
+        return conditions[0]
+
+    return {"$and": conditions}
+
+
 def _build_keyword_match_filter(
     token_regex: str,
     entity_types: list[str] | None = None,
@@ -572,6 +630,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             "tags": server_info.get("tags", []),
             "metadata_text": metadata_text,
             "is_enabled": is_enabled,
+            "status": server_info.get("status", "active"),
             "text_for_embedding": text_for_embedding,
             "embedding": embedding,
             "embedding_metadata": embedding_config.get_embedding_metadata(),
@@ -649,6 +708,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             "tags": agent_card.tags or [],
             "metadata_text": agent_metadata_text,
             "is_enabled": is_enabled,
+            "status": getattr(agent_card, "status", "active"),
             "text_for_embedding": text_for_embedding,
             "embedding": embedding,
             "embedding_metadata": embedding_config.get_embedding_metadata(),
@@ -751,6 +811,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             "last_checked_time": skill.last_checked_time.isoformat()
             if skill.last_checked_time
             else None,
+            "status": getattr(skill, "status", "active"),
             "text_for_embedding": text_for_embedding,
             "embedding": embedding,
             "embedding_metadata": embedding_config.get_embedding_metadata(),
@@ -927,14 +988,27 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
         tags: list[str],
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Search entities by exact tag match using a direct DB query."""
         collection = await self._get_collection()
 
         # Build a case-insensitive match for ALL tags
-        tag_conditions = [
+        tag_conditions: list[dict[str, Any]] = [
             {"tags": {"$regex": f"^{re.escape(tag)}$", "$options": "i"}} for tag in tags
         ]
+
+        # Add lifecycle status and enabled filter
+        status_filter = _build_status_filter(
+            include_draft=include_draft,
+            include_deprecated=include_deprecated,
+            include_disabled=include_disabled,
+        )
+        if status_filter:
+            tag_conditions.append(status_filter)
+
         query_filter: dict[str, Any] = {"$and": tag_conditions}
         if entity_types:
             query_filter["entity_type"] = {"$in": entity_types}
@@ -994,6 +1068,9 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
         query_embedding: list[float],
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Fallback search using client-side cosine similarity for MongoDB CE.
 
@@ -1007,6 +1084,15 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             query_filter = {}
             if entity_types:
                 query_filter["entity_type"] = {"$in": entity_types}
+
+            # Apply lifecycle status and enabled filter
+            status_filter = _build_status_filter(
+                include_draft=include_draft,
+                include_deprecated=include_deprecated,
+                include_disabled=include_disabled,
+            )
+            if status_filter:
+                query_filter.update(status_filter)
 
             # Fetch all embeddings from MongoDB
             cursor = collection.find(
@@ -1022,6 +1108,12 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     "metadata": 1,
                     "metadata_text": 1,
                     "is_enabled": 1,
+                    "status": 1,
+                    "visibility": 1,
+                    "owner": 1,
+                    "allowed_groups": 1,
+                    "health_status": 1,
+                    "last_checked_time": 1,
                     "embedding": 1,
                 },
             )
@@ -1250,6 +1342,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                         "visibility": doc.get("visibility", "public"),
                         "owner": doc.get("owner"),
                         "is_enabled": doc.get("is_enabled", False),
+                        "status": doc.get("status", "active"),
                         "relevance_score": relevance_score,
                         "match_context": doc.get("description"),
                     }
@@ -1304,6 +1397,9 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
         query: str,
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Fallback search using keyword matching only (no embeddings).
 
@@ -1314,6 +1410,9 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             query: The search query string
             entity_types: Optional list of entity types to filter
             max_results: Maximum number of results to return
+            include_draft: If True, include draft assets in results
+            include_deprecated: If True, include deprecated assets in results
+            include_disabled: If True, include disabled assets in results
 
         Returns:
             Grouped search results dict with servers, tools, agents lists
@@ -1337,10 +1436,22 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
 
         pipeline = [
             {"$match": keyword_match_filter},
+        ]
+
+        # Apply lifecycle status and enabled filter
+        status_filter = _build_status_filter(
+            include_draft=include_draft,
+            include_deprecated=include_deprecated,
+            include_disabled=include_disabled,
+        )
+        if status_filter:
+            pipeline.append({"$match": status_filter})
+
+        pipeline.extend([
             text_boost_stage,
             {"$sort": {"text_boost": -1}},
             {"$limit": max(max_results * 3, 50)},
-        ]
+        ])
 
         cursor = collection.aggregate(pipeline)
         results = await cursor.to_list(length=max(max_results * 3, 50))
@@ -1488,6 +1599,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     "visibility": doc.get("visibility", "public"),
                     "owner": doc.get("owner"),
                     "is_enabled": doc.get("is_enabled", False),
+                    "status": doc.get("status", "active"),
                     "relevance_score": relevance_score,
                     "match_context": doc.get("description"),
                 }
@@ -1519,6 +1631,9 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
         query: str,
         entity_types: list[str] | None = None,
         max_results: int = 10,
+        include_draft: bool = False,
+        include_deprecated: bool = False,
+        include_disabled: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Perform hybrid search (text + vector).
 
@@ -1543,7 +1658,12 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     self._embedding_unavailable = True
 
             if query_embedding is None:
-                return await self._lexical_only_search(query, entity_types, max_results)
+                return await self._lexical_only_search(
+                    query, entity_types, max_results,
+                    include_draft=include_draft,
+                    include_deprecated=include_deprecated,
+                    include_disabled=include_disabled,
+                )
 
             # DocumentDB vector search returns results sorted by similarity
             # We get more results than needed to allow for text-based re-ranking
@@ -1571,6 +1691,15 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             # Apply entity type filter if specified
             if entity_types:
                 pipeline.append({"$match": {"entity_type": {"$in": entity_types}}})
+
+            # Apply lifecycle status and enabled filter
+            status_filter = _build_status_filter(
+                include_draft=include_draft,
+                include_deprecated=include_deprecated,
+                include_disabled=include_disabled,
+            )
+            if status_filter:
+                pipeline.append({"$match": status_filter})
 
             # Tokenize query and create regex pattern for matching any token
             query_tokens = _tokenize_query(query)
@@ -1865,6 +1994,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                         "visibility": doc.get("visibility", "public"),
                         "owner": doc.get("owner"),
                         "is_enabled": doc.get("is_enabled", False),
+                        "status": doc.get("status", "active"),
                         "relevance_score": relevance_score,
                         "match_context": doc.get("description"),
                     }
@@ -1926,7 +2056,10 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     "Falling back to client-side cosine similarity search."
                 )
                 return await self._client_side_search(
-                    query, query_embedding, entity_types, max_results
+                    query, query_embedding, entity_types, max_results,
+                    include_draft=include_draft,
+                    include_deprecated=include_deprecated,
+                    include_disabled=include_disabled,
                 )
             elif "vectorSearch" in str(e) or "$search" in str(e):
                 # General vector search not supported - fall back to client-side search
@@ -1935,7 +2068,10 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     "Falling back to client-side cosine similarity search."
                 )
                 return await self._client_side_search(
-                    query, query_embedding, entity_types, max_results
+                    query, query_embedding, entity_types, max_results,
+                    include_draft=include_draft,
+                    include_deprecated=include_deprecated,
+                    include_disabled=include_disabled,
                 )
 
             logger.error(f"Failed to perform hybrid search: {e}", exc_info=True)

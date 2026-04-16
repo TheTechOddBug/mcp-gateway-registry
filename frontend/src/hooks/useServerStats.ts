@@ -54,6 +54,7 @@ interface Server {
   trust_level?: string;
   visibility?: string;
   supported_protocol?: string | null;
+  lifecycle_status?: 'active' | 'draft' | 'deprecated' | 'beta';
 }
 
 interface ServerStats {
@@ -193,6 +194,7 @@ export const useServerStats = (): UseServerStatsReturn => {
           ans_metadata: serverInfo.ans_metadata || serverInfo.ansMetadata,
           auth_scheme: serverInfo.auth_scheme,
           auth_header_name: serverInfo.auth_header_name,
+          lifecycle_status: serverInfo.status || 'active',
         };
         
         // Debug log the transformed server
@@ -226,6 +228,7 @@ export const useServerStats = (): UseServerStatsReturn => {
           trust_level: agentInfo.trust_level || agentInfo.trustLevel || 'community',
           visibility: agentInfo.visibility || 'public',
           supported_protocol: agentInfo.supported_protocol || agentInfo.supportedProtocol || null,
+          lifecycle_status: agentInfo.status || 'active',
         };
         
         console.log(`🔄 Transformed agent ${transformed.name}:`, {

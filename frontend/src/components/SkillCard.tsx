@@ -22,6 +22,7 @@ import {
   ShieldExclamationIcon,
 } from '@heroicons/react/24/outline';
 import { Skill } from '../types/skill';
+import StatusBadge from './StatusBadge';
 import StarRatingWidget from './StarRatingWidget';
 import SecurityScanModal from './SecurityScanModal';
 import useEscapeKey from '../hooks/useEscapeKey';
@@ -366,6 +367,9 @@ const SkillCard: React.FC<SkillCardProps> = React.memo(({
                   {getVisibilityIcon()}
                   {skill.visibility.toUpperCase()}
                 </span>
+                {skill.status && skill.status !== 'active' && (
+                  <StatusBadge status={skill.status} />
+                )}
               </div>
 
               <code className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 px-2 py-1 rounded font-mono">
