@@ -7,6 +7,7 @@ and management following the A2A protocol specification.
 Based on: docs/design/a2a-protocol-integration.md
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -36,6 +37,7 @@ from ..schemas.agent_models import (
     AgentRegistrationRequest,
 )
 from ..services.agent_service import agent_service
+from ..services.webhook_service import send_registration_webhook
 from ..utils.request_utils import get_client_ip
 
 
@@ -541,6 +543,16 @@ async def register_agent(
                 f"ANS linking failed for agent '{path}' with ANS ID '{request.ans_agent_id}': {e}"
             )
 
+    # Registration webhook (Issue #742)
+    asyncio.create_task(
+        send_registration_webhook(
+            event_type="registration",
+            registration_type="agent",
+            card_data=agent_card.model_dump(mode="json"),
+            performed_by=user_context["username"],
+        )
+    )
+
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={
@@ -565,7 +577,7 @@ async def list_agents(
     query: str | None = Query(None, description="Search query string"),
     enabled_only: bool = Query(False, description="Show only enabled agents"),
     visibility: str | None = Query(None, description="Filter by visibility"),
-    limit: int = Query(20, ge=1, le=100, description="Number of agents to return (max 100)"),
+    limit: int = Query(20, ge=1, le=500, description="Number of agents to return (max 500)"),
     offset: int = Query(0, ge=0, description="Number of agents to skip"),
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
 ):
@@ -1407,6 +1419,15 @@ async def delete_agent(
     await faiss_service.remove_entity(path)
 
     logger.info(f"Agent at path '{path}' deleted by user '{user_context['username']}'")
+
+    asyncio.create_task(
+        send_registration_webhook(
+            event_type="deletion",
+            registration_type="agent",
+            card_data=existing_agent.model_dump(mode="json"),
+            performed_by=user_context.get("username"),
+        )
+    )
 
     return JSONResponse(
         status_code=status.HTTP_204_NO_CONTENT,
