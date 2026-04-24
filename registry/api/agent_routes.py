@@ -38,6 +38,7 @@ from ..schemas.agent_models import (
 )
 from ..services.agent_service import agent_service
 from ..services.registration_gate_service import check_registration_gate
+from ..utils.metadata import flatten_metadata_to_text
 from ..services.webhook_service import send_registration_webhook
 from ..utils.request_utils import get_client_ip
 
@@ -593,7 +594,10 @@ async def register_agent(
 @router.get("/agents")
 async def list_agents(
     request: Request,
-    query: str | None = Query(None, description="Search query string"),
+    query: str | None = Query(
+        None,
+        description="Lexical substring search across agent name, description, tags, skill names, and metadata",
+    ),
     enabled_only: bool = Query(False, description="Show only enabled agents"),
     visibility: str | None = Query(None, description="Filter by visibility"),
     limit: int = Query(20, ge=1, le=500, description="Number of agents to return (max 500)"),
@@ -603,11 +607,14 @@ async def list_agents(
     """
     List all agents filtered by user permissions with pagination.
 
+    Uses lexical (substring) search, not hybrid/semantic. For vector-based
+    search, use POST /api/search/semantic instead.
+
     Args:
-        query: Optional search query
+        query: Lexical substring filter across name, description, tags, skill names, and metadata
         enabled_only: Only return enabled agents
         visibility: Filter by visibility level
-        limit: Number of agents to return (1-100, default 20)
+        limit: Number of agents to return (1-500, default 20)
         offset: Number of agents to skip (default 0)
         user_context: Authenticated user context
 
@@ -671,9 +678,11 @@ async def list_agents(
         if visibility and agent.visibility != visibility:
             continue
 
+        metadata_text = flatten_metadata_to_text(agent.metadata) if agent.metadata else ""
         searchable_text = (
             f"{agent.name.lower()} {agent.description.lower()} "
-            f"{' '.join(agent.tags)} {' '.join([s.name for s in agent.skills])}"
+            f"{' '.join(agent.tags)} {' '.join([s.name for s in agent.skills])} "
+            f"{metadata_text.lower()}"
         )
 
         if not search_query or search_query in searchable_text:

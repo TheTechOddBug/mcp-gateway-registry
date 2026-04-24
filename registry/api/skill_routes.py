@@ -14,6 +14,7 @@ import asyncio
 import logging
 from typing import (
     Annotated,
+    Any,
 )
 
 from fastapi import (
@@ -55,6 +56,7 @@ from ..services.skill_service import (
 from ..services.registration_gate_service import check_registration_gate
 from ..services.tool_validation_service import get_tool_validation_service
 from ..services.webhook_service import send_registration_webhook
+from ..utils.metadata import flatten_metadata_to_text
 from ..utils.path_utils import normalize_skill_path
 
 # Configure logging
@@ -265,14 +267,18 @@ async def parse_skill_md(
 @router.get("/search", summary="Search skills")
 async def search_skills(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
-    q: str = Query(..., description="Search query"),
+    q: str = Query(
+        ...,
+        description="Lexical substring search across skill name, description, tags, and metadata",
+    ),
     tags: str | None = Query(None, description="Comma-separated tags to filter by"),
     include_deprecated: bool = Query(False, description="Include deprecated skills in results"),
     include_draft: bool = Query(False, description="Include draft skills in results"),
 ) -> dict:
-    """Search for skills by name, description, or tags.
+    """Search for skills by name, description, tags, and metadata.
 
-    Returns skills matching the query with basic relevance scoring.
+    Uses lexical (substring) search with basic relevance scoring, not
+    hybrid/semantic. For vector-based search, use POST /api/search/semantic instead.
     Deprecated and draft skills are excluded by default.
     """
     service = get_skill_service()
@@ -309,6 +315,19 @@ async def search_skills(
         skill_tags_lower = [t.lower() for t in (skill.tags or [])]
         if any(query_lower in t for t in skill_tags_lower):
             score += 0.2
+
+        # Match in metadata (author, version, extra key-value pairs)
+        skill_meta_dict: dict[str, Any] = {}
+        if skill.metadata:
+            if skill.metadata.author:
+                skill_meta_dict["author"] = skill.metadata.author
+            if skill.metadata.version:
+                skill_meta_dict["version"] = skill.metadata.version
+            if skill.metadata.extra:
+                skill_meta_dict.update(skill.metadata.extra)
+        metadata_text = flatten_metadata_to_text(skill_meta_dict)
+        if metadata_text and query_lower in metadata_text.lower():
+            score += 0.1
 
         # Filter by specified tags
         if tag_list:

@@ -411,7 +411,7 @@ Virtual MCP Servers are indexed in the unified `mcp_embeddings_{dimensions}` col
 
 ## Metadata in Search
 
-Custom metadata from servers, agents, skills, and virtual servers is included in both semantic embeddings and keyword search. Metadata is flattened to a text string using `_flatten_metadata_to_text()`:
+Custom metadata from servers, agents, skills, and virtual servers is included in semantic embeddings, hybrid/keyword search, and the REST API list endpoint keyword filters. Metadata is flattened to a text string using `flatten_metadata_to_text()` (defined in `registry/utils/metadata.py`):
 
 - Each key name is included as a token
 - Scalar values are converted to strings
@@ -420,17 +420,34 @@ Custom metadata from servers, agents, skills, and virtual servers is included in
 
 For example, a server with metadata `{"source": "agentcore-sync", "region": "us-east-1"}` produces the metadata text: `source agentcore-sync region us-east-1`.
 
-This flattened text is:
+### Hybrid / DocumentDB Search
+
+The flattened metadata text is:
 1. Appended to `text_for_embedding` so semantic search captures metadata meaning
 2. Stored in `metadata_text` field for keyword/regex matching
 3. Matched in the `$or` keyword filter alongside path, name, description, tags, and tools
 4. Scored with +1.0 text boost when matched in the `_build_text_boost_stage` pipeline
 
-Metadata sources per entity type:
+### REST API List Endpoint Keyword Search (Pure Lexical, No Vectors)
+
+The REST API list endpoints below are **pure lexical search**. They do not use embeddings, vector similarity, or the DocumentDB search index. They load all items from storage, build a searchable text string per item in Python, and perform a case-insensitive substring match. No hybrid or semantic search is involved.
+
+The same `flatten_metadata_to_text()` utility is used to include metadata in these filters:
+
+| Endpoint | Parameter | Search Type | Metadata Handling |
+|----------|-----------|-------------|-------------------|
+| `GET /api/agents?query=` | `query` | Substring match (lexical only) | Metadata appended to `searchable_text` |
+| `GET /api/servers?query=` | `query` | Substring match (lexical only) | Metadata appended to `searchable_text` |
+| `GET /api/skills/search?q=` | `q` | Scored substring match (lexical only) | Metadata matched with +0.1 relevance score (author, version, extra) |
+
+For hybrid (vector + keyword) search, use `POST /api/search/semantic` instead.
+
+### Metadata Sources
+
 | Entity Type    | Metadata Source |
 |----------------|-----------------|
 | MCP Server     | `server_info.get("metadata", {})` |
-| A2A Agent      | `agent_card.get("metadata", {})` |
+| A2A Agent      | `agent_card.metadata` |
 | Agent Skill    | Author, version, `extra` dict (custom key-value pairs), registry_name |
 | Virtual Server | `created_by` field |
 
