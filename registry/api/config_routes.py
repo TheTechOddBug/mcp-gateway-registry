@@ -260,9 +260,19 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("disable_ai_registry_tools_server", "Disable AI Registry Tools Server", False),
         ],
     },
+    "registration_webhook": {
+        "title": "Registration Webhook (Notifications)",
+        "order": 17,
+        "fields": [
+            ("registration_webhook_url", "Webhook URL", False),
+            ("registration_webhook_auth_header", "Auth Header Name", False),
+            ("registration_webhook_auth_token", "Auth Token", True),
+            ("registration_webhook_timeout_seconds", "Timeout (s)", False),
+        ],
+    },
     "registration_gate": {
         "title": "Registration Gate (Admission Control)",
-        "order": 17,
+        "order": 18,
         "fields": [
             ("registration_gate_enabled", "Gate Enabled", False),
             ("registration_gate_url", "Gate URL", False),
@@ -271,11 +281,15 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("registration_gate_auth_header_name", "Auth Header Name", False),
             ("registration_gate_timeout_seconds", "Timeout (s)", False),
             ("registration_gate_max_retries", "Max Retries", False),
+            ("registration_gate_oauth2_token_url", "OAuth2 Token URL", False),
+            ("registration_gate_oauth2_client_id", "OAuth2 Client ID", False),
+            ("registration_gate_oauth2_client_secret", "OAuth2 Client Secret", True),
+            ("registration_gate_oauth2_scope", "OAuth2 Scope", False),
         ],
     },
     "app_log": {
         "title": "Application Logging",
-        "order": 18,
+        "order": 19,
         "fields": [
             ("app_log_centralized_enabled", "Centralized Enabled", False),
             ("app_log_centralized_ttl_days", "Centralized TTL Days", False),
@@ -285,7 +299,7 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
     },
     "github_auth": {
         "title": "GitHub Private Repo Auth",
-        "order": 19,
+        "order": 20,
         "fields": [
             ("github_pat", "Personal Access Token", True),
             ("github_app_id", "GitHub App ID", False),
