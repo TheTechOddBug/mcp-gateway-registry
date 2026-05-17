@@ -1159,6 +1159,100 @@ def _compute_version_table(
     return result
 
 
+def _compute_upgrade_trajectories(
+    rows: list[dict[str, str]],
+    internal_ids: set[str],
+) -> list[dict]:
+    """Compute per-instance version-upgrade trajectories.
+
+    For each non-internal registry_id, collects the set of DISTINCT version
+    strings the instance has ever reported, ordered by first-seen timestamp.
+    This matches "what version numbers have we seen from this instance"
+    rather than the noisy every-event sequence (HA replicas with the same
+    registry_id can flap between versions, which is not an upgrade).
+
+    Excludes:
+      - internal instances (known UUIDs from known-internal-instances.md)
+      - rows with no registry_id or no version
+      - instances that only ever reported one distinct version (no upgrade)
+
+    Returns a list of dicts sorted descending by version_changes:
+      [{
+         "registry_id": "9c02f727-51a...",
+         "version_changes": 6,
+         "trajectory": ["v1.0.18", "v1.0.19", "v1.0.20", "v1.0.21",
+                        "v1.0.22", "v1.0.22-p1", "1.23.0"],
+      }, ...]
+    """
+    # Track per-instance: {version: earliest_ts_seen}
+    per_instance_first_seen: dict[str, dict[str, str]] = {}
+    for row in rows:
+        rid = (row.get("registry_id") or "").strip()
+        if not rid or rid in internal_ids:
+            continue
+        version = (row.get("v") or "").strip()
+        if not version:
+            continue
+        ts = (row.get("ts") or "").strip()
+        if not ts:
+            continue
+        first_seen = per_instance_first_seen.setdefault(rid, {})
+        prior = first_seen.get(version)
+        if prior is None or ts < prior:
+            first_seen[version] = ts
+
+    trajectories: list[dict] = []
+    for rid, first_seen_map in per_instance_first_seen.items():
+        # Order distinct versions by first-seen timestamp
+        ordered = sorted(first_seen_map.items(), key=lambda kv: kv[1])
+        sequence = [v for v, _ts in ordered]
+
+        # Skip instances that only ever reported one distinct version
+        if len(sequence) < 2:
+            continue
+
+        trajectories.append(
+            {
+                "registry_id": rid[:12] + "...",
+                "registry_id_full": rid,
+                "version_changes": len(sequence) - 1,
+                "trajectory": sequence,
+            }
+        )
+
+    # Sort descending by version_changes, then by registry_id for stable output
+    trajectories.sort(key=lambda t: (-t["version_changes"], t["registry_id"]))
+    return trajectories
+
+
+def _build_upgrade_trajectory_table(
+    trajectories: list[dict],
+) -> str:
+    """Build the upgrade-trajectory markdown section.
+
+    Returns an empty string if no instances have upgraded.
+    """
+    if not trajectories:
+        return ""
+
+    lines: list[str] = []
+    lines.append("## Version Upgrade Trajectories")
+    lines.append("")
+    lines.append(
+        f"**{len(trajectories)} non-internal customer instances** have reported "
+        f"more than one version string over their lifetime, indicating at least "
+        f"one upgrade. Sorted descending by number of version changes."
+    )
+    lines.append("")
+    lines.append("| Registry ID | Version Changes | Trajectory |")
+    lines.append("|-------------|----------------:|------------|")
+    for t in trajectories:
+        path = " -> ".join(f"`{v}`" for v in t["trajectory"])
+        lines.append(f"| `{t['registry_id']}` | {t['version_changes']} | {path} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _compute_search_stats(
     rows: list[dict[str, str]],
 ) -> dict:
@@ -1275,6 +1369,7 @@ def _build_markdown_tables(
     internal_ids: set[str] | None = None,
     previous_sticky_profiles: dict[str, int] | None = None,
     previous_sticky_cloud_compute: dict[str, int] | None = None,
+    upgrade_trajectories: list[dict] | None = None,
 ) -> tuple[str, dict[str, int], dict[str, int], list[dict]]:
     """Build all markdown tables as a single string.
 
@@ -1449,6 +1544,11 @@ def _build_markdown_tables(
             f"{v['instances']} | {v['instance_percentage']} |"
         )
     lines.append("")
+
+    # Version Upgrade Trajectories (instances that reported >1 distinct version)
+    upgrade_md = _build_upgrade_trajectory_table(upgrade_trajectories or [])
+    if upgrade_md:
+        lines.append(upgrade_md)
 
     # Feature Adoption
     lines.append("## Feature Adoption")
@@ -1692,6 +1792,8 @@ def main() -> None:
 
     stickiness = _compute_stickiness(instance_lifetime, internal_ids)
 
+    upgrade_trajectories = _compute_upgrade_trajectories(rows, internal_ids)
+
     previous_sticky_profiles = None
     previous_sticky_cloud_compute = None
     if previous_metrics:
@@ -1717,6 +1819,7 @@ def main() -> None:
         internal_ids=internal_ids,
         previous_sticky_profiles=previous_sticky_profiles,
         previous_sticky_cloud_compute=previous_sticky_cloud_compute,
+        upgrade_trajectories=upgrade_trajectories,
     )
 
     # Build JSON with all computed data
@@ -1734,6 +1837,7 @@ def main() -> None:
         "identified_instances": instances,
         "unidentified_profiles": unidentified,
         "version_adoption": versions,
+        "upgrade_trajectories": upgrade_trajectories,
         "search_stats": search,
         "feature_adoption": features,
     }
