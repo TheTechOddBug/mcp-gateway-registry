@@ -728,6 +728,43 @@ class TestValidateEndpoint:
             data = response.json()
             assert data["valid"] is True
 
+    @patch("auth_server.server.get_auth_provider")
+    def test_validate_token_failure_returns_401_not_500(
+        self,
+        mock_get_provider,
+        auth_env_vars,
+    ):
+        """A ValueError from the provider's validate_token() must surface as
+        401 with WWW-Authenticate, not 500. Pre-#989 this was a 500 which
+        prevented MCP discovery clients from re-triggering OAuth on a stale
+        token.
+
+        Regression test for the auth_server fix shipped alongside #989.
+        """
+        from unittest.mock import MagicMock
+
+        provider = MagicMock()
+        provider.validate_token.side_effect = ValueError(
+            "Token missing 'kid' in header"
+        )
+        mock_get_provider.return_value = provider
+
+        import auth_server.server as server_module
+
+        client = TestClient(server_module.app)
+
+        response = client.get(
+            "/validate",
+            headers={
+                "Authorization": "Bearer junk-token",
+                "X-Original-URL": "https://example.com/test-server/mcp",
+            },
+        )
+
+        assert response.status_code == 401
+        assert "www-authenticate" in {k.lower() for k in response.headers.keys()}
+        assert response.headers["www-authenticate"].startswith("Bearer")
+
 
 class TestConfigEndpoint:
     """Tests for /config endpoint."""

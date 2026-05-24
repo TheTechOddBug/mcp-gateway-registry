@@ -2008,7 +2008,23 @@ async def validate_request(request: Request):
                             region=region,
                         )
 
+            except ValueError as e:
+                # ValueError from a provider's validate_token() indicates the
+                # token itself is bad: missing kid, signature mismatch, expired,
+                # wrong audience, etc. Per RFC 9728 §5.1 / MCP 2025-06-18, the
+                # client must see a 401 with WWW-Authenticate so its discovery
+                # flow can kick in. Returning 500 here was a pre-existing bug
+                # that prevented Claude Code / Cursor from re-triggering the
+                # OAuth dance after a stale token (issue #989).
+                logger.warning(f"Token validation failed: {e}")
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Token validation failed: {e}",
+                    headers={"WWW-Authenticate": "Bearer", "Connection": "close"},
+                )
             except Exception as e:
+                # Unexpected non-validation errors (network failure reaching
+                # IdP, provider misconfiguration, etc.) remain 500.
                 logger.error(f"Authentication provider error: {e}")
                 raise HTTPException(
                     status_code=500,
