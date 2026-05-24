@@ -126,6 +126,8 @@ class KeycloakProvider(AuthProvider):
             last_error = None
             for issuer in valid_issuers:
                 try:
+                    # Decode with audience verification first (covers tokens for
+                    # the gateway's own clients).
                     claims = jwt.decode(
                         token,
                         signing_key,
@@ -139,6 +141,37 @@ class KeycloakProvider(AuthProvider):
                 except jwt.InvalidIssuerError as e:
                     last_error = e
                     continue
+                except (jwt.MissingRequiredClaimError, jwt.InvalidAudienceError) as aud_err:
+                    # RFC 7591-registered (DCR'd) clients on Keycloak do not get
+                    # an `aud` claim by default and don't appear in our static
+                    # audience allowlist. Fall back to issuer-only validation:
+                    # the issuer match already proves the token came from our
+                    # trusted realm, and `azp` identifies which DCR'd client
+                    # got it.
+                    try:
+                        claims = jwt.decode(
+                            token,
+                            signing_key,
+                            algorithms=["RS256"],
+                            issuer=issuer,
+                            options={
+                                "verify_exp": True,
+                                "verify_iat": True,
+                                "verify_aud": False,
+                            },
+                        )
+                        if not claims.get("azp"):
+                            last_error = aud_err
+                            claims = None
+                            continue
+                        logger.debug(
+                            f"Token accepted via issuer+azp fallback "
+                            f"(azp={claims.get('azp')}, no aud claim - DCR'd client)"
+                        )
+                        break
+                    except jwt.InvalidIssuerError as e:
+                        last_error = e
+                        continue
 
             if claims is None:
                 raise last_error or ValueError("Token validation failed with all valid issuers")

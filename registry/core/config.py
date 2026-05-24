@@ -197,16 +197,6 @@ class Settings(BaseSettings):
             "Defaults to <registry_url>/docs/oauth when unset."
         ),
     )
-    mcp_prm_resource_override: str | None = Field(
-        default=None,
-        description=(
-            "Override value for the `resource` field in the PRM document. "
-            "Useful for IdPs (e.g. Entra v2) that require the `resource` parameter "
-            "on /authorize to match the audience identifier of the requested scope, "
-            "such as `api://<entra-app-id>`. When unset, the PRM `resource` field "
-            "is the canonical gateway URL (RFC 8707-compliant default)."
-        ),
-    )
     mcp_advertised_scopes: str = Field(
         default="",
         description=(

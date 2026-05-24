@@ -118,31 +118,6 @@ async def derive_supported_scopes() -> list[str]:
     return sorted(scope_names)
 
 
-def build_prm_resource_field(registry_url: str) -> str:
-    """Return the value of the `resource` field in the PRM document (RFC 9728).
-
-    By default this is the canonical gateway URL (RFC 8707-compliant). Some IdPs
-    (notably Entra v2) require the `resource` parameter sent on /authorize to
-    match the audience identifier used by the requested scope, e.g.
-    `api://<entra-app-id>`, not the gateway's HTTPS URL. Operators can set
-    `mcp_prm_resource_override` to advertise the IdP-specific resource ID.
-
-    The `resource_metadata` URL embedded in WWW-Authenticate 401s remains
-    derived from the gateway's HTTPS URL regardless, since it has to be
-    fetchable by the discovery client.
-
-    Args:
-        registry_url: Configured public URL of this gateway.
-
-    Returns:
-        Either the override value or the canonical resource URL.
-    """
-    override = getattr(settings, "mcp_prm_resource_override", None)
-    if override:
-        return override.rstrip("/")
-    return build_canonical_resource_url(registry_url)
-
-
 def build_resource_documentation_url() -> str:
     """Return the URL of the operator-facing OAuth docs page.
 
