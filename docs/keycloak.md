@@ -423,7 +423,11 @@ Created on-the-fly by Claude Code's first POST to
 
 Claude Code re-runs DCR every time the user re-authenticates, producing a new
 `client_id` each time. Old `client_id`s remain in the realm and accumulate.
-Operators may want a janitor process to clean these up; out of scope here.
+Run `bash keycloak/setup/cleanup-stale-dcr-clients.sh` on demand to delete
+DCR'd clients with no active sessions; pre-defined clients (mcp-gateway-web,
+mcp-gateway-m2m, etc.) are never touched. The script is idempotent and
+supports `--dry-run` to preview before deleting. CIMD adoption (Keycloak
+26.6+, sub-issue #993) eventually eliminates this entire problem.
 
 #### Client-scopes used in this flow
 
