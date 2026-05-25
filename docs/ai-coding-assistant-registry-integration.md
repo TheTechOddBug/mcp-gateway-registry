@@ -54,9 +54,14 @@ paste it in, log in, and you're done.
 
 ### Claude Code (CLI)
 
+To add the `airegistry-tools` MCP server (which gives Claude Code access to
+the registry's discovery and search tools):
+
 ```bash
-claude mcp add --transport http airegistry-tools https://<your-gateway>/airegistry-tools/mcp
+claude mcp add --transport http airegistry-tools https://mcpgateway.ddns.net/airegistry-tools/mcp
 ```
+
+Replace `mcpgateway.ddns.net` with your own gateway hostname.
 
 Then inside Claude Code:
 
@@ -127,11 +132,13 @@ Kiro CLI on Windows performs the same DCR + OAuth flow as Claude Code:
 the assistant registers itself, opens your browser to Keycloak, you click
 **Allow** on the consent screen, and the connection completes.
 
+To add the `airegistry-tools` MCP server:
+
 ```powershell
-kiro-cli mcp add airegistry-tools https://<your-gateway>/airegistry-tools/mcp
+kiro-cli mcp add --name airegistry-tools --scope global --url https://mcpgateway.ddns.net/airegistry-tools/mcp
 ```
 
-Then in Kiro:
+Replace `mcpgateway.ddns.net` with your own gateway hostname. Then in Kiro:
 
 ```
 /mcp
