@@ -18,7 +18,7 @@ import httpx
 from fastmcp import Context, FastMCP
 from logging_setup import setup_mcpgw_logging
 from models import AgentInfo, RegistryStats, ServerInfo, SkillInfo, ToolSearchResult
-from observability_bootstrap import init_meter_provider_if_needed
+from observability_bootstrap import init_meter_provider_if_needed, track_tool
 from starlette.responses import JSONResponse
 
 # Issue #1122: start the OTel Prometheus exporter listener so the in-cluster
@@ -231,6 +231,7 @@ async def _get_registry_headers(ctx: Context | None) -> dict[str, str]:
 
 
 @mcp.tool()
+@track_tool()
 async def list_services(ctx: Context | None = None) -> dict[str, Any]:
     """
     List all MCP servers registered in the gateway.
@@ -299,6 +300,7 @@ async def list_services(ctx: Context | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@track_tool()
 async def list_agents(ctx: Context | None = None) -> dict[str, Any]:
     """
     List all agents registered in the gateway.
@@ -354,6 +356,7 @@ async def list_agents(ctx: Context | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@track_tool()
 async def list_skills(ctx: Context | None = None) -> dict[str, Any]:
     """
     List all skills registered in the gateway.
@@ -409,6 +412,7 @@ async def list_skills(ctx: Context | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
+@track_tool()
 async def get_skill_content(
     skill_name: str,
     resource_path: str | None = None,
@@ -484,6 +488,7 @@ async def get_skill_content(
 
 
 @mcp.tool()
+@track_tool()
 async def intelligent_tool_finder(
     query: str,
     top_n: int = 5,
@@ -578,6 +583,7 @@ async def intelligent_tool_finder(
 
 
 @mcp.tool()
+@track_tool()
 async def healthcheck(ctx: Context | None = None) -> dict[str, Any]:
     """
     Get registry health status and statistics.

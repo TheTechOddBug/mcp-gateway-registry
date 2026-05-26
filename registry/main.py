@@ -904,6 +904,22 @@ app = FastAPI(
     ],
 )
 
+# Issue #1122: programmatic FastAPI auto-instrumentation. Emits HTTP
+# semantic-convention metrics (http.server.duration histogram + counter,
+# http.server.active_requests gauge) and spans for every route, with
+# attributes including http.route (template form, NOT the raw URL),
+# http.method, http.status_code. Works whether or not opentelemetry-
+# instrument is wrapping uvicorn at startup.
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app)
+    logger.info("Programmatic FastAPI auto-instrumentation enabled (issue #1122)")
+except ImportError:
+    logger.debug("opentelemetry-instrumentation-fastapi not installed; HTTP auto-metrics disabled")
+except Exception as exc:
+    logger.warning("FastAPI auto-instrumentation failed: %s", exc)
+
 # Add WWW-Authenticate middleware for MCP-facing 401s (RFC 9728 §5.1).
 # Must be added BEFORE CORS so the response-mutation step runs LAST in
 # Starlette's LIFO middleware order (i.e. after CORS adds its own headers),

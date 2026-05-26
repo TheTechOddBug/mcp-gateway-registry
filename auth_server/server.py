@@ -1125,6 +1125,18 @@ app = FastAPI(
     root_path=ROOT_PATH,
 )
 
+# Issue #1122: programmatic FastAPI auto-instrumentation (HTTP semantic
+# conventions). See registry/main.py for the full rationale.
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app)
+    logger.info("Programmatic FastAPI auto-instrumentation enabled (issue #1122)")
+except ImportError:
+    logger.debug("opentelemetry-instrumentation-fastapi not installed; HTTP auto-metrics disabled")
+except Exception as exc:
+    logger.warning("FastAPI auto-instrumentation failed: %s", exc)
+
 
 # Router for service-to-service /internal/* endpoints.
 #
