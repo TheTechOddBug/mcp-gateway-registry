@@ -353,11 +353,16 @@ class HealthMonitoringService:
         # Track if any status changed to minimize broadcasts
         status_changed = False
 
-        # Perform actual health checks concurrently for better performance
+        # Perform health checks in staggered batches to avoid CPU/network spikes.
+        # With 100+ servers, firing all checks at once causes connection storms
+        # and timeout cascades. Batches of 10 with a short pause between them
+        # spreads the load across the interval window.
+        HEALTH_CHECK_BATCH_SIZE = 10
+        HEALTH_CHECK_BATCH_DELAY_SECONDS = 0.5
+
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(settings.health_check_timeout_seconds)
         ) as client:
-            # Batch process enabled services
             check_tasks = []
             for service_path in enabled_services:
                 server_info = await server_service.get_server_info(
@@ -365,18 +370,25 @@ class HealthMonitoringService:
                 )
                 if server_info and server_info.get("proxy_pass_url"):
                     check_tasks.append(
-                        self._check_single_service(client, service_path, server_info)
+                        (service_path, server_info)
                     )
 
-            # Execute all health checks concurrently
-            if check_tasks:
-                results = await asyncio.gather(*check_tasks, return_exceptions=True)
+            # Execute health checks in staggered batches
+            for batch_start in range(0, len(check_tasks), HEALTH_CHECK_BATCH_SIZE):
+                batch = check_tasks[batch_start:batch_start + HEALTH_CHECK_BATCH_SIZE]
+                batch_coros = [
+                    self._check_single_service(client, path, info)
+                    for path, info in batch
+                ]
+                results = await asyncio.gather(*batch_coros, return_exceptions=True)
 
-                # Check if any status changed
                 for result in results:
-                    if isinstance(result, bool) and result:  # True indicates status changed
+                    if isinstance(result, bool) and result:
                         status_changed = True
-                        break
+
+                # Pause between batches to avoid CPU/connection spikes
+                if batch_start + HEALTH_CHECK_BATCH_SIZE < len(check_tasks):
+                    await asyncio.sleep(HEALTH_CHECK_BATCH_DELAY_SECONDS)
 
         # Only broadcast if something actually changed
         if status_changed:
@@ -386,18 +398,13 @@ class HealthMonitoringService:
             try:
                 from ..core.nginx_service import nginx_service
 
-                # Build enabled_servers dict with proper async/await
-                enabled_servers = {}
-                for path in await server_service.get_enabled_services():
-                    server_info = await server_service.get_server_info(path)
-                    if server_info:
-                        enabled_servers[path] = server_info
-                async with nginx_service.reload_lock:
-                    await nginx_service.generate_config_async(enabled_servers)
-                logger.info("Nginx configuration regenerated due to health status changes")
+                from registry.core.nginx_service import nginx_reload_scheduler
+
+                nginx_reload_scheduler.mark_dirty()
+                logger.info("Nginx config marked dirty due to health status changes")
             except Exception as e:
                 logger.error(
-                    f"Failed to regenerate nginx configuration after health status change: {e}"
+                    f"Failed to mark nginx config dirty after health status change: {e}"
                 )
 
     async def _check_single_service(
@@ -1284,22 +1291,15 @@ class HealthMonitoringService:
         # Regenerate nginx configuration if status changed
         if previous_status != current_status:
             try:
-                from ..core.nginx_service import nginx_service
+                from registry.core.nginx_service import nginx_reload_scheduler
 
-                # Build enabled_servers dict with proper async/await
-                enabled_servers = {}
-                for path in await server_service.get_enabled_services():
-                    server_info = await server_service.get_server_info(path)
-                    if server_info:
-                        enabled_servers[path] = server_info
-                async with nginx_service.reload_lock:
-                    await nginx_service.generate_config_async(enabled_servers)
+                nginx_reload_scheduler.mark_dirty()
                 logger.info(
-                    f"Nginx configuration regenerated due to status change for {service_path}: {previous_status} -> {current_status}"
+                    f"Nginx config marked dirty due to status change for {service_path}: {previous_status} -> {current_status}"
                 )
             except Exception as e:
                 logger.error(
-                    f"Failed to regenerate nginx configuration after immediate health check: {e}"
+                    f"Failed to mark nginx config dirty after immediate health check: {e}"
                 )
 
         return current_status, last_checked_time

@@ -71,7 +71,9 @@ class KeycloakProvider(AuthProvider):
         self.userinfo_url = f"{self.realm_url}/protocol/openid-connect/userinfo"
         self.jwks_url = f"{self.realm_url}/protocol/openid-connect/certs"
         self.logout_url = f"{self.external_realm_url}/protocol/openid-connect/logout"
-        self.config_url = f"{self.realm_url}/.well-known/openid_configuration"
+        # Keycloak 25+ serves the spec-correct hyphenated form; the older
+        # underscore form is no longer routed.
+        self.config_url = f"{self.realm_url}/.well-known/openid-configuration"
 
         logger.debug(
             f"Initialized Keycloak provider for realm '{realm}' at {keycloak_url} (external: {self.keycloak_external_url})"
@@ -120,6 +122,22 @@ class KeycloakProvider(AuthProvider):
                 f"http://localhost:8080/realms/{self.realm}",  # Localhost URL for development
             ]
 
+            # Accepted audiences:
+            #   - "account"          (Keycloak's default for user tokens)
+            #   - self.client_id     (the gateway's own pre-defined web client)
+            #   - self.m2m_client_id (the gateway's M2M client)
+            #   - "mcp-gateway"      (custom audience added by the realm's
+            #                         audience mapper on the `basic` scope, which
+            #                         is reliably attached to every DCR'd client.
+            #                         See keycloak/setup/init-keycloak.sh::
+            #                         setup_dcr_audience_mapper.)
+            accepted_audiences = [
+                "account",
+                self.client_id,
+                self.m2m_client_id,
+                "mcp-gateway",
+            ]
+
             claims = None
             last_error = None
             for issuer in valid_issuers:
@@ -129,7 +147,7 @@ class KeycloakProvider(AuthProvider):
                         signing_key,
                         algorithms=["RS256"],
                         issuer=issuer,
-                        audience=["account", self.client_id, self.m2m_client_id],
+                        audience=accepted_audiences,
                         options={"verify_exp": True, "verify_iat": True, "verify_aud": True},
                     )
                     logger.debug(f"Token validation successful with issuer: {issuer}")
@@ -393,6 +411,37 @@ class KeycloakProvider(AuthProvider):
         except requests.RequestException as e:
             logger.error(f"Failed to get M2M token: {e}")
             raise ValueError(f"M2M token generation failed: {e}")
+
+    def authorization_server_metadata(self) -> dict[str, Any]:
+        """Return Keycloak's RFC 8414 metadata, with internal hostnames rewritten.
+
+        Keycloak's OpenID configuration is RFC 8414-shaped already. We fetch it
+        from the internal cluster URL but rewrite any browser-facing endpoints
+        onto the external URL so a discovery client lands on the correct host.
+        """
+        config = self._get_openid_configuration()
+        if self.keycloak_url == self.keycloak_external_url:
+            return dict(config)
+
+        rewritten: dict[str, Any] = dict(config)
+        for field in (
+            "issuer",
+            "authorization_endpoint",
+            "token_endpoint",
+            "userinfo_endpoint",
+            "jwks_uri",
+            "end_session_endpoint",
+            "introspection_endpoint",
+            "registration_endpoint",
+            "revocation_endpoint",
+            "device_authorization_endpoint",
+        ):
+            value = rewritten.get(field)
+            if isinstance(value, str) and value.startswith(self.keycloak_url):
+                rewritten[field] = value.replace(
+                    self.keycloak_url, self.keycloak_external_url, 1
+                )
+        return rewritten
 
     @lru_cache(maxsize=1)
     def _get_openid_configuration(self) -> dict[str, Any]:

@@ -182,6 +182,34 @@ class Settings(BaseSettings):
     enable_wellknown_discovery: bool = True
     wellknown_cache_ttl: int = 300  # 5 minutes
 
+    # MCP OAuth discovery settings (RFC 9728 / RFC 8414)
+    mcp_https_required: bool = Field(
+        default=True,
+        description=(
+            "Require HTTPS for the canonical MCP resource URL advertised in PRM. "
+            "Set to false only in local/dev environments."
+        ),
+    )
+    mcp_resource_documentation_url: str | None = Field(
+        default=None,
+        description=(
+            "Override URL for the `resource_documentation` field in the PRM document. "
+            "Defaults to <registry_url>/docs/oauth when unset."
+        ),
+    )
+    mcp_advertised_scopes: str = Field(
+        default="",
+        description=(
+            "Space-separated override for the `scopes_supported` array in the PRM "
+            "document. When set, only these scopes are advertised to discovery "
+            "clients. Useful when the IdP performs RFC 7591 DCR and rejects "
+            "registration requests containing scope names it doesn't recognize. "
+            "Example: `openid email profile offline_access`. "
+            "When unset, all scopes from the registry's authorization config are "
+            "advertised (default)."
+        ),
+    )
+
     # OpenTelemetry / OTLP settings (metrics-service)
     otel_otlp_endpoint: str | None = None  # OTLP HTTP endpoint (e.g. https://otlp.example.com)
     otel_otlp_export_interval_ms: int = 30000  # OTLP export interval in milliseconds
@@ -239,7 +267,11 @@ class Settings(BaseSettings):
     )
     github_extra_hosts: str = Field(
         default="",
-        description="Comma-separated extra GitHub hosts for auth (e.g. github.mycompany.com,raw.github.mycompany.com)",
+        description=(
+            "Comma-separated extra GitHub hosts (e.g. github.mycompany.com,raw.github.mycompany.com). "
+            "Hosts here receive GitHub auth headers AND bypass the SKILL.md SSRF private-IP check, "
+            "so GHES instances on internal networks remain reachable. Keep the list tight."
+        ),
     )
     github_api_base_url: str = Field(
         default="https://api.github.com",

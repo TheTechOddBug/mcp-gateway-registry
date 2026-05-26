@@ -56,6 +56,7 @@ class TestAuthProviderInterface:
             "refresh_token",
             "validate_m2m_token",
             "get_m2m_token",
+            "authorization_server_metadata",
         }
 
         assert abstract_methods == expected_methods
@@ -101,6 +102,14 @@ class TestConcreteImplementation:
             ) -> dict[str, Any]:
                 return {"access_token": "m2m_token"}
 
+            def authorization_server_metadata(self) -> dict[str, Any]:
+                return {
+                    "issuer": "https://idp.example.com",
+                    "authorization_endpoint": "https://idp.example.com/authorize",
+                    "token_endpoint": "https://idp.example.com/token",
+                    "jwks_uri": "https://idp.example.com/jwks",
+                }
+
         # Act
         provider = TestProvider()
 
@@ -114,6 +123,133 @@ class TestConcreteImplementation:
         assert "access_token" in provider.refresh_token("token")
         assert provider.validate_m2m_token("token")["valid"] is True
         assert "access_token" in provider.get_m2m_token()
+        assert provider.authorization_server_metadata()["issuer"].startswith("https://")
+
+
+class TestProtectedResourceMetadataDefault:
+    """Tests for the default protected_resource_metadata() implementation."""
+
+    def _make_provider(self, issuer: str = "https://idp.example.com"):
+        from auth_server.providers.base import AuthProvider
+
+        class _Provider(AuthProvider):
+            def validate_token(self, token, **kwargs):
+                return {}
+
+            def get_jwks(self):
+                return {}
+
+            def exchange_code_for_token(self, code, redirect_uri):
+                return {}
+
+            def get_user_info(self, access_token):
+                return {}
+
+            def get_auth_url(self, redirect_uri, state, scope=None):
+                return ""
+
+            def get_logout_url(self, redirect_uri):
+                return ""
+
+            def refresh_token(self, refresh_token):
+                return {}
+
+            def validate_m2m_token(self, token):
+                return {}
+
+            def get_m2m_token(self, client_id=None, client_secret=None, scope=None):
+                return {}
+
+            def authorization_server_metadata(self):
+                return {"issuer": issuer}
+
+        return _Provider()
+
+    def test_returns_rfc9728_required_fields(self):
+        """PRM document includes resource, authorization_servers, scopes_supported, bearer_methods_supported."""
+        provider = self._make_provider()
+
+        document = provider.protected_resource_metadata(
+            resource="https://gw.example.com",
+            scopes_supported=["mcp-admin", "mcp-read"],
+        )
+
+        assert document["resource"] == "https://gw.example.com"
+        assert document["authorization_servers"] == ["https://idp.example.com"]
+        assert document["scopes_supported"] == ["mcp-admin", "mcp-read"]
+        assert document["bearer_methods_supported"] == ["header"]
+
+    def test_resource_documentation_optional(self):
+        """resource_documentation is omitted when not provided, included when provided."""
+        provider = self._make_provider()
+
+        without = provider.protected_resource_metadata(
+            resource="https://gw.example.com",
+            scopes_supported=[],
+        )
+        assert "resource_documentation" not in without
+
+        with_docs = provider.protected_resource_metadata(
+            resource="https://gw.example.com",
+            scopes_supported=[],
+            resource_documentation="https://gw.example.com/docs/oauth",
+        )
+        assert with_docs["resource_documentation"] == "https://gw.example.com/docs/oauth"
+
+    def test_scopes_supported_preserves_caller_order(self):
+        """The route handler is responsible for sorting; the helper preserves order."""
+        provider = self._make_provider()
+
+        document = provider.protected_resource_metadata(
+            resource="https://gw.example.com",
+            scopes_supported=["zeta", "alpha", "mu"],
+        )
+
+        assert document["scopes_supported"] == ["zeta", "alpha", "mu"]
+
+    def test_authorization_server_issuer_default_reads_metadata(self):
+        """Default authorization_server_issuer() pulls from authorization_server_metadata()."""
+        provider = self._make_provider(issuer="https://accounts.example.com/realm/x")
+
+        assert provider.authorization_server_issuer() == "https://accounts.example.com/realm/x"
+
+    def test_authorization_server_issuer_raises_when_missing(self):
+        """If the AS metadata document lacks an issuer, default issuer() raises."""
+        from auth_server.providers.base import AuthProvider
+
+        class _NoIssuer(AuthProvider):
+            def validate_token(self, token, **kwargs):
+                return {}
+
+            def get_jwks(self):
+                return {}
+
+            def exchange_code_for_token(self, code, redirect_uri):
+                return {}
+
+            def get_user_info(self, access_token):
+                return {}
+
+            def get_auth_url(self, redirect_uri, state, scope=None):
+                return ""
+
+            def get_logout_url(self, redirect_uri):
+                return ""
+
+            def refresh_token(self, refresh_token):
+                return {}
+
+            def validate_m2m_token(self, token):
+                return {}
+
+            def get_m2m_token(self, client_id=None, client_secret=None, scope=None):
+                return {}
+
+            def authorization_server_metadata(self):
+                return {"authorization_endpoint": "x"}  # missing issuer
+
+        with pytest.raises(ValueError, match="missing 'issuer'"):
+            _NoIssuer().authorization_server_issuer()
 
 
 class TestAuthProviderDocstrings:

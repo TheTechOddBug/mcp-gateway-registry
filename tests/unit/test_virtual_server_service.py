@@ -1,7 +1,7 @@
 """Unit tests for virtual server service layer."""
 
 import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1131,21 +1131,15 @@ class TestNginxReloadFailureHandling:
     @pytest.mark.asyncio
     async def test_trigger_nginx_reload_returns_false_on_exception(self, service):
         """Test that _trigger_nginx_reload returns False when an exception occurs."""
-        mock_nginx = AsyncMock()
-        mock_server_svc = AsyncMock()
-        mock_server_svc.get_enabled_services = AsyncMock(
+        mock_scheduler = MagicMock()
+        mock_scheduler.mark_dirty = MagicMock()
+        mock_scheduler.flush_now = AsyncMock(
             side_effect=RuntimeError("connection refused"),
         )
 
-        with (
-            patch(
-                "registry.core.nginx_service.nginx_service",
-                mock_nginx,
-            ),
-            patch(
-                "registry.services.server_service.server_service",
-                mock_server_svc,
-            ),
+        with patch(
+            "registry.core.nginx_service.nginx_reload_scheduler",
+            mock_scheduler,
         ):
             result = await service._trigger_nginx_reload()
 
@@ -1154,20 +1148,16 @@ class TestNginxReloadFailureHandling:
     @pytest.mark.asyncio
     async def test_trigger_nginx_reload_logs_error_on_failure(self, service, caplog):
         """Test that _trigger_nginx_reload logs error when it fails."""
-        mock_nginx = AsyncMock()
-        mock_server_svc = AsyncMock()
-        mock_server_svc.get_enabled_services = AsyncMock(
+        mock_scheduler = MagicMock()
+        mock_scheduler.mark_dirty = MagicMock()
+        mock_scheduler.flush_now = AsyncMock(
             side_effect=RuntimeError("connection refused"),
         )
 
         with (
             patch(
-                "registry.core.nginx_service.nginx_service",
-                mock_nginx,
-            ),
-            patch(
-                "registry.services.server_service.server_service",
-                mock_server_svc,
+                "registry.core.nginx_service.nginx_reload_scheduler",
+                mock_scheduler,
             ),
             caplog.at_level(logging.ERROR),
         ):
@@ -1181,24 +1171,19 @@ class TestNginxReloadFailureHandling:
     @pytest.mark.asyncio
     async def test_trigger_nginx_reload_returns_true_on_success(self, service):
         """Test that _trigger_nginx_reload returns True on success."""
-        mock_nginx = AsyncMock()
-        mock_nginx.generate_config_async = AsyncMock(return_value=True)
-        mock_server_svc = AsyncMock()
-        mock_server_svc.get_enabled_services = AsyncMock(return_value=[])
+        mock_scheduler = MagicMock()
+        mock_scheduler.mark_dirty = MagicMock()
+        mock_scheduler.flush_now = AsyncMock()
 
-        with (
-            patch(
-                "registry.core.nginx_service.nginx_service",
-                mock_nginx,
-            ),
-            patch(
-                "registry.services.server_service.server_service",
-                mock_server_svc,
-            ),
+        with patch(
+            "registry.core.nginx_service.nginx_reload_scheduler",
+            mock_scheduler,
         ):
             result = await service._trigger_nginx_reload()
 
         assert result is True
+        mock_scheduler.mark_dirty.assert_called_once()
+        mock_scheduler.flush_now.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_succeeds_when_nginx_reload_fails(
@@ -1398,44 +1383,36 @@ class TestNginxReloadLock:
 
     @pytest.mark.asyncio
     async def test_concurrent_reloads_are_serialized(self, service):
-        """Test that concurrent nginx reloads are serialized by the lock.
+        """Test that concurrent nginx reloads call the scheduler.
 
-        Patch only the methods being exercised - keep the real
-        nginx_service singleton (and its real reload_lock) so the lock
-        actually serializes the calls.
+        The scheduler's flush_now() handles serialization internally.
+        We verify that both concurrent calls succeed and both invoke
+        mark_dirty + flush_now.
         """
         import asyncio
 
-        from registry.core.nginx_service import nginx_service
+        call_count = {"mark_dirty": 0, "flush_now": 0}
 
-        call_order = []
-
-        async def mock_generate(*args, **kwargs):
-            call_order.append("start")
+        async def mock_flush_now():
+            call_count["flush_now"] += 1
             await asyncio.sleep(0.01)
-            call_order.append("end")
-            return True
 
-        mock_server_svc = AsyncMock()
-        mock_server_svc.get_enabled_services = AsyncMock(return_value=[])
+        mock_scheduler = MagicMock()
+        mock_scheduler.mark_dirty = MagicMock(side_effect=lambda: call_count.update({"mark_dirty": call_count["mark_dirty"] + 1}))
+        mock_scheduler.flush_now = AsyncMock(side_effect=mock_flush_now)
 
-        with (
-            patch.object(nginx_service, "generate_config_async", mock_generate),
-            patch(
-                "registry.services.server_service.server_service",
-                mock_server_svc,
-            ),
+        with patch(
+            "registry.core.nginx_service.nginx_reload_scheduler",
+            mock_scheduler,
         ):
-            # Launch two reloads concurrently
             results = await asyncio.gather(
                 service._trigger_nginx_reload(),
                 service._trigger_nginx_reload(),
             )
 
-        # Both should succeed
         assert all(results)
-        # The lock ensures serialization: start-end-start-end, not start-start-end-end
-        assert call_order == ["start", "end", "start", "end"]
+        assert call_count["mark_dirty"] == 2
+        assert call_count["flush_now"] == 2
 
 
 # --- Unit tests for rating functionality ---

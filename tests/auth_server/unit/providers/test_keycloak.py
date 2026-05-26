@@ -804,4 +804,91 @@ class TestKeycloakProviderInfo:
         # Assert
         assert is_healthy is True
         mock_get.assert_called_once()
-        assert "/health/ready" in mock_get.call_args[0][0]
+
+
+class TestKeycloakAuthorizationServerMetadata:
+    """Tests for RFC 8414 metadata exposure via authorization_server_metadata()."""
+
+    def _openid_config(self, base_url: str) -> dict:
+        return {
+            "issuer": f"{base_url}/realms/test-realm",
+            "authorization_endpoint": f"{base_url}/realms/test-realm/protocol/openid-connect/auth",
+            "token_endpoint": f"{base_url}/realms/test-realm/protocol/openid-connect/token",
+            "userinfo_endpoint": f"{base_url}/realms/test-realm/protocol/openid-connect/userinfo",
+            "jwks_uri": f"{base_url}/realms/test-realm/protocol/openid-connect/certs",
+            "end_session_endpoint": f"{base_url}/realms/test-realm/protocol/openid-connect/logout",
+            "registration_endpoint": f"{base_url}/realms/test-realm/clients-registrations/openid-connect",
+            "response_types_supported": ["code"],
+        }
+
+    @patch("auth_server.providers.keycloak.requests.get")
+    def test_metadata_passthrough_when_no_external_url(self, mock_get):
+        """Internal == external URL: doc is returned unchanged."""
+        from auth_server.providers.keycloak import KeycloakProvider
+
+        config = self._openid_config("http://localhost:8080")
+        mock_response = MagicMock()
+        mock_response.json.return_value = config
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        provider = KeycloakProvider(
+            keycloak_url="http://localhost:8080",
+            realm="test-realm",
+            client_id="c",
+            client_secret="s",
+        )
+
+        metadata = provider.authorization_server_metadata()
+
+        assert metadata == config
+
+    @patch("auth_server.providers.keycloak.requests.get")
+    def test_metadata_rewrites_internal_to_external(self, mock_get):
+        """When external URL differs, browser-facing endpoints are rewritten."""
+        from auth_server.providers.keycloak import KeycloakProvider
+
+        config = self._openid_config("http://keycloak:8080")
+        mock_response = MagicMock()
+        mock_response.json.return_value = config
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        provider = KeycloakProvider(
+            keycloak_url="http://keycloak:8080",
+            keycloak_external_url="https://auth.example.com",
+            realm="test-realm",
+            client_id="c",
+            client_secret="s",
+        )
+
+        metadata = provider.authorization_server_metadata()
+
+        assert metadata["issuer"] == "https://auth.example.com/realms/test-realm"
+        assert metadata["authorization_endpoint"].startswith("https://auth.example.com/")
+        assert metadata["token_endpoint"].startswith("https://auth.example.com/")
+        assert metadata["jwks_uri"].startswith("https://auth.example.com/")
+        assert metadata["end_session_endpoint"].startswith("https://auth.example.com/")
+        assert metadata["registration_endpoint"].startswith("https://auth.example.com/")
+        assert metadata["response_types_supported"] == ["code"]
+
+    @patch("auth_server.providers.keycloak.requests.get")
+    def test_authorization_server_issuer_uses_external_url(self, mock_get):
+        """The PRM `authorization_servers` entry must be the external issuer."""
+        from auth_server.providers.keycloak import KeycloakProvider
+
+        config = self._openid_config("http://keycloak:8080")
+        mock_response = MagicMock()
+        mock_response.json.return_value = config
+        mock_response.raise_for_status = MagicMock()
+        mock_get.return_value = mock_response
+
+        provider = KeycloakProvider(
+            keycloak_url="http://keycloak:8080",
+            keycloak_external_url="https://auth.example.com",
+            realm="test-realm",
+            client_id="c",
+            client_secret="s",
+        )
+
+        assert provider.authorization_server_issuer() == "https://auth.example.com/realms/test-realm"

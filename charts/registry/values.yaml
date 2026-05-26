@@ -3,8 +3,14 @@ global:
   image:
     # Container registry (host + optional namespace). Shared default across subcharts.
     registry: public.ecr.aws/p3v1o3c6
-    tag: 1.24.1
+    tag: 1.24.2
     pullPolicy: IfNotPresent
+
+  cloud:
+    # AWS region for cloud detection in telemetry. Set this when deploying
+    # on AWS regardless of auth provider (Keycloak, Entra, Okta, etc.).
+    # Previously only injected for Cognito; now available unconditionally.
+    awsRegion: ""
 
   ingress:
     # Default ALB scheme for the registry's ingress when this subchart is
@@ -24,7 +30,7 @@ image:
 # Application configuration
 app:
   name: registry
-  replicas: 1
+  replicas: 2
   envSecretName: registry-secret
   existingSecret: ""  # If set, use this existing secret instead of creating one
 

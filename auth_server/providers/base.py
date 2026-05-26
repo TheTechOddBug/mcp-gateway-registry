@@ -168,3 +168,68 @@ class AuthProvider(ABC):
             ValueError: If token generation fails
         """
         pass
+
+    @abstractmethod
+    def authorization_server_metadata(self) -> dict[str, Any]:
+        """Return the IdP's RFC 8414 Authorization Server Metadata document.
+
+        Implementations should fetch the upstream OIDC/OAuth metadata, normalize
+        any provider-specific quirks (e.g. rehoming Cognito's split endpoints onto
+        the cognito-domain host), and return a stable RFC 8414-shaped dict.
+
+        Returns:
+            Dictionary conforming to RFC 8414 (issuer, authorization_endpoint,
+            token_endpoint, jwks_uri, response_types_supported, ...).
+
+        Raises:
+            ValueError: If upstream metadata cannot be fetched or normalized.
+        """
+        pass
+
+    def authorization_server_issuer(self) -> str:
+        """Return the canonical issuer URL of the configured authorization server.
+
+        Used as the `authorization_servers` entry in the gateway's RFC 9728
+        Protected Resource Metadata document. Default implementation reads the
+        `issuer` field from authorization_server_metadata(); providers can
+        override for cheaper lookups.
+        """
+        metadata = self.authorization_server_metadata()
+        issuer = metadata.get("issuer")
+        if not issuer:
+            raise ValueError(
+                "Authorization server metadata missing 'issuer' field"
+            )
+        return issuer
+
+    def protected_resource_metadata(
+        self,
+        resource: str,
+        scopes_supported: list[str],
+        resource_documentation: str | None = None,
+    ) -> dict[str, Any]:
+        """Build an RFC 9728 Protected Resource Metadata document for this gateway.
+
+        The shape is identical across IdPs; the only per-provider input is the
+        authorization server issuer (filled in via authorization_server_issuer()).
+        Subclasses generally do not need to override this.
+
+        Args:
+            resource: Canonical URL of the MCP resource server (gateway).
+                Must be HTTPS in non-local environments and have no trailing slash.
+            scopes_supported: List of scope strings the gateway recognizes.
+                Caller is responsible for sorting/dedup; this method preserves order.
+            resource_documentation: Optional URL to operator-facing OAuth docs.
+
+        Returns:
+            Dictionary conforming to RFC 9728 §3.
+        """
+        document: dict[str, Any] = {
+            "resource": resource,
+            "authorization_servers": [self.authorization_server_issuer()],
+            "scopes_supported": list(scopes_supported),
+            "bearer_methods_supported": ["header"],
+        }
+        if resource_documentation:
+            document["resource_documentation"] = resource_documentation
+        return document

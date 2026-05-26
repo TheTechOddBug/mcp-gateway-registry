@@ -1959,43 +1959,72 @@ async def validate_request(request: Request):
 
             # Get authentication provider based on AUTH_PROVIDER environment variable
             try:
-                auth_provider = get_auth_provider()
-                logger.info(f"Using authentication provider: {auth_provider.__class__.__name__}")
+                # Try self-signed token first (tokens minted by this auth server).
+                # This must run before provider-specific validation because the
+                # Connect button generates locally-signed JWTs with iss=mcp-auth-server
+                # regardless of the configured auth provider (Entra, Okta, etc.).
+                try:
+                    unverified = jwt.decode(access_token, options={"verify_signature": False})
+                    if unverified.get("iss") == JWT_ISSUER:
+                        validation_result = validator.validate_self_signed_token(access_token)
+                        logger.info("Token validated as self-signed (iss=mcp-auth-server)")
+                except Exception as e:
+                    logger.debug(f"Self-signed check failed, continuing to provider: {e}")
 
-                # Provider-specific validation
-                if hasattr(auth_provider, "validate_token"):
-                    # For Keycloak, no additional headers needed
-                    validation_result = auth_provider.validate_token(access_token)
-                    logger.info(
-                        f"Token validation successful using {auth_provider.__class__.__name__}"
-                    )
-                else:
-                    # Fallback to old validation for compatibility
-                    if not user_pool_id:
-                        logger.warning("Missing X-User-Pool-Id header for Cognito validation")
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Missing X-User-Pool-Id header",
-                            headers={"Connection": "close"},
+                if not validation_result:
+                    auth_provider = get_auth_provider()
+                    logger.info(f"Using authentication provider: {auth_provider.__class__.__name__}")
+
+                    # Provider-specific validation
+                    if hasattr(auth_provider, "validate_token"):
+                        # For Keycloak, no additional headers needed
+                        validation_result = auth_provider.validate_token(access_token)
+                        logger.info(
+                            f"Token validation successful using {auth_provider.__class__.__name__}"
+                        )
+                    else:
+                        # Fallback to old validation for compatibility
+                        if not user_pool_id:
+                            logger.warning("Missing X-User-Pool-Id header for Cognito validation")
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Missing X-User-Pool-Id header",
+                                headers={"Connection": "close"},
+                            )
+
+                        if not client_id:
+                            logger.warning("Missing X-Client-Id header for Cognito validation")
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Missing X-Client-Id header",
+                                headers={"Connection": "close"},
+                            )
+
+                        # Use old validator for backward compatibility
+                        validation_result = validator.validate_token(
+                            access_token=access_token,
+                            user_pool_id=user_pool_id,
+                            client_id=client_id,
+                            region=region,
                         )
 
-                    if not client_id:
-                        logger.warning("Missing X-Client-Id header for Cognito validation")
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Missing X-Client-Id header",
-                            headers={"Connection": "close"},
-                        )
-
-                    # Use old validator for backward compatibility
-                    validation_result = validator.validate_token(
-                        access_token=access_token,
-                        user_pool_id=user_pool_id,
-                        client_id=client_id,
-                        region=region,
-                    )
-
+            except ValueError as e:
+                # ValueError from a provider's validate_token() indicates the
+                # token itself is bad: missing kid, signature mismatch, expired,
+                # wrong audience, etc. Per RFC 9728 §5.1 / MCP 2025-06-18, the
+                # client must see a 401 with WWW-Authenticate so its discovery
+                # flow can kick in. Returning 500 here was a pre-existing bug
+                # that prevented Claude Code / Cursor from re-triggering the
+                # OAuth dance after a stale token (issue #989).
+                logger.warning(f"Token validation failed: {e}")
+                raise HTTPException(
+                    status_code=401,
+                    detail=f"Token validation failed: {e}",
+                    headers={"WWW-Authenticate": "Bearer", "Connection": "close"},
+                )
             except Exception as e:
+                # Unexpected non-validation errors (network failure reaching
+                # IdP, provider misconfiguration, etc.) remain 500.
                 logger.error(f"Authentication provider error: {e}")
                 raise HTTPException(
                     status_code=500,
@@ -3841,6 +3870,17 @@ async def mcp_proxy(
             detail="Missing X-Upstream-Url header",
         )
 
+    # Append the MCP sub-path from the request. server_name captures the full
+    # path after /mcp-proxy/ (e.g. "airegistry-tools/mcp"). The first segment
+    # is the registered server name; everything after is the sub-path that must
+    # be appended to the upstream URL so the backend receives the correct route.
+    # Skip if the upstream URL already ends with the sub-path (e.g. proxy_pass_url
+    # is https://docs.mcp.cloudflare.com/mcp and sub_path is also /mcp).
+    if "/" in server_name:
+        sub_path = server_name.split("/", 1)[1].lstrip("/")
+        if sub_path and not upstream_url.rstrip("/").endswith("/" + sub_path):
+            upstream_url = upstream_url.rstrip("/") + "/" + sub_path
+
     raw_scopes = request.headers.get("X-Scopes", "")
     user_scopes: list[str] = [s for s in raw_scopes.split() if s]
 
@@ -3891,6 +3931,7 @@ async def mcp_proxy(
                 # context. httpx releases response.headers when the
                 # async-with block exits; reading them afterwards returns
                 # an empty mapping and Mcp-Session-Id is silently lost.
+                # Capture MCP session headers before the response stream closes
                 upstream_headers = dict(upstream_response.headers)
     except HTTPException:
         raise
@@ -3915,9 +3956,13 @@ async def mcp_proxy(
         and "application/json" in content_type.lower()
     )
 
-    # Forward upstream response headers (e.g. Mcp-Session-Id) on every
-    # branch; the upstream is the source of truth for session state.
-    response_headers = _passthrough_response_headers(upstream_headers)
+    # Forward key MCP response headers from the upstream (especially
+    # Mcp-Session-Id which the client needs for subsequent requests).
+    response_headers: dict[str, str] = {}
+    for hdr in ("mcp-session-id", "x-mcp-session-id"):
+        val = upstream_headers.get(hdr)
+        if val:
+            response_headers[hdr] = val
 
     if not should_filter:
         # Forward the upstream body and content_type unchanged. Many MCP
@@ -3953,11 +3998,7 @@ async def mcp_proxy(
         result["tools"] = filtered
         parsed["result"] = result
 
-    return JSONResponse(
-        content=parsed,
-        status_code=status_code,
-        headers=response_headers,
-    )
+    return JSONResponse(content=parsed, status_code=status_code, headers=response_headers)
 
 
 def _safe_parse_body(

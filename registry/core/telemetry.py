@@ -293,6 +293,10 @@ def _detect_compute_platform() -> str:
     if os.path.exists("/.dockerenv"):
         return "docker"
 
+    # Podman: /run/.containerenv exists in Podman containers
+    if os.path.exists("/run/.containerenv"):
+        return "podman"
+
     # EC2: check for AWS hypervisor UUID
     try:
         with open("/sys/devices/virtual/dmi/id/board_asset_tag") as f:
@@ -641,7 +645,7 @@ async def _build_heartbeat_payload() -> dict:
 
     try:
         skill_repo = get_skill_repository()
-        skills = await skill_repo.list_all()
+        skills = await skill_repo.list_all(skip=0, limit=10000)
         skills_count = len(skills)
     except Exception as e:
         logger.warning(f"[telemetry] Failed to get skill count: {e}")

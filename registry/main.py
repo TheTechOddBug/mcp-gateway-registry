@@ -80,6 +80,7 @@ from registry.health.routes import router as health_router
 from registry.health.service import health_service
 
 # Import registry mode middleware
+from registry.middleware.mcp_www_authenticate import WWWAuthenticateMiddleware
 from registry.middleware.mode_filter import RegistryModeMiddleware
 from registry.repositories.factory import get_search_repository
 from registry.services.agent_service import agent_service
@@ -428,55 +429,59 @@ async def lifespan(app: FastAPI):
         logger.info(f"🔍 Initializing {backend_name} search service...")
         await search_repo.initialize()
 
-        logger.info(f"📊 Updating {backend_name} index with all registered services...")
-        all_servers = await server_service.get_all_servers()
-        for service_path, server_info in all_servers.items():
-            is_enabled = await server_service.is_service_enabled(service_path)
-            try:
-                await search_repo.index_server(service_path, server_info, is_enabled)
-                logger.debug(f"Updated {backend_name} index for service: {service_path}")
-            except Exception as e:
-                logger.error(
-                    f"Failed to update {backend_name} index for service {service_path}: {e}",
-                    exc_info=True,
-                )
+        # For DocumentDB, embeddings are persisted in the collection and survive
+        # restarts. Only FAISS (in-memory) needs a full re-index on every boot.
+        if settings.storage_backend not in MONGODB_BACKENDS:
+            logger.info(f"📊 Rebuilding in-memory {backend_name} index from DB...")
+            all_servers = await server_service.get_all_servers()
+            for service_path, server_info in all_servers.items():
+                is_enabled = await server_service.is_service_enabled(service_path)
+                try:
+                    await search_repo.index_server(service_path, server_info, is_enabled)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to index service {service_path}: {e}",
+                        exc_info=True,
+                    )
+            logger.info(f"✅ {backend_name} index rebuilt with {len(all_servers)} services")
 
-        logger.info(f"✅ {backend_name} index updated with {len(all_servers)} services")
+            logger.info("📋 Loading agent cards and state...")
+            await agent_service.load_agents_and_state()
 
-        logger.info("📋 Loading agent cards and state...")
-        await agent_service.load_agents_and_state()
+            all_agents = await agent_service.list_agents()
+            for agent_card in all_agents:
+                is_enabled = await agent_service.is_agent_enabled(agent_card.path)
+                try:
+                    await search_repo.index_agent(agent_card.path, agent_card, is_enabled)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to index agent {agent_card.path}: {e}",
+                        exc_info=True,
+                    )
+            logger.info(f"✅ {backend_name} index rebuilt with {len(all_agents)} agents")
 
-        logger.info(f"📊 Updating {backend_name} index with all registered agents...")
-        all_agents = await agent_service.list_agents()
-        for agent_card in all_agents:
-            is_enabled = await agent_service.is_agent_enabled(agent_card.path)
-            try:
-                await search_repo.index_agent(agent_card.path, agent_card, is_enabled)
-                logger.debug(f"Updated {backend_name} index for agent: {agent_card.path}")
-            except Exception as e:
-                logger.error(
-                    f"Failed to update {backend_name} index for agent {agent_card.path}: {e}",
-                    exc_info=True,
-                )
+            from registry.repositories.factory import get_skill_repository
 
-        logger.info(f"✅ {backend_name} index updated with {len(all_agents)} agents")
-
-        logger.info(f"📊 Updating {backend_name} index with all registered skills...")
-        from registry.repositories.factory import get_skill_repository
-
-        skill_repo = get_skill_repository()
-        all_skills = await skill_repo.list_all(skip=0, limit=10000)
-        for skill_card in all_skills:
-            try:
-                await search_repo.index_skill(skill_card.path, skill_card, skill_card.is_enabled)
-                logger.debug(f"Updated {backend_name} index for skill: {skill_card.path}")
-            except Exception as e:
-                logger.error(
-                    f"Failed to update {backend_name} index for skill {skill_card.path}: {e}",
-                    exc_info=True,
-                )
-
-        logger.info(f"✅ {backend_name} index updated with {len(all_skills)} skills")
+            skill_repo = get_skill_repository()
+            all_skills = await skill_repo.list_all(skip=0, limit=10000)
+            for skill_card in all_skills:
+                try:
+                    await search_repo.index_skill(
+                        skill_card.path, skill_card, skill_card.is_enabled
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to index skill {skill_card.path}: {e}",
+                        exc_info=True,
+                    )
+            logger.info(f"✅ {backend_name} index rebuilt with {len(all_skills)} skills")
+        else:
+            logger.info(
+                f"✅ {backend_name} search index is persistent, skipping startup re-index"
+            )
+            # Still need to load agent state (in-memory service cache)
+            logger.info("📋 Loading agent cards and state...")
+            await agent_service.load_agents_and_state()
 
         logger.info("🏥 Initializing health monitoring service...")
         await health_service.initialize()
@@ -714,7 +719,20 @@ async def lifespan(app: FastAPI):
             async with nginx_service.reload_lock:
                 await nginx_service.generate_config_async({}, force_base_config=True)
 
-        logger.info("✅ All services initialized successfully!")
+        # Start the debounced nginx reload scheduler (issue #1087).
+        # Seed the hash from the config just written so the first tick doesn't
+        # trigger a redundant reload.
+        from registry.core.nginx_service import nginx_reload_scheduler
+
+        try:
+            startup_config = settings.nginx_config_path.read_text()
+            nginx_reload_scheduler.seed_hash(startup_config)
+        except Exception:
+            pass
+
+        await nginx_reload_scheduler.start()
+
+        logger.info("All services initialized successfully!")
 
         # Initialize and send anonymous startup telemetry (opt-out: MCP_TELEMETRY_DISABLED=1)
         await initialize_telemetry()
@@ -750,9 +768,14 @@ async def lifespan(app: FastAPI):
             logger.info("📝 Closing audit logger...")
             await audit_logger.close()
 
+        # Stop the debounced nginx reload scheduler
+        from registry.core.nginx_service import nginx_reload_scheduler
+
+        await nginx_reload_scheduler.stop()
+
         # Shutdown services gracefully
         await health_service.shutdown()
-        logger.info("✅ Shutdown completed successfully!")
+        logger.info("Shutdown completed successfully!")
     except Exception as e:
         logger.error(f"❌ Error during shutdown: {e}", exc_info=True)
 
@@ -819,6 +842,34 @@ app = FastAPI(
         },
     ],
 )
+
+# Add WWW-Authenticate middleware for MCP-facing 401s (RFC 9728 §5.1).
+# Must be added BEFORE CORS so the response-mutation step runs LAST in
+# Starlette's LIFO middleware order (i.e. after CORS adds its own headers),
+# preserving the WWW-Authenticate header for the client.
+try:
+    from registry.auth.oauth_metadata import (
+        build_canonical_resource_url,
+        build_resource_metadata_url,
+        enforce_https,
+    )
+
+    _canonical_resource_url = build_canonical_resource_url(settings.registry_url)
+    enforce_https(_canonical_resource_url, https_required=settings.mcp_https_required)
+    _resource_metadata_url = build_resource_metadata_url(_canonical_resource_url)
+    app.add_middleware(
+        WWWAuthenticateMiddleware,
+        resource_metadata_url=_resource_metadata_url,
+    )
+    logger.info(
+        f"Registered WWW-Authenticate middleware for MCP 401s "
+        f"(resource_metadata={_resource_metadata_url})"
+    )
+except ValueError as exc:
+    logger.error(
+        f"Failed to register WWW-Authenticate middleware: {exc}. "
+        "MCP discovery clients will not receive WWW-Authenticate headers on 401s."
+    )
 
 # Add CORS middleware for React development and Docker deployment
 app.add_middleware(

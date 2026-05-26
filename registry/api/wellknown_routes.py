@@ -3,6 +3,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ..auth.oauth_metadata import (
+    build_canonical_resource_url,
+    build_resource_documentation_url,
+    derive_supported_scopes,
+    enforce_https,
+)
 from ..constants import HealthStatus
 from ..core.config import RegistryMode, settings
 from ..health.service import health_service
@@ -13,6 +19,12 @@ from ..services.server_service import server_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+OAUTH_DISCOVERY_CACHE_HEADERS: dict[str, str] = {
+    "Cache-Control": "public, max-age=300",
+    "Content-Type": "application/json",
+}
 
 
 @router.get("/mcp-servers")
@@ -356,3 +368,103 @@ async def get_well_known_registry_card():
     """
     card = await _auto_initialize_registry_card()
     return card
+
+
+def _get_active_auth_provider():
+    """Lazy import + factory call so route handlers don't pay the cost at import time."""
+    from auth_server.providers.factory import get_auth_provider
+
+    return get_auth_provider()
+
+
+@router.get("/oauth-protected-resource")
+async def get_oauth_protected_resource() -> JSONResponse:
+    """
+    Return the gateway's RFC 9728 Protected Resource Metadata document.
+
+    This is the entry point for spec-compliant MCP clients (Claude Code,
+    Claude.ai connectors, Cursor, etc.) to discover which authorization
+    server protects this gateway and which scopes it recognizes.
+
+    Per the MCP 2025-06-18 authorization spec, MCP servers MUST publish
+    this document. The `resource` field is the canonical gateway URL, which
+    is also the `resource_metadata` URL embedded in WWW-Authenticate 401
+    headers (byte-for-byte match required by RFC 9728 §5.1).
+
+    Public endpoint - no authentication required.
+    """
+    resource = build_canonical_resource_url(settings.registry_url)
+    enforce_https(resource, https_required=settings.mcp_https_required)
+
+    try:
+        provider = _get_active_auth_provider()
+    except Exception as exc:
+        logger.exception("Failed to initialize auth provider for PRM document")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Auth provider not configured: {exc}",
+        ) from exc
+
+    try:
+        scopes_supported = await derive_supported_scopes()
+        document = provider.protected_resource_metadata(
+            resource=resource,
+            scopes_supported=scopes_supported,
+            resource_documentation=build_resource_documentation_url(),
+        )
+    except NotImplementedError as exc:
+        logger.error(
+            f"Active auth provider has not implemented authorization_server_metadata(): {exc}"
+        )
+        raise HTTPException(
+            status_code=501,
+            detail="OAuth discovery not implemented for the configured auth provider",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Failed to build PRM document")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not build Protected Resource Metadata: {exc}",
+        ) from exc
+
+    return JSONResponse(content=document, headers=OAUTH_DISCOVERY_CACHE_HEADERS)
+
+
+@router.get("/oauth-authorization-server")
+async def get_oauth_authorization_server() -> JSONResponse:
+    """
+    Return the configured IdP's RFC 8414 Authorization Server Metadata.
+
+    This is a thin passthrough/normalization of the upstream IdP's metadata
+    document, with provider-specific quirks flattened (e.g. Cognito's split
+    endpoints rehomed onto the cognito-domain host).
+
+    Public endpoint - no authentication required.
+    """
+    try:
+        provider = _get_active_auth_provider()
+    except Exception as exc:
+        logger.exception("Failed to initialize auth provider for AS metadata")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Auth provider not configured: {exc}",
+        ) from exc
+
+    try:
+        document = provider.authorization_server_metadata()
+    except NotImplementedError as exc:
+        logger.error(
+            f"Active auth provider has not implemented authorization_server_metadata(): {exc}"
+        )
+        raise HTTPException(
+            status_code=501,
+            detail="OAuth discovery not implemented for the configured auth provider",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Failed to fetch authorization server metadata")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not fetch authorization server metadata: {exc}",
+        ) from exc
+
+    return JSONResponse(content=document, headers=OAUTH_DISCOVERY_CACHE_HEADERS)
