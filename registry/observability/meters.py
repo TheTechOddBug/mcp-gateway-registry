@@ -46,6 +46,78 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _init_meter_provider_if_needed() -> None:
+    """Bootstrap the OTel SDK when ``opentelemetry-instrument`` did not.
+
+    Why this exists: when ``OTEL_EXPORTER_OTLP_ENDPOINT`` is unset, the
+    docker entrypoint does NOT prefix uvicorn with ``opentelemetry-instrument``,
+    so the SDK is never auto-bootstrapped. Without a bootstrap, ``metrics.
+    get_meter_provider()`` returns a ``_ProxyMeterProvider`` and no exporter
+    runs. The Prometheus exporter env vars (``OTEL_EXPORTER_PROMETHEUS_HOST``
+    / ``_PORT``) are read by the SDK only when it initializes.
+
+    This helper covers the OTLP-disabled-but-Prometheus-pull-enabled case:
+    if the user has set ``OTEL_EXPORTER_PROMETHEUS_HOST``, install a
+    ``MeterProvider`` with a ``PrometheusMetricReader`` so the
+    :9464/metrics listener actually starts and the in-process counters
+    become scrape-able.
+
+    No-op when:
+    - ``OTEL_EXPORTER_PROMETHEUS_HOST`` is unset (operator hasn't opted in).
+    - A real ``MeterProvider`` is already installed (auto-instrumentation
+      did its job).
+    """
+    prom_host = os.getenv("OTEL_EXPORTER_PROMETHEUS_HOST", "").strip()
+    if not prom_host:
+        return
+
+    current = metrics.get_meter_provider()
+    current_name = type(current).__name__
+    # If a real SDK MeterProvider is already installed (e.g., by
+    # opentelemetry-instrument), don't fight it.
+    if "ProxyMeterProvider" not in current_name and "NoOp" not in current_name:
+        return
+
+    try:
+        from opentelemetry.exporter.prometheus import PrometheusMetricReader
+        from opentelemetry.sdk.metrics import MeterProvider
+        from prometheus_client import start_http_server
+    except ImportError as exc:
+        logger.warning(
+            "Cannot start Prometheus exporter: %s. Install "
+            "opentelemetry-exporter-prometheus and prometheus-client.",
+            exc,
+        )
+        return
+
+    prom_port = int(os.getenv("OTEL_EXPORTER_PROMETHEUS_PORT", "9464"))
+    try:
+        # The exporter relies on prometheus_client's default REGISTRY.
+        # Start the HTTP server first so that the listener is bound by the
+        # time the reader registers.
+        start_http_server(port=prom_port, addr=prom_host)
+        reader = PrometheusMetricReader()
+        provider = MeterProvider(metric_readers=[reader])
+        metrics.set_meter_provider(provider)
+        logger.info(
+            "Started OTel Prometheus exporter on %s:%d (provider=MeterProvider)",
+            prom_host,
+            prom_port,
+        )
+    except OSError as exc:
+        # Most likely cause: port already in use (e.g., a re-import in tests
+        # or a second process binding). Don't crash the app.
+        logger.warning(
+            "Could not start Prometheus exporter on %s:%d: %s",
+            prom_host,
+            prom_port,
+            exc,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("OTel Prometheus exporter init failed: %s", exc)
+
+
+_init_meter_provider_if_needed()
 _meter = metrics.get_meter("mcp-gateway-registry")
 
 

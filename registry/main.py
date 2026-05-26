@@ -174,10 +174,10 @@ def _log_otel_state() -> None:
     legacy = settings.metrics_legacy_http_post
     interval_ms = settings.otel_metric_export_interval_ms
 
-    if "NoOp" in provider_name or "Default" in provider_name:
+    if "NoOp" in provider_name or "Default" in provider_name or "Proxy" in provider_name:
         logger.warning(
             "OTel metrics DISABLED (provider=%s). Set OTEL_EXPORTER_OTLP_ENDPOINT "
-            "to enable native OTel metric emission. Legacy HTTP POST: %s.",
+            "or OTEL_EXPORTER_PROMETHEUS_HOST to enable. Legacy HTTP POST: %s.",
             provider_name,
             legacy,
         )
