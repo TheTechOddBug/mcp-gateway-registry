@@ -25,6 +25,14 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
 
+  # Forward traces to the Jaeger all-in-one container. Jaeger's built-in
+  # OTLP receiver listens on :4317 (gRPC) by default when
+  # COLLECTOR_OTLP_ENABLED=true is set on the Jaeger container.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
   # Log every received metric / span to stdout. Use `verbosity: detailed` to
   # see attribute breakdowns (high signal but very chatty); use `normal` for
   # smaller logs.
@@ -43,4 +51,4 @@ service:
       exporters: [debug, prometheus]
     traces:
       receivers: [otlp]
-      exporters: [debug]
+      exporters: [debug, otlp/jaeger]

@@ -137,6 +137,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_SERVICE_NAME=mcp-gateway-registry
       # Keycloak configuration
       - AUTH_PROVIDER=${AUTH_PROVIDER:-cognito}
       - KEYCLOAK_ENABLED=${KEYCLOAK_ENABLED:-false}
@@ -405,6 +406,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_SERVICE_NAME=mcp-auth-server
       # Keycloak configuration
       - AUTH_PROVIDER=${AUTH_PROVIDER:-cognito}  # 'cognito' or 'keycloak'
       - KEYCLOAK_ENABLED=${KEYCLOAK_ENABLED:-true}  # Enable Keycloak by default
@@ -564,6 +566,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_SERVICE_NAME=mcp-mcpgw
     env_file:
       - path: ${MCP_EXTRA_ENV_DIR:-./extra_env}/mcpgw.env
         required: false
@@ -613,7 +616,7 @@ services:
 
   # OpenTelemetry Collector (Issue #1122)
   # Receives OTLP from registry/auth-server/mcpgw on :4317, re-exports as
-  # Prometheus on :8889, and logs everything via the debug exporter.
+  # Prometheus on :8889, and forwards traces to Jaeger for the UI.
   # Used for local verification; the OTLP push pipeline is also exercised
   # on ECS via per-task ADOT sidecars and on EKS via the operator's own
   # collector.
@@ -627,6 +630,19 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "8889:8889"   # Prometheus exporter on the collector itself
       - "13133:13133" # health_check extension
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  # Jaeger UI (Issue #1122). Receives traces from the otel-collector and
+  # provides a graphical UI for browsing them at http://localhost:16686.
+  # Use the all-in-one image which bundles collector + query + UI.
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # Jaeger UI
     restart: unless-stopped
 
   # Prometheus for metrics collection

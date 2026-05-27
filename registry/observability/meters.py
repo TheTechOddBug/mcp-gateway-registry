@@ -377,8 +377,8 @@ _metrics_emission_path_counter = _meter.create_counter(
     name="metrics_emission_path_total",
     description=(
         "Counts which emission path produced a metric. Helps operators verify "
-        "the OTel migration: when METRICS_LEGACY_HTTP_POST=false (the default "
-        "after issue #1122), the legacy count should be zero."
+        "the OTel migration: when METRICS_LEGACY_HTTP_POST=false the legacy "
+        "count should be zero. Issue #1122."
     ),
     unit="1",
 )
