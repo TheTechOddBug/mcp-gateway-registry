@@ -1,0 +1,266 @@
+# How do I bulk-register all AgentCore Gateways and Runtimes from my AWS account?
+
+The AgentCore scanner CLI discovers all READY gateways and agent runtimes in your AWS account and registers them in the MCP Gateway Registry in a single command. This FAQ walks through the complete procedure step by step.
+
+## Step 0: IAM Permissions
+
+Before running the scanner, you need AWS credentials with permissions to call the Amazon Bedrock AgentCore control-plane APIs. The CLI uses the standard boto3 credential chain, so any of the usual methods work (environment variables, AWS CLI profile, instance profile).
+
+### Required IAM Policy
+
+Attach this policy to the IAM user or role that will run the CLI:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AgentCoreDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agent:ListAgentGateways",
+        "bedrock-agent:GetAgentGateway",
+        "bedrock-agent:ListAgentRuntimes",
+        "bedrock-agent:GetAgentRuntime",
+        "bedrock-agent:ListTargets",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+What each permission does:
+
+| Permission | Purpose |
+|---|---|
+| `bedrock-agent:ListAgentGateways` | Discover all gateways in the account |
+| `bedrock-agent:GetAgentGateway` | Read gateway details (URL, authorizer config) |
+| `bedrock-agent:ListAgentRuntimes` | Discover all agent runtimes in the account |
+| `bedrock-agent:GetAgentRuntime` | Read runtime details (protocol, invocation URL) |
+| `bedrock-agent:ListTargets` | Enumerate targets behind each gateway |
+| `sts:GetCallerIdentity` | Verify credentials are valid |
+
+### Configure Credentials
+
+Use one of:
+
+```bash
+# Option A: Environment variables
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_REGION=us-east-1
+
+# Option B: Named profile
+aws configure --profile agentcore-sync
+export AWS_PROFILE=agentcore-sync
+export AWS_REGION=us-east-1
+
+# Option C: Instance profile (no config needed if running on EC2/ECS with the right role)
+```
+
+## Step 1: Preview with Dry-Run
+
+Before registering anything, run the scanner in dry-run mode to see what it will discover and what auth type each resource uses:
+
+```bash
+uv run python -m cli.agentcore sync \
+    --registry-url http://localhost \
+    --token-file .token \
+    --dry-run
+```
+
+This scans your AWS account for all READY gateways and runtimes, but does not register them. It produces a summary table like this:
+
+```
+================================================================================
+AGENTCORE SYNC SUMMARY
+================================================================================
+MODE: DRY-RUN (no changes made)
+Would register: 13
+
+DETAILS:
+-----------------------------------------------------------------------------------------------
+Type       Name                           Path                      Auth           Status
+-----------------------------------------------------------------------------------------------
+gateway    customersupport-gw             /customersupport-gw       CUSTOM_JWT     dry_run
+gateway    geo-mcp                        /geo-mcp                  CUSTOM_JWT     dry_run
+gateway    SRE-Gateway                    /sre-gateway              CUSTOM_JWT     dry_run
+gateway    TestGWforLambda                /testgwforlambda          CUSTOM_JWT     dry_run
+gateway    weather-time-observability-gat /weather-time-observabili CUSTOM_JWT     dry_run
+runtime    weather_time_observability_age /weather-time-observabili IAM            dry_run
+runtime    sre_agent_simple               /sre-agent-simple         IAM            dry_run
+runtime    sre_agent                      /sre-agent                IAM            dry_run
+runtime    simple_strands_cognito_agent   /simple-strands-cognito-a IAM            dry_run
+runtime    simple_strands_agent           /simple-strands-agent     IAM            dry_run
+runtime    simple_a2a_strands_agent       /simple-a2a-strands-agent IAM            dry_run
+runtime    my_simple_agent                /my-simple-agent          IAM            dry_run
+runtime    my_custom_sre_agent            /my-custom-sre-agent      IAM            dry_run
+===============================================================================================
+```
+
+### Understanding the Auth Column
+
+| Auth Type | Meaning | Action Required |
+|---|---|---|
+| `CUSTOM_JWT` | Gateway expects an OAuth2 JWT token from an external IdP (Cognito, Auth0, Entra, Okta, Keycloak) | You will need to configure a client secret for the token refresher (Step 3) |
+| `IAM` | Runtime uses AWS IAM (SigV4) for authentication | No additional configuration needed; the registry proxies with IAM credentials |
+| `NONE` | No authentication required | No configuration needed |
+
+The dry-run also reports how many manifest entries it would write. The manifest is used by the token refresher to know which gateways need periodic JWT refresh.
+
+## Step 2: Run the Actual Sync
+
+Once you are satisfied with the dry-run output, remove the `--dry-run` flag to register all discovered resources:
+
+```bash
+uv run python -m cli.agentcore sync \
+    --registry-url http://localhost \
+    --token-file .token
+```
+
+This will:
+1. Register each gateway as an MCP Server (tagged `#agentcore`, `#gateway`, `#auto-registered`)
+2. Register each runtime as an Agent (tagged `#agentcore`, `#runtime`, `#auto-registered`)
+3. Write `token_refresh_manifest.json` listing all CUSTOM_JWT gateways that need token refresh
+
+If resources were previously registered, the CLI skips them. Use `--overwrite` to update existing registrations:
+
+```bash
+uv run python -m cli.agentcore sync \
+    --registry-url http://localhost \
+    --token-file .token \
+    --overwrite
+```
+
+## Step 3: Configure Client Secrets (for CUSTOM_JWT Gateways)
+
+If the dry-run showed any gateways with `CUSTOM_JWT` auth, you need to configure OAuth2 client secrets so the token refresher can obtain JWTs on behalf of the registry.
+
+### What is the Client ID?
+
+Each AgentCore gateway with CUSTOM_JWT auth has an `allowedClients` list configured in its authorizer. These are OAuth2 application client IDs registered in the identity provider (Cognito, Auth0, Entra, etc.). The client ID identifies which application is authorized to call the gateway.
+
+The token refresher performs the OAuth2 `client_credentials` grant (machine-to-machine flow) using:
+- The **client_id** from `allowedClients` (discovered automatically by the scanner)
+- The **client_secret** you provide via environment variables
+- The **token endpoint** (auto-discovered from the gateway's OIDC discovery URL)
+
+### How to Find the Client ID
+
+The scanner writes the client IDs into `token_refresh_manifest.json`. After running sync, inspect the manifest:
+
+```bash
+cat token_refresh_manifest.json | python3 -m json.tool
+```
+
+Each entry contains:
+```json
+{
+  "server_path": "/geo-mcp",
+  "discovery_url": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXX/.well-known/openid-configuration",
+  "allowed_clients": ["49ujl0b9ser72gnp6q1ph9v6vs"],
+  "idp_vendor": "cognito"
+}
+```
+
+### Configure Secrets
+
+Add client secrets to your `.env` file or export them as environment variables:
+
+```bash
+# Per-client secret (highest priority)
+# Format: OAUTH_CLIENT_SECRET_<client_id>=<secret>
+export OAUTH_CLIENT_SECRET_49ujl0b9ser72gnp6q1ph9v6vs=your-secret-here
+
+# Or vendor-level secrets (shared across all gateways for that IdP)
+export AUTH0_CLIENT_SECRET=your-auth0-secret
+export OKTA_CLIENT_SECRET=your-okta-secret
+export ENTRA_CLIENT_SECRET=your-entra-secret
+export KEYCLOAK_CLIENT_SECRET=your-keycloak-secret
+```
+
+**Cognito gateways need no manual secret configuration.** The token refresher auto-retrieves client secrets via the AWS API (`describe_user_pool_client`), as long as your IAM credentials have `cognito-idp:DescribeUserPoolClient` permission.
+
+### Secret Resolution Priority
+
+1. Per-client env var: `OAUTH_CLIENT_SECRET_<client_id>`
+2. Cognito auto-retrieval via AWS API (Cognito only)
+3. Vendor-specific env var: `AUTH0_CLIENT_SECRET`, etc.
+
+## Step 4: Run the Token Refresher
+
+The token refresher reads the manifest, resolves secrets, fetches OAuth2 tokens, and PATCHes them into the registry:
+
+```bash
+# One-time refresh
+uv run python -m cli.agentcore.token_refresher \
+    --manifest token_refresh_manifest.json \
+    --registry-url http://localhost \
+    --token-file .token
+
+# Continuous mode (refreshes every 45 minutes)
+uv run python -m cli.agentcore.token_refresher \
+    --manifest token_refresh_manifest.json \
+    --registry-url http://localhost \
+    --token-file .token \
+    --loop --interval 2700
+```
+
+After the token refresher runs, the gateways will show as "Healthy" in the registry UI.
+
+## Step 5: Verify Registration
+
+Check that the servers and agents are registered and healthy:
+
+```bash
+# List registered servers
+uv run python api/registry_management.py \
+    --registry-url http://localhost \
+    --token-file .token \
+    list
+
+# Check a specific server
+uv run python api/registry_management.py \
+    --registry-url http://localhost \
+    --token-file .token \
+    server-get --path /geo-mcp
+```
+
+Or verify in the registry UI: registered assets will show with `#agentcore`, `#gateway` (or `#runtime`), and `#auto-registered` tags.
+
+## Deregistering All Auto-Registered Assets
+
+To remove all previously auto-registered assets (e.g., before a clean re-registration):
+
+```bash
+# Remove a server
+uv run python api/registry_management.py \
+    --registry-url http://localhost \
+    --token-file .token \
+    remove --path /geo-mcp --force
+
+# Remove an agent
+uv run python api/registry_management.py \
+    --registry-url http://localhost \
+    --token-file .token \
+    agent-delete --path /my-simple-agent --force
+```
+
+Replace the paths with your actual registered paths. You can find all auto-registered assets by filtering on the `#auto-registered` tag in the UI or API.
+
+## Troubleshooting
+
+| Problem | Cause | Solution |
+|---|---|---|
+| `AccessDeniedException` during discovery | Missing IAM permissions | Attach the IAM policy from Step 0 |
+| "Already registered - skipping" | Resource already exists | Use `--overwrite` flag |
+| Token refresher returns HTTP 500 | Registry auth token expired | Regenerate with `python credentials-provider/oauth/ingress_oauth.py` |
+| Gateway shows unhealthy after sync | Missing egress token | Run the token refresher (Step 4) |
+| No CUSTOM_JWT entries in manifest | All gateways use IAM or NONE auth | No token refresh needed |
+
+## Related Documentation
+
+- [AgentCore Full Reference](../agentcore.md)
+- [Auto-Registration Prerequisites](../agentcore-auto-registration-prerequisites.md)
