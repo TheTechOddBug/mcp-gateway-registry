@@ -218,40 +218,64 @@ Each `allowed_clients` entry is an alphanumeric client ID (typically 26 characte
 
 ### Configure Secrets (Non-Cognito IdPs)
 
-For Entra, Auth0, Okta, or Keycloak gateways, add the appropriate secret to your `.env` file:
+For Entra, Auth0, Okta, or Keycloak gateways, add the appropriate secret to your `.env` file.
+
+#### Scenario A: All your gateways use the same IdP app registration
+
+If you registered all your AgentCore gateways with the **same** app registration in your IdP (one client ID, one secret), set a single vendor-level variable:
 
 ```bash
-# Entra (Microsoft Azure AD)
+# All Entra gateways share one app registration -> one secret covers them all
 # Get this from: Azure Portal -> App registrations -> your app -> Certificates & secrets
 ENTRA_CLIENT_SECRET=your-entra-client-secret-value
+```
 
-# Auth0
+The token refresher uses this secret for every gateway where `idp_vendor` is `entra`.
+
+Same pattern for other IdPs:
+
+```bash
 AUTH0_CLIENT_SECRET=your-auth0-client-secret-value
-
-# Okta
 OKTA_CLIENT_SECRET=your-okta-client-secret-value
-
-# Keycloak
 KEYCLOAK_CLIENT_SECRET=your-keycloak-client-secret-value
 ```
 
-These are **vendor-level** secrets, meaning one secret is shared across all gateways that use that IdP.
+#### Scenario B: Your gateways use different app registrations (different secrets)
 
-If you have multiple apps with different secrets for the same IdP, use the **per-client** form instead:
+If each gateway has its **own** app registration in the IdP (each with a unique client ID and its own secret), use the per-client form. The client ID comes from the `allowed_clients` field in `token_refresh_manifest.json`.
+
+Example: you have 3 Entra gateways, each with a different app registration:
 
 ```bash
-# Per-client secret (overrides vendor-level secret for this specific client)
-# Format: OAUTH_CLIENT_SECRET_<client_id>=<secret>
-OAUTH_CLIENT_SECRET_yourAlphaNumericClientId1abc=your-secret-for-this-specific-client
+# Gateway /customersupport-gw uses Entra app "cs-app" with client_id = a1b2c3d4-...
+OAUTH_CLIENT_SECRET_a1b2c3d4-e5f6-7890-abcd-ef1234567890=secret-for-cs-app
+
+# Gateway /sre-gateway uses Entra app "sre-app" with client_id = f9e8d7c6-...
+OAUTH_CLIENT_SECRET_f9e8d7c6-b5a4-3210-fedc-ba0987654321=secret-for-sre-app
+
+# Gateway /geo-mcp uses Entra app "geo-app" with client_id = 11223344-...
+OAUTH_CLIENT_SECRET_11223344-5566-7788-99aa-bbccddeeff00=secret-for-geo-app
+```
+
+#### Scenario C: Mix of both
+
+You can combine the two approaches. The per-client secret takes priority over the vendor-level secret:
+
+```bash
+# Default secret for all Entra gateways (most gateways use the same app)
+ENTRA_CLIENT_SECRET=shared-entra-secret
+
+# Override for one specific gateway that has its own app registration
+OAUTH_CLIENT_SECRET_a1b2c3d4-e5f6-7890-abcd-ef1234567890=special-secret-for-this-one
 ```
 
 ### Secret Resolution Priority
 
 The token refresher resolves secrets in this order (first match wins):
 
-1. Per-client env var: `OAUTH_CLIENT_SECRET_<client_id>`
-2. Cognito auto-retrieval via AWS API (Cognito only, no config needed)
-3. Vendor-specific env var: `ENTRA_CLIENT_SECRET`, `AUTH0_CLIENT_SECRET`, etc.
+1. **Per-client**: `OAUTH_CLIENT_SECRET_<client_id>` (specific to one gateway)
+2. **Cognito auto-retrieval**: via AWS API, no config needed (Cognito only)
+3. **Vendor-level**: `ENTRA_CLIENT_SECRET`, `AUTH0_CLIENT_SECRET`, `OKTA_CLIENT_SECRET`, or `KEYCLOAK_CLIENT_SECRET` (shared across all gateways for that IdP)
 
 ## Step 4: Run the Token Refresher
 
