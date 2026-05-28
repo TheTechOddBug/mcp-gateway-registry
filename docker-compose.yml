@@ -625,7 +625,7 @@ services:
   # graphical trace UI" section of docs/OBSERVABILITY.md for the small
   # config additions you can drop in.
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115.0
+    image: otel/opentelemetry-collector-contrib:0.153.0
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./config/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -648,7 +648,7 @@ services:
 
   # Prometheus for metrics collection
   prometheus:
-    image: prom/prometheus:v3.1.0
+    image: prom/prometheus:v3.11.3
     ports:
       - "9090:9090"
     volumes:
