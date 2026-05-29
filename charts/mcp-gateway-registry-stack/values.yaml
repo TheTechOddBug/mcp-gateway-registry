@@ -327,6 +327,7 @@ registry:
     telemetryHeartbeatIntervalMinutes: "1440"  # Heartbeat interval in minutes (default: 1440 = 24 hours)
     telemetryDebug: false  # Set to true to log payloads instead of sending
     mcpTelemetryImdsProbeDisabled: false  # Set to true to disable IMDS probing in cloud detection (issue #986)
+    mcpCloudProvider: ""  # Override cloud auto-detection: aws|azure|gcp|on_premises|other (issue #1120)
 
     # Application Log Configuration (centralized log rotation and retrieval)
     # NOTE: Centralized logging is ON by default (appLogCentralizedEnabled: "true").

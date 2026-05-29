@@ -259,6 +259,7 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("telemetry_debug", "Debug Mode", False),
             ("telemetry_endpoint", "Collector Endpoint", False),
             ("telemetry_imds_probe_disabled", "Telemetry: Disable IMDS Probe", False),
+            ("mcp_cloud_provider", "Cloud Provider Override", False),
         ],
     },
     "demo_server": {

@@ -1207,6 +1207,12 @@ variable "mcp_telemetry_imds_probe_disabled" {
   default     = ""
 }
 
+variable "mcp_cloud_provider" {
+  description = "Override the cloud auto-detection cascade (issue #1120). Allowed: aws, azure, gcp, on_premises, other. Leave empty to let the cascade run. When set, telemetry reports cloud_detection_method=explicit."
+  type        = string
+  default     = ""
+}
+
 variable "disable_ai_registry_tools_server" {
   description = "Disable auto-registration of the built-in airegistry-tools server on startup. Set to 'true' for GitOps/production deployments."
   type        = string

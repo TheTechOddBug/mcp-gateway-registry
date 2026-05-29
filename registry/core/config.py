@@ -619,6 +619,29 @@ class Settings(BaseSettings):
             "provider. MCP_TELEMETRY_IMDS_PROBE_DISABLED=1"
         ),
     )
+    mcp_cloud_provider: str | None = Field(
+        default=None,
+        description=(
+            "Operator-supplied cloud provider override. Takes precedence over "
+            "the auto-detection cascade and the admin-UI hint. "
+            "Allowed: aws, azure, gcp, on_premises, other."
+        ),
+    )
+
+    @field_validator("mcp_cloud_provider")
+    @classmethod
+    def _validate_cloud_provider(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        v_lower = v.strip().lower()
+        if v_lower not in {"aws", "azure", "gcp", "on_premises", "other"}:
+            display = v[:16] + ("..." if len(v) > 16 else "")
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                f"MCP_CLOUD_PROVIDER={display!r} is not a valid value; ignoring"
+            )
+            return None
+        return v_lower
 
     # Demo server configuration
     disable_ai_registry_tools_server: bool = Field(

@@ -556,6 +556,7 @@ Weights must sum to 1.0 ± 0.001 or the registry process refuses to start (valid
 | Collector endpoint | `MCP_TELEMETRY_ENDPOINT` | — | — | Self-hosted override. |
 | Debug mode | `TELEMETRY_DEBUG` | `telemetry_debug` | `registry.app.telemetryDebug` | Log payloads instead of send. |
 | Disable IMDS probe (cloud detection) | `MCP_TELEMETRY_IMDS_PROBE_DISABLED` | `mcp_telemetry_imds_probe_disabled` | `registry.app.mcpTelemetryImdsProbeDisabled` | Issue #986. Env/DMI/ECS/k8s tiers still run. |
+| Cloud provider override | `MCP_CLOUD_PROVIDER` | `mcp_cloud_provider` | `registry.app.mcpCloudProvider` | Issue #1120. Allowed: aws\|azure\|gcp\|on_premises\|other. Suppresses admin-UI banner. |
 
 ---
 

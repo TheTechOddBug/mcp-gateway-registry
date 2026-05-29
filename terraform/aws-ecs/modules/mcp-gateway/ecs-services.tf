@@ -1175,6 +1175,10 @@ module "ecs_service_registry" {
           name  = "MCP_TELEMETRY_IMDS_PROBE_DISABLED"
           value = var.mcp_telemetry_imds_probe_disabled
         },
+        {
+          name  = "MCP_CLOUD_PROVIDER"
+          value = var.mcp_cloud_provider
+        },
         # Demo server configuration
         {
           name  = "DISABLE_AI_REGISTRY_TOOLS_SERVER"

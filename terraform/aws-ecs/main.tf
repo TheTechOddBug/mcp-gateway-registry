@@ -272,6 +272,7 @@ module "mcp_gateway" {
   mcp_telemetry_heartbeat_interval_minutes = var.mcp_telemetry_heartbeat_interval_minutes
   telemetry_debug                          = var.telemetry_debug
   mcp_telemetry_imds_probe_disabled        = var.mcp_telemetry_imds_probe_disabled
+  mcp_cloud_provider                       = var.mcp_cloud_provider
 
   # Demo server configuration
   disable_ai_registry_tools_server = var.disable_ai_registry_tools_server
