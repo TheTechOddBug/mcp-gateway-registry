@@ -87,13 +87,13 @@ _meter = metrics.get_meter("mcp-auth-server")
 # =============================================================================
 
 auth_request_total = _meter.create_counter(
-    name="auth_request_total",
+    name="mcpgw_registry_auth_request_total",
     description="Authentication request count, labeled by outcome and method",
     unit="1",
 )
 
 auth_request_duration_ms = _meter.create_histogram(
-    name="auth_request_duration",
+    name="mcpgw_registry_auth_request_duration",
     description="Authentication request duration",
     unit="ms",
 )
@@ -104,7 +104,7 @@ auth_request_duration_ms = _meter.create_histogram(
 # =============================================================================
 
 tool_execution_total = _meter.create_counter(
-    name="tool_execution_total",
+    name="mcpgw_registry_tool_execution_total",
     description="Tool execution count detected at the auth layer",
     unit="1",
 )
@@ -121,7 +121,7 @@ tool_execution_duration_ms = _meter.create_histogram(
 # =============================================================================
 
 protocol_latency_ms = _meter.create_histogram(
-    name="protocol_latency",
+    name="mcpgw_registry_protocol_latency",
     description=(
         "Time between MCP protocol stages: initialize -> tools/list, "
         "tools/list -> tools/call, initialize -> tools/call"
@@ -135,7 +135,7 @@ protocol_latency_ms = _meter.create_histogram(
 # =============================================================================
 
 _metrics_emission_path_counter = _meter.create_counter(
-    name="metrics_emission_path_total",
+    name="mcpgw_registry_metrics_emission_path_total",
     description=(
         "Counts which emission path produced a metric. Helps operators verify "
         "the OTel migration: when METRICS_LEGACY_HTTP_POST=false the legacy "

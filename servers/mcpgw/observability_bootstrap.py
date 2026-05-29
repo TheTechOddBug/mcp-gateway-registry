@@ -44,12 +44,12 @@ def _get_tool_instruments() -> tuple[Any, Any] | tuple[None, None]:
 
     meter = metrics.get_meter("mcp-gateway-mcpgw")
     _tool_invocations_counter = meter.create_counter(
-        name="mcpgw_tool_invocations_total",
+        name="mcpgw_registry_tool_invocations_total",
         description="FastMCP tool invocation count, labeled by tool and outcome",
         unit="1",
     )
     _tool_duration_histogram = meter.create_histogram(
-        name="mcpgw_tool_duration",
+        name="mcpgw_registry_tool_duration",
         description="FastMCP tool invocation duration",
         unit="ms",
     )
@@ -63,10 +63,10 @@ def track_tool(
 
     Apply directly underneath ``@mcp.tool()``. Records:
 
-    - ``mcpgw_tool_invocations_total{tool, success}`` Counter
+    - ``mcpgw_registry_tool_invocations_total{tool, success}`` Counter
       (``success="True"`` on a normal return, ``"False"`` on any raised
       exception).
-    - ``mcpgw_tool_duration_ms{tool, success}`` Histogram (per-call
+    - ``mcpgw_registry_tool_duration_ms{tool, success}`` Histogram (per-call
       duration in milliseconds).
 
     Args:
