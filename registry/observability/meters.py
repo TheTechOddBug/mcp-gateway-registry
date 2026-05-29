@@ -142,31 +142,31 @@ _meter = metrics.get_meter("mcp-gateway-registry")
 # =============================================================================
 
 registry_operation_total = _meter.create_counter(
-    name="registry_operation_total",
+    name="mcpgw_registry_operation_total",
     description="Registry API operations (read/create/update/delete/list/search)",
     unit="1",
 )
 
 registry_operation_duration_ms = _meter.create_histogram(
-    name="registry_operation_duration",
+    name="mcpgw_registry_operation_duration",
     description="Registry API operation duration",
     unit="ms",
 )
 
 tool_discovery_total = _meter.create_counter(
-    name="tool_discovery_total",
+    name="mcpgw_registry_tool_discovery_total",
     description="Semantic search calls",
     unit="1",
 )
 
 tool_discovery_duration_ms = _meter.create_histogram(
-    name="tool_discovery_duration",
+    name="mcpgw_registry_tool_discovery_duration",
     description="Semantic search duration",
     unit="ms",
 )
 
 tool_execution_total = _meter.create_counter(
-    name="tool_execution_total",
+    name="mcpgw_registry_tool_execution_total",
     description="Tool execution count (registry side)",
     unit="1",
 )
@@ -192,14 +192,14 @@ health_check_total = _meter.create_counter(
 
 # Configuration viewer metrics (registry/core/metrics.py:6,12)
 _config_view_requests_counter = _meter.create_counter(
-    name="mcp_config_view_requests_total",
+    name="mcpgw_registry_config_view_requests_total",
     description="Configuration view requests",
     unit="1",
 )
 config_view_requests_total = _CounterAdapter(_config_view_requests_counter)
 
 _config_export_requests_counter = _meter.create_counter(
-    name="mcp_config_export_requests_total",
+    name="mcpgw_registry_config_export_requests_total",
     description="Configuration export requests",
     unit="1",
 )
@@ -234,7 +234,7 @@ def _deployment_mode_callback(options: Any) -> Any:
 
 
 _meter.create_observable_gauge(
-    name="registry_deployment_mode_info",
+    name="mcpgw_registry_deployment_mode_info",
     callbacks=[_deployment_mode_callback],
     description="Current deployment mode configuration (observed each export cycle)",
     unit="1",
@@ -243,14 +243,14 @@ _meter.create_observable_gauge(
 
 # Nginx-related counters (registry/core/metrics.py:26,36)
 _nginx_updates_skipped_counter = _meter.create_counter(
-    name="registry_nginx_updates_skipped_total",
+    name="mcpgw_registry_nginx_updates_skipped_total",
     description="Number of nginx updates skipped due to registry-only mode",
     unit="1",
 )
 nginx_updates_skipped_total = _CounterAdapter(_nginx_updates_skipped_counter)
 
 _nginx_config_writes_counter = _meter.create_counter(
-    name="nginx_config_writes_total",
+    name="mcpgw_registry_nginx_config_writes_total",
     description="Total nginx config file writes performed by the registry, by outcome",
     unit="1",
 )
@@ -259,7 +259,7 @@ nginx_config_writes_total = _CounterAdapter(_nginx_config_writes_counter)
 
 # Mode-blocked requests (registry/core/metrics.py:43)
 _mode_blocked_requests_counter = _meter.create_counter(
-    name="registry_mode_blocked_requests_total",
+    name="mcpgw_registry_mode_blocked_requests_total",
     description="Requests blocked due to registry mode restrictions",
     unit="1",
 )
@@ -319,7 +319,7 @@ m2m_orphan_cleanups_total = _CounterAdapter(_m2m_orphan_cleanups_counter)
 
 # Cloud detection (registry/core/metrics.py:87)
 _cloud_detection_counter = _meter.create_counter(
-    name="mcp_registry_cloud_detection_total",
+    name="mcpgw_registry_cloud_detection_total",
     description="Cloud-detection outcomes labeled by cloud and detection method",
     unit="1",
 )
@@ -328,28 +328,28 @@ cloud_detection_total = _CounterAdapter(_cloud_detection_counter)
 
 # Logout-related counters (registry/auth/routes.py:59-77)
 _logout_id_token_hint_present_counter = _meter.create_counter(
-    name="registry_logout_id_token_hint_present_total",
+    name="mcpgw_registry_logout_id_token_hint_present_total",
     description="Logouts where id_token hint was present",
     unit="1",
 )
 logout_id_token_hint_present_total = _CounterAdapter(_logout_id_token_hint_present_counter)
 
 _logout_id_token_hint_missing_counter = _meter.create_counter(
-    name="registry_logout_id_token_hint_missing_total",
+    name="mcpgw_registry_logout_id_token_hint_missing_total",
     description="Logouts where id_token hint was missing",
     unit="1",
 )
 logout_id_token_hint_missing_total = _CounterAdapter(_logout_id_token_hint_missing_counter)
 
 _logout_jwt_validation_failed_counter = _meter.create_counter(
-    name="registry_logout_jwt_validation_failed_total",
+    name="mcpgw_registry_logout_jwt_validation_failed_total",
     description="Logout JWT validation failures",
     unit="1",
 )
 logout_jwt_validation_failed_total = _CounterAdapter(_logout_jwt_validation_failed_counter)
 
 _logout_url_length_warning_counter = _meter.create_counter(
-    name="registry_logout_url_length_warning_total",
+    name="mcpgw_registry_logout_url_length_warning_total",
     description="Logout URLs exceeding recommended length",
     unit="1",
 )
@@ -358,7 +358,7 @@ logout_url_length_warning_total = _CounterAdapter(_logout_url_length_warning_cou
 
 # Session store (registry/auth/session_store.py:32)
 _session_store_resolve_counter = _meter.create_counter(
-    name="registry_session_store_resolve_total",
+    name="mcpgw_registry_session_store_resolve_total",
     description="Session store resolve outcomes (hit/miss/expired/store_error)",
     unit="1",
 )
@@ -367,7 +367,7 @@ session_store_resolve_total = _CounterAdapter(_session_store_resolve_counter)
 
 # M2M management API (registry/api/m2m_management_routes.py:42)
 _m2m_management_requests_counter = _meter.create_counter(
-    name="m2m_management_requests_total",
+    name="mcpgw_registry_m2m_management_requests_total",
     description="Direct M2M client management API calls",
     unit="1",
 )
@@ -379,7 +379,7 @@ m2m_management_requests_total = _CounterAdapter(_m2m_management_requests_counter
 # =============================================================================
 
 _metrics_emission_path_counter = _meter.create_counter(
-    name="metrics_emission_path_total",
+    name="mcpgw_registry_metrics_emission_path_total",
     description=(
         "Counts which emission path produced a metric. Helps operators verify "
         "the OTel migration: when METRICS_LEGACY_HTTP_POST=false the legacy "

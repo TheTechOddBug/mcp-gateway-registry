@@ -25,13 +25,13 @@ investigations operators most often need to run.
 │                Registry / Auth-Server / Mcpgw                      │
 │                                                                    │
 │  In-process OTel SDK with:                                         │
-│   • Path-2 events (registry_operation_total, auth_request_total,   │
-│     tool_execution_total, tool_discovery_total, protocol_latency)  │
-│   • Path-3 in-process counters (nginx_config_writes_total,         │
+│   • Path-2 events (mcpgw_registry_operation_total, mcpgw_registry_auth_request_total,   │
+│     mcpgw_registry_tool_execution_total, tool_discovery_total, protocol_latency)  │
+│   • Path-3 in-process counters (mcpgw_registry_nginx_config_writes_total,         │
 │     peer_sync_failures_total, m2m_orphan_cleanups_total, ...)      │
 │   • HTTP auto-instrumentation (http_server_duration_milliseconds_*)│
-│   • Mcpgw per-tool metrics (mcpgw_tool_invocations_total,          │
-│     mcpgw_tool_duration)                                           │
+│   • Mcpgw per-tool metrics (mcpgw_registry_tool_invocations_total,          │
+│     mcpgw_registry_tool_duration)                                           │
 └────────────────────────┬───────────────────────────────────────────┘
                          │
    ┌─────────────────────┴─────────────────────┐
@@ -190,7 +190,7 @@ Quick AMP query from the CLI:
 
 ```bash
 AMP_ENDPOINT=$(terraform -chdir=terraform/aws-ecs output -raw amp_endpoint)
-awscurl --service aps --region <region> "${AMP_ENDPOINT}api/v1/query?query=auth_request_total"
+awscurl --service aps --region <region> "${AMP_ENDPOINT}api/v1/query?query=mcpgw_registry_auth_request_total"
 ```
 
 To verify metrics are flowing into AMP after a deploy:
@@ -283,42 +283,42 @@ exposition form** (after the OTel exporter appends the unit suffix).
 
 | Metric | Source | Labels | What it counts |
 |---|---|---|---|
-| `auth_request_total` | auth-server | `success`, `method`, `server` | Authenticated /validate calls |
-| `tool_execution_total` | auth-server | `tool_name`, `server_name`, `success`, `method`, `client_name`, `client_version` | MCP tool calls detected at the auth layer |
-| `registry_operation_total` | registry middleware | `operation`, `resource_type`, `success` | Registry API operations (list/create/update/delete/search) |
+| `mcpgw_registry_auth_request_total` | auth-server | `success`, `method`, `server` | Authenticated /validate calls |
+| `mcpgw_registry_tool_execution_total` | auth-server | `tool_name`, `server_name`, `success`, `method`, `client_name`, `client_version` | MCP tool calls detected at the auth layer |
+| `mcpgw_registry_operation_total` | registry middleware | `operation`, `resource_type`, `success` | Registry API operations (list/create/update/delete/search) |
 | `tool_discovery_total` | registry middleware | `results_count_bucket` | Semantic search calls |
 | `health_check_total` | registry | `endpoint`, `status_code`, `healthy` | Health check probe count |
-| `mcpgw_tool_invocations_total` | mcpgw | `tool`, `success` | FastMCP tool invocations |
-| `nginx_config_writes_total` | registry | `status` | Nginx config file writes by outcome |
-| `registry_nginx_updates_skipped_total` | registry | `operation` | Nginx updates skipped due to mode |
-| `registry_mode_blocked_requests_total` | registry | `path_category`, `mode` | Requests blocked by registry mode |
+| `mcpgw_registry_tool_invocations_total` | mcpgw | `tool`, `success` | FastMCP tool invocations |
+| `mcpgw_registry_nginx_config_writes_total` | registry | `status` | Nginx config file writes by outcome |
+| `mcpgw_registry_nginx_updates_skipped_total` | registry | `operation` | Nginx updates skipped due to mode |
+| `mcpgw_registry_mode_blocked_requests_total` | registry | `path_category`, `mode` | Requests blocked by registry mode |
 | `peer_sync_failures_total` | registry | `peer_id`, `failure_type` | Federation peer sync failures |
 | `app_log_mongodb_flush_failures_total` | registry | `service` | MongoDB log handler failures |
 | `telemetry_sends_total` | registry | `event`, `status` | Telemetry events sent |
 | `m2m_orphan_cleanups_total` | registry | `idp_had_record` | M2M orphan cleanup deletions |
-| `mcp_registry_cloud_detection_total` | registry | `cloud`, `method` | Cloud-detection outcomes |
-| `mcp_config_view_requests_total` | registry | `user_type` | Configuration view requests |
-| `mcp_config_export_requests_total` | registry | `format`, `includes_sensitive` | Configuration export requests |
-| `registry_logout_id_token_hint_present_total` | registry | — | Logouts with id_token hint present |
-| `registry_logout_id_token_hint_missing_total` | registry | — | Logouts without id_token hint |
-| `registry_logout_jwt_validation_failed_total` | registry | — | Logout JWT validation failures |
-| `registry_logout_url_length_warning_total` | registry | — | Logout URLs over recommended length |
-| `registry_session_store_resolve_total` | registry | `result` | Session store lookups |
+| `mcpgw_registry_cloud_detection_total` | registry | `cloud`, `method` | Cloud-detection outcomes |
+| `mcpgw_registry_config_view_requests_total` | registry | `user_type` | Configuration view requests |
+| `mcpgw_registry_config_export_requests_total` | registry | `format`, `includes_sensitive` | Configuration export requests |
+| `mcpgw_registry_logout_id_token_hint_present_total` | registry | — | Logouts with id_token hint present |
+| `mcpgw_registry_logout_id_token_hint_missing_total` | registry | — | Logouts without id_token hint |
+| `mcpgw_registry_logout_jwt_validation_failed_total` | registry | — | Logout JWT validation failures |
+| `mcpgw_registry_logout_url_length_warning_total` | registry | — | Logout URLs over recommended length |
+| `mcpgw_registry_session_store_resolve_total` | registry | `result` | Session store lookups |
 | `m2m_management_requests_total` | registry | `operation`, `outcome` | Direct M2M client API calls |
-| `metrics_emission_path_total` | registry, auth-server, mcpgw | `path` (`otel`/`legacy`) | Migration self-observability |
-| `registry_deployment_mode_info` (Gauge) | registry | `deployment_mode`, `registry_mode` | Current deployment mode (always 1, observed each cycle) |
+| `mcpgw_registry_metrics_emission_path_total` | registry, auth-server, mcpgw | `path` (`otel`/`legacy`) | Migration self-observability |
+| `mcpgw_registry_deployment_mode_info` (Gauge) | registry | `deployment_mode`, `registry_mode` | Current deployment mode (always 1, observed each cycle) |
 
 ### Histograms
 
 | Metric | Source | Labels | What it measures |
 |---|---|---|---|
-| `auth_request_duration_milliseconds` (`_count`, `_sum`, `_bucket`) | auth-server | `success`, `method`, `server` | Auth /validate latency |
-| `tool_execution_duration_milliseconds` | auth-server | same as `tool_execution_total` | Tool call latency at auth layer |
-| `protocol_latency_milliseconds` | auth-server | `flow_step`, `server_name` | Time between MCP protocol stages (init → tools/list, etc.) |
-| `registry_operation_duration_milliseconds` | registry middleware | same as `registry_operation_total` | Registry API operation latency |
-| `tool_discovery_duration_milliseconds` | registry middleware | same as `tool_discovery_total` | Semantic search latency |
+| `mcpgw_registry_auth_request_duration_milliseconds` (`_count`, `_sum`, `_bucket`) | auth-server | `success`, `method`, `server` | Auth /validate latency |
+| `tool_execution_duration_milliseconds` | auth-server | same as `mcpgw_registry_tool_execution_total` | Tool call latency at auth layer |
+| `mcpgw_registry_protocol_latency_milliseconds` | auth-server | `flow_step`, `server_name` | Time between MCP protocol stages (init → tools/list, etc.) |
+| `mcpgw_registry_operation_duration_milliseconds` | registry middleware | same as `mcpgw_registry_operation_total` | Registry API operation latency |
+| `mcpgw_registry_tool_discovery_duration_milliseconds` | registry middleware | same as `tool_discovery_total` | Semantic search latency |
 | `peer_sync_duration_seconds` | registry | `peer_id`, `success` | Peer sync operation duration |
-| `mcpgw_tool_duration_milliseconds` | mcpgw | `tool`, `success` | Per-tool invocation latency |
+| `mcpgw_registry_tool_duration_milliseconds` | mcpgw | `tool`, `success` | Per-tool invocation latency |
 
 ### HTTP auto-instrumentation (when OTel auto-instrument is active)
 
@@ -347,19 +347,19 @@ minutes.
 | p95 latency | `histogram_quantile(0.95, sum by (le)(rate(http_server_duration_milliseconds_bucket{http_target="/api/search/semantic"}[5m])))` |
 | Average latency | `rate(http_server_duration_milliseconds_sum{http_target="/api/search/semantic"}[5m]) / rate(http_server_duration_milliseconds_count{http_target="/api/search/semantic"}[5m])` |
 | Application-level view (results-bucket dimension) | `sum by (results_count_bucket)(rate(tool_discovery_total[5m]))` |
-| Search latency from middleware (alternative source) | `histogram_quantile(0.95, sum by (le)(rate(tool_discovery_duration_milliseconds_bucket[5m])))` |
+| Search latency from middleware (alternative source) | `histogram_quantile(0.95, sum by (le)(rate(mcpgw_registry_tool_discovery_duration_milliseconds_bucket[5m])))` |
 
 ### Mcpgw — per-tool stats
 
 | Goal | Query |
 |---|---|
-| Total invocations per tool | `sum by (tool)(mcpgw_tool_invocations_total)` |
-| Tool QPS | `sum by (tool)(rate(mcpgw_tool_invocations_total[5m]))` |
-| Per-tool error rate | `sum by (tool)(rate(mcpgw_tool_invocations_total{success="False"}[5m])) / sum by (tool)(rate(mcpgw_tool_invocations_total[5m]))` |
-| Most-called tool right now | `topk(3, sum by (tool)(rate(mcpgw_tool_invocations_total[5m])))` |
-| p95 latency per tool | `histogram_quantile(0.95, sum by (le, tool)(rate(mcpgw_tool_duration_milliseconds_bucket[5m])))` |
-| Average duration per tool | `sum by (tool)(rate(mcpgw_tool_duration_milliseconds_sum[5m])) / sum by (tool)(rate(mcpgw_tool_duration_milliseconds_count[5m]))` |
-| Slowest tool right now | `topk(1, histogram_quantile(0.95, sum by (le, tool)(rate(mcpgw_tool_duration_milliseconds_bucket[5m]))))` |
+| Total invocations per tool | `sum by (tool)(mcpgw_registry_tool_invocations_total)` |
+| Tool QPS | `sum by (tool)(rate(mcpgw_registry_tool_invocations_total[5m]))` |
+| Per-tool error rate | `sum by (tool)(rate(mcpgw_registry_tool_invocations_total{success="False"}[5m])) / sum by (tool)(rate(mcpgw_registry_tool_invocations_total[5m]))` |
+| Most-called tool right now | `topk(3, sum by (tool)(rate(mcpgw_registry_tool_invocations_total[5m])))` |
+| p95 latency per tool | `histogram_quantile(0.95, sum by (le, tool)(rate(mcpgw_registry_tool_duration_milliseconds_bucket[5m])))` |
+| Average duration per tool | `sum by (tool)(rate(mcpgw_registry_tool_duration_milliseconds_sum[5m])) / sum by (tool)(rate(mcpgw_registry_tool_duration_milliseconds_count[5m]))` |
+| Slowest tool right now | `topk(1, histogram_quantile(0.95, sum by (le, tool)(rate(mcpgw_registry_tool_duration_milliseconds_bucket[5m]))))` |
 
 ### Any API endpoint — invocations + success/failure
 
@@ -382,21 +382,21 @@ Replace `<TARGET>` with the path you care about (e.g. `/api/servers`,
 
 | Goal | Query |
 |---|---|
-| Auth requests per second by outcome | `sum by (success)(rate(auth_request_total[5m]))` |
-| Auth p95 latency | `histogram_quantile(0.95, sum by (le)(rate(auth_request_duration_milliseconds_bucket[5m])))` |
-| Session-store hit rate | `sum(rate(registry_session_store_resolve_total{result="hit"}[5m])) / sum(rate(registry_session_store_resolve_total[5m]))` |
+| Auth requests per second by outcome | `sum by (success)(rate(mcpgw_registry_auth_request_total[5m]))` |
+| Auth p95 latency | `histogram_quantile(0.95, sum by (le)(rate(mcpgw_registry_auth_request_duration_milliseconds_bucket[5m])))` |
+| Session-store hit rate | `sum(rate(mcpgw_registry_session_store_resolve_total{result="hit"}[5m])) / sum(rate(mcpgw_registry_session_store_resolve_total[5m]))` |
 | Federation peer sync failures by type | `sum by (peer_id, failure_type)(rate(peer_sync_failures_total[5m]))` |
-| Logout JWT validation failure rate | `rate(registry_logout_jwt_validation_failed_total[5m])` |
+| Logout JWT validation failure rate | `rate(mcpgw_registry_logout_jwt_validation_failed_total[5m])` |
 
 ### Registry health and operations
 
 | Goal | Query |
 |---|---|
-| Registry API operations per second by type | `sum by (operation, resource_type)(rate(registry_operation_total[5m]))` |
-| Operations p95 latency | `histogram_quantile(0.95, sum by (le, operation)(rate(registry_operation_duration_milliseconds_bucket[5m])))` |
-| Nginx config write outcomes | `sum by (status)(rate(nginx_config_writes_total[5m]))` |
+| Registry API operations per second by type | `sum by (operation, resource_type)(rate(mcpgw_registry_operation_total[5m]))` |
+| Operations p95 latency | `histogram_quantile(0.95, sum by (le, operation)(rate(mcpgw_registry_operation_duration_milliseconds_bucket[5m])))` |
+| Nginx config write outcomes | `sum by (status)(rate(mcpgw_registry_nginx_config_writes_total[5m]))` |
 | M2M orphan cleanups | `sum by (idp_had_record)(rate(m2m_orphan_cleanups_total[5m]))` |
-| Cloud detection method distribution | `sum by (cloud, method)(mcp_registry_cloud_detection_total)` |
+| Cloud detection method distribution | `sum by (cloud, method)(mcpgw_registry_cloud_detection_total)` |
 | Telemetry pings success rate | `sum(rate(telemetry_sends_total{status="success"}[5m])) / sum(rate(telemetry_sends_total[5m]))` |
 
 ## Verifying the migration is working
@@ -415,7 +415,7 @@ You should see `mcp-registry`, `mcp-auth-server`, `mcp-mcpgw`, and (until
 **2. Migration self-observability**
 
 ```
-metrics_emission_path_total
+mcpgw_registry_metrics_emission_path_total
 ```
 
 Should show `path="otel"` rows incrementing on every request.
@@ -425,7 +425,7 @@ If both are incrementing, you have the dual-write transition flag enabled.
 **3. Previously-invisible counters are now visible**
 
 ```
-nginx_config_writes_total
+mcpgw_registry_nginx_config_writes_total
 peer_sync_failures_total
 m2m_orphan_cleanups_total
 ```
