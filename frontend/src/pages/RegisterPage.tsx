@@ -334,6 +334,11 @@ const RegisterPage: React.FC = () => {
           if (!parsed.server_name && !parsed.name && parsed.title) {
             parsed.name = parsed.title;
           }
+          // Derive path from name if not explicitly set
+          if (!parsed.path && parsed.name) {
+            const slug = parsed.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+            parsed.path = '/' + slug;
+          }
           if (!parsed.proxy_pass_url && parsed.remotes?.[0]?.url) {
             parsed.proxy_pass_url = parsed.remotes[0].url;
           }
