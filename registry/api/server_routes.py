@@ -505,12 +505,27 @@ async def get_servers_json(
     ),
     limit: int = Query(20, ge=1, le=2000, description="Number of servers to return (max 2000)"),
     offset: int = Query(0, ge=0, description="Number of servers to skip"),
+    include_tools: bool = Query(
+        True,
+        description=(
+            "Include the per-server tool_list in the response. Set false to omit "
+            "tool schemas and skip per-server tool filtering for a smaller, faster "
+            "response (num_tools is still returned). Defaults to True for API "
+            "compatibility."
+        ),
+    ),
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
 ):
     """Get servers data as JSON for React frontend and external API.
 
     Uses lexical (substring) search, not hybrid/semantic. For vector-based
     search, use POST /api/search/semantic instead.
+
+    When ``include_tools`` is False, the heavy per-server ``tool_list`` is
+    omitted (empty list) and the per-user ``filter_tools_for_user()`` pass is
+    skipped. ``num_tools`` falls back to the stored count on the server doc,
+    which matches the filtered count for unrestricted users (the dashboard's
+    primary caller).
     """
     logger.debug(f"get_servers_json called: limit={limit}, offset={offset}, query={query!r}")
 
@@ -606,13 +621,23 @@ async def get_servers_json(
             # Issue #1026: prune the tool list to what this user can see and
             # use the same filtered list for both num_tools and tool_list so
             # the badge matches what's rendered.
-            _filtered_tools = filter_tools_for_user(
-                server_name,
-                server_info.get("tool_list") or [],
-                user_context or {},
-                endpoint="servers",
-                server_path=path,
-            )
+            #
+            # When include_tools is False (dashboard list view), skip the
+            # per-server filter pass entirely and don't serialize tool schemas.
+            # num_tools falls back to the stored count, which equals the
+            # filtered count for unrestricted users (the dashboard caller).
+            if include_tools:
+                _filtered_tools = filter_tools_for_user(
+                    server_name,
+                    server_info.get("tool_list") or [],
+                    user_context or {},
+                    endpoint="servers",
+                    server_path=path,
+                )
+                _num_tools = len(_filtered_tools)
+            else:
+                _filtered_tools = []
+                _num_tools = server_info.get("num_tools", 0)
             service_data.append(
                 {
                     "id": server_info.get("id"),
@@ -622,7 +647,7 @@ async def get_servers_json(
                     "proxy_pass_url": server_info.get("proxy_pass_url", ""),
                     "is_enabled": is_enabled,
                     "tags": server_info.get("tags", []),
-                    "num_tools": len(_filtered_tools),
+                    "num_tools": _num_tools,
                     "license": server_info.get("license", "N/A"),
                     "health_status": normalized_status,
                     "last_checked_iso": health_data["last_checked_iso"],

@@ -120,7 +120,10 @@ export const useServerStats = (): UseServerStatsReturn => {
       const fetchPromises: Promise<any>[] = [];
 
       if (serversEnabled) {
-        fetchPromises.push(axios.get('/api/servers?limit=2000').catch(() => ({ data: { servers: [] } })));
+        // include_tools=false: the dashboard only needs num_tools for the card
+        // badge, not the full per-server tool_list. Omitting it shrinks the
+        // payload and skips per-server tool filtering on the backend.
+        fetchPromises.push(axios.get('/api/servers?limit=2000&include_tools=false').catch(() => ({ data: { servers: [] } })));
       } else {
         fetchPromises.push(Promise.resolve({ data: { servers: [] } }));
       }
@@ -139,11 +142,11 @@ export const useServerStats = (): UseServerStatsReturn => {
       }
 
       const [serversResponse, agentsResponse, skillsResponse] = await Promise.all(fetchPromises);
-      
-      // The API returns {"servers": [...]} 
+
+      // The API returns {"servers": [...]}
       const responseData = serversResponse.data || {};
       const serversList = responseData.servers || [];
-      
+
       // The agents API returns {"agents": [...]}
       const agentsData = agentsResponse.data || {};
       const agentsList = agentsData.agents || [];
@@ -187,7 +190,7 @@ export const useServerStats = (): UseServerStatsReturn => {
         };
         return transformed;
       });
-      
+
       // Transform agent data from backend format to frontend format
       const transformedAgents: Server[] = agentsList.map((agentInfo: any) => {
         const transformed = {
@@ -213,7 +216,7 @@ export const useServerStats = (): UseServerStatsReturn => {
         };
         return transformed;
       });
-      
+
       // Store servers and agents separately
       setServers(transformedServers);
       setAgents(transformedAgents);
