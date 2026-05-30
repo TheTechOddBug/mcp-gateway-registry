@@ -390,7 +390,7 @@ variable "storage_backend" {
     `terraform plan` time via a precondition on the mcp_gateway module.
   DESC
   type        = string
-  default     = "file"
+  default     = "documentdb"
 
   validation {
     condition = contains(

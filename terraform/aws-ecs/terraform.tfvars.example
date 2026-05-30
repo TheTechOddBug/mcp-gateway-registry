@@ -249,6 +249,21 @@ session_cookie_domain = ""
 # dedup_max_suggestions           = 3
 
 # ============================================================================
+# STORAGE BACKEND
+# ============================================================================
+# Selects where the registry stores servers, agents, scopes, and embeddings.
+# Default: "documentdb" (provisions an Amazon DocumentDB cluster in this state).
+# Accepted values:
+#   "documentdb"    - Provision AWS DocumentDB (this module manages the cluster).
+#                     NOTE: DocumentDB is not available in every region - verify
+#                     your aws_region supports it before deploying.
+#   "file"          - JSON files only, no DocumentDB provisioned (local/dev).
+#   "mongodb-ce" / "mongodb" / "mongodb-atlas"
+#                   - External MongoDB you already own. No DocumentDB provisioned.
+#                     Requires mongodb_connection_string or *_secret_arn (see below).
+storage_backend = "documentdb"
+
+# ============================================================================
 # DOCUMENTDB ELASTIC CLUSTER CONFIGURATION
 # ============================================================================
 

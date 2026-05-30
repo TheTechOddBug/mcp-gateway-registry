@@ -660,9 +660,19 @@ The MCP Gateway Registry uses **DocumentDB** (MongoDB-compatible) for production
 - Distributed storage with automatic replication
 - ACID transactions and strong consistency
 
+**Selecting the storage backend (`storage_backend`):**
+
+The storage backend is controlled by the `storage_backend` variable in `terraform.tfvars` (default: `documentdb`). DocumentDB resources are only provisioned when this is set to `documentdb`:
+
+| `storage_backend` | Behavior |
+|-------------------|----------|
+| `documentdb` (default) | Provisions an Amazon DocumentDB cluster in this Terraform state. **DocumentDB is not available in every region** — verify your `aws_region` supports it before deploying. |
+| `file` | JSON files only. No DocumentDB provisioned. Single-task, not horizontally scalable; intended for local/dev use. |
+| `mongodb-ce` / `mongodb` / `mongodb-atlas` | Connect to an externally-provisioned MongoDB you already own. No DocumentDB provisioned. Requires `mongodb_connection_string` or `mongodb_connection_string_secret_arn`. |
+
 **DocumentDB Setup:**
 
-The DocumentDB cluster is automatically provisioned by Terraform. To initialize the database with indexes and scopes:
+When `storage_backend = "documentdb"` (the default), the DocumentDB cluster is automatically provisioned by Terraform. To initialize the database with indexes and scopes:
 
 ```bash
 # 1. Run the DocumentDB initialization script
@@ -1015,6 +1025,9 @@ For running Terraform and the deployment scripts, your IAM user or role needs th
         "secretsmanager:*",
         "bedrock-agentcore:*",
         "iam:PassRole",
+        "s3:*",
+        "lambda:*",
+        "elasticfilesystem:*",
         "ec2:*",
         "ecs:*",
         "rds:*",
@@ -1039,6 +1052,10 @@ For running Terraform and the deployment scripts, your IAM user or role needs th
 ```
 
 **Note:** For production, consider restricting these permissions to specific resource ARNs.
+
+**Note:** The `s3:*` permission is required — the stack creates S3 buckets for ALB access logs and CloudFront logs. Without it, `terraform apply` fails with `s3:CreateBucket ... AccessDenied`.
+
+**Note:** This stack creates an RDS DB Proxy, which depends on the `AWSServiceRoleForRDS` service-linked role. On a brand-new account the first apply may fail with *"RDS is not authorized to assume service-linked role ... AWSServiceRoleForRDS"* before AWS finishes auto-creating it; simply re-run `terraform apply`. If it persists, create it explicitly with `aws iam create-service-linked-role --aws-service-name rds.amazonaws.com`.
 
 **Note:** The `cloudfront:*` permission is required for CloudFront deployment modes (Mode 1: CloudFront Only, Mode 3: CloudFront + Custom Domain). If you are only using Mode 2 (Custom Domain Only), you can omit this permission.
 
