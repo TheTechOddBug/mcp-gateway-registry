@@ -76,6 +76,19 @@ app:
   registrationWebhookAuthToken: ""  # Auth token. Leave empty for unauthenticated webhooks.
   registrationWebhookTimeoutSeconds: "10"
 
+  # Agent batch API (issue #956)
+  # Async batch register/patch/replace/delete for agent cards, drained by an
+  # in-process worker. Lease-based claiming makes multi-worker operation safe:
+  # any number of replicas may set batchWorkerEnabled=true.
+  batchWorkerEnabled: true  # Enable the in-process batch worker loop.
+  batchMaxOperationsPerJob: "1000"  # Max items in one batch submission.
+  batchMaxConcurrentJobsPerUser: "3"  # Max active jobs per submitter.
+  batchJobRetentionDays: "7"  # TTL (days) for batch job documents.
+  batchWorkerPollIntervalSeconds: "1.0"  # Worker poll interval.
+  batchWorkerLeaseTtlSeconds: "60.0"  # Lease lifetime before a job can be reclaimed.
+  batchWorkerLeaseHeartbeatSeconds: "15.0"  # Interval at which a worker renews its lease.
+  batchMaxRequestBytes: "4194304"  # Max batch request body size in bytes (4 MiB).
+
   # Registration gate / admission control (issue #809)
   # Calls an external endpoint to approve or deny registrations and updates
   # BEFORE they are persisted. Fail-closed when gate is unreachable.

@@ -350,6 +350,30 @@ registry_api_token = "m3zT65wREARMVDToKosg_DgNkKqS_434hNxy3sslGPY"
 # registration_webhook_timeout_seconds = 10
 
 # ============================================================================
+# AGENT BATCH API (Issue #956)
+# ============================================================================
+
+# Async batch register/patch/replace/delete for agent cards, drained by an
+# in-process worker. v1 single-worker constraint: exactly one ECS task should
+# set batch_worker_enabled = true.
+# batch_worker_enabled = true
+
+# Max items allowed in one batch submission. Default: 1000
+# batch_max_operations_per_job = 1000
+
+# Max active (queued/running) batch jobs per submitter. Default: 3
+# batch_max_concurrent_jobs_per_user = 3
+
+# Retention window (days) for batch job documents in MongoDB. Default: 7
+# batch_job_retention_days = 7
+
+# How often the worker polls MongoDB for queued jobs. Default: 1.0
+# batch_worker_poll_interval_seconds = 1.0
+
+# Max request body size (bytes) accepted by the batch endpoint. Default: 4194304 (4 MiB)
+# batch_max_request_bytes = 4194304
+
+# ============================================================================
 # REGISTRATION GATE / ADMISSION CONTROL (Issue #809)
 # ============================================================================
 

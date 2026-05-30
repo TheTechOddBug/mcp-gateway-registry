@@ -595,7 +595,9 @@ async def lifespan(app: FastAPI):
                     # full background-task refactor is tracked in #1129; this is the
                     # minimal cap to prevent crash-loops when sync would otherwise
                     # blow past the entrypoint's nginx-config wait.
-                    sync_deadline_seconds = int(os.environ.get("FEDERATION_STARTUP_SYNC_TIMEOUT_SECONDS", "60"))
+                    sync_deadline_seconds = int(
+                        os.environ.get("FEDERATION_STARTUP_SYNC_TIMEOUT_SECONDS", "60")
+                    )
                     sync_started_at = time.monotonic()
                     try:
                         from registry.services.federation.anthropic_client import (
@@ -617,7 +619,9 @@ async def lifespan(app: FastAPI):
                             # fetch_all_servers is synchronous (httpx.Client); run it
                             # in a thread with a remaining-budget timeout so the event
                             # loop stays free and we can actually cancel.
-                            remaining = max(1.0, sync_deadline_seconds - (time.monotonic() - sync_started_at))
+                            remaining = max(
+                                1.0, sync_deadline_seconds - (time.monotonic() - sync_started_at)
+                            )
                             servers = await asyncio.wait_for(
                                 asyncio.to_thread(
                                     anthropic_client.fetch_all_servers,
@@ -711,7 +715,7 @@ async def lifespan(app: FastAPI):
                                     exc_info=True,
                                 )
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning(
                             "⚠️ Federation startup sync exceeded %ds budget — abandoning to "
                             "let the registry come up. Set FEDERATION_STARTUP_SYNC_TIMEOUT_SECONDS "
@@ -747,6 +751,12 @@ async def lifespan(app: FastAPI):
             ans_scheduler = get_ans_sync_scheduler()
             await ans_scheduler.start()
             logger.info("ANS sync scheduler started")
+
+        # Start agent batch worker (issue #956)
+        from registry.services.agent_batch_worker import get_agent_batch_worker
+
+        agent_batch_worker = get_agent_batch_worker()
+        await agent_batch_worker.start()
 
         # Ensure unique index on idp_m2m_clients.client_id for the direct
         # M2M registration API (issue #851). Only when feature is enabled.
@@ -841,6 +851,11 @@ async def lifespan(app: FastAPI):
     # Shutdown tasks
     logger.info("🔄 Shutting down MCP Gateway Registry...")
     try:
+        # Stop agent batch worker (issue #956)
+        from registry.services.agent_batch_worker import get_agent_batch_worker
+
+        await get_agent_batch_worker().stop()
+
         # Stop ANS sync scheduler
         if settings.ans_integration_enabled:
             from registry.services.ans_sync_scheduler import get_ans_sync_scheduler
@@ -947,7 +962,9 @@ try:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
     if getattr(app, "_is_instrumented_by_opentelemetry", False):
-        logger.info("FastAPI already instrumented by opentelemetry-instrument; skipping programmatic instrument_app")
+        logger.info(
+            "FastAPI already instrumented by opentelemetry-instrument; skipping programmatic instrument_app"
+        )
     else:
         FastAPIInstrumentor.instrument_app(app)
         logger.info("Programmatic FastAPI auto-instrumentation enabled (issue #1122)")
@@ -1155,12 +1172,15 @@ async def get_current_user(user_context: dict[str, Any] = Depends(nginx_proxied_
 @app.get("/health")
 async def health_check():
     """Simple health check for load balancers and monitoring."""
+    from registry.services.agent_batch_worker import get_agent_batch_worker
+
     return {
         "status": "healthy",
         "service": "mcp-gateway-registry",
         "deployment_mode": settings.deployment_mode.value,
         "registry_mode": settings.registry_mode.value,
         "nginx_updates_enabled": settings.nginx_updates_enabled,
+        "batch_worker": get_agent_batch_worker().health(),
     }
 
 

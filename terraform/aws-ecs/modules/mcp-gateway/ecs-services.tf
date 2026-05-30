@@ -1095,6 +1095,31 @@ module "ecs_service_registry" {
           name  = "REGISTRATION_WEBHOOK_TIMEOUT_SECONDS"
           value = tostring(var.registration_webhook_timeout_seconds)
         },
+        # Agent batch API (issue #956)
+        {
+          name  = "BATCH_WORKER_ENABLED"
+          value = tostring(var.batch_worker_enabled)
+        },
+        {
+          name  = "BATCH_MAX_OPERATIONS_PER_JOB"
+          value = tostring(var.batch_max_operations_per_job)
+        },
+        {
+          name  = "BATCH_MAX_CONCURRENT_JOBS_PER_USER"
+          value = tostring(var.batch_max_concurrent_jobs_per_user)
+        },
+        {
+          name  = "BATCH_JOB_RETENTION_DAYS"
+          value = tostring(var.batch_job_retention_days)
+        },
+        {
+          name  = "BATCH_WORKER_POLL_INTERVAL_SECONDS"
+          value = tostring(var.batch_worker_poll_interval_seconds)
+        },
+        {
+          name  = "BATCH_MAX_REQUEST_BYTES"
+          value = tostring(var.batch_max_request_bytes)
+        },
         # Registration gate / admission control (issue #809)
         {
           name  = "REGISTRATION_GATE_ENABLED"

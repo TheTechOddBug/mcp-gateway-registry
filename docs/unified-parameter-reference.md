@@ -183,6 +183,21 @@ Fail-closed external approval of registrations.
 
 ---
 
+## Group 7a — Agent Batch API (Issue #956)
+
+Async batch register/patch/replace/delete for agent cards, drained by an in-process worker. Helm renders these into the `registry-batch-config` ConfigMap (non-secret).
+
+| Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose |
+|-----------|-----------------|-----------------------|----------------------|---------|
+| Worker enabled | `BATCH_WORKER_ENABLED` | `batch_worker_enabled` | `registry.app.batchWorkerEnabled` | Enable in-process worker. v1: exactly one replica true. |
+| Max ops per job | `BATCH_MAX_OPERATIONS_PER_JOB` | `batch_max_operations_per_job` | `registry.app.batchMaxOperationsPerJob` | Items per submission. Default 1000. |
+| Max concurrent jobs/user | `BATCH_MAX_CONCURRENT_JOBS_PER_USER` | `batch_max_concurrent_jobs_per_user` | `registry.app.batchMaxConcurrentJobsPerUser` | Active jobs per submitter. Default 3. |
+| Job retention (days) | `BATCH_JOB_RETENTION_DAYS` | `batch_job_retention_days` | `registry.app.batchJobRetentionDays` | TTL on `updated_at`. Default 7. |
+| Worker poll interval | `BATCH_WORKER_POLL_INTERVAL_SECONDS` | `batch_worker_poll_interval_seconds` | `registry.app.batchWorkerPollIntervalSeconds` | Queue poll cadence. Default 1.0. |
+| Max request bytes | `BATCH_MAX_REQUEST_BYTES` | `batch_max_request_bytes` | `registry.app.batchMaxRequestBytes` | Body size cap. Default 4194304 (4 MiB). |
+
+---
+
 ## Group 8 — Federation (Peer Registries)
 
 Static-token and OAuth2 config for peer-to-peer federation.

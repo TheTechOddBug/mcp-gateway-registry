@@ -66,7 +66,9 @@ class InternalServiceRegistration(BaseModel):
     auth_scheme: str | None = Field(
         None, description="Authentication scheme (e.g., 'bearer', 'api_key', 'none')"
     )
-    transport: str | None = Field(None, description="Preferred transport: sse, streamable-http, or auto")
+    transport: str | None = Field(
+        None, description="Preferred transport: sse, streamable-http, or auto"
+    )
     supported_transports: list[str] | None = Field(None, description="Supported transports")
     headers: dict[str, str] | None = Field(None, description="Custom headers")
     tool_list_json: str | None = Field(None, description="Tool list as JSON string")
@@ -727,6 +729,46 @@ class AgentToggleResponse(BaseModel):
     path: str = Field(..., description="Agent path")
     is_enabled: bool = Field(..., description="Current enabled status")
     message: str = Field(..., description="Response message")
+
+
+class AgentBatchSubmitResponse(BaseModel):
+    """Response from POST /api/agents/batch (202 Accepted)."""
+
+    job_id: str = Field(..., description="Identifier of the queued batch job")
+    status_url: str = Field(..., description="Relative URL to poll for job status")
+    idempotent_replay: bool = Field(
+        False, description="True when this job_id came from a prior idempotent submission"
+    )
+
+
+class AgentBatchItemResult(BaseModel):
+    """Per-item outcome of a batch job."""
+
+    index: int = Field(..., description="Zero-based position of the item in the batch")
+    op: str = Field(..., description="Operation: register, patch, replace, or delete")
+    path: str | None = Field(None, description="Agent path the item targeted")
+    status: int = Field(..., description="HTTP-style status code for this item")
+    error: dict[str, Any] | None = Field(
+        None, description="Error block ({'code', 'message'}) present when status >= 400"
+    )
+
+
+class AgentBatchJobStatus(BaseModel):
+    """Response from GET /api/agents/batch/{job_id}."""
+
+    job_id: str = Field(..., description="Batch job identifier")
+    state: str = Field(..., description="queued, running, succeeded, partial, or failed")
+    submitted_by: str = Field(..., description="Username that submitted the job")
+    total: int = Field(..., description="Total number of items in the batch")
+    succeeded: int = Field(0, description="Count of items that succeeded")
+    failed: int = Field(0, description="Count of items that failed")
+    next_index: int = Field(0, description="Resume pointer for the worker")
+    results: list[AgentBatchItemResult] = Field(
+        default_factory=list, description="Per-item results recorded so far"
+    )
+
+    class Config:
+        extra = "allow"  # Tolerate additional server fields (timestamps, hashes)
 
 
 class SkillDiscoveryRequest(BaseModel):
@@ -1531,6 +1573,7 @@ class RegistryClient:
         endpoint: str,
         data: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> requests.Response:
         """
         Make HTTP request to the Registry API.
@@ -1540,6 +1583,7 @@ class RegistryClient:
             endpoint: API endpoint path
             data: Request body data (sent as form-encoded for POST)
             params: Query parameters
+            extra_headers: Additional request headers (e.g. If-Match for PATCH)
 
         Returns:
             Response object
@@ -1549,6 +1593,8 @@ class RegistryClient:
         """
         url = f"{self.registry_url}{endpoint}"
         headers = self._get_headers()
+        if extra_headers:
+            headers.update(extra_headers)
 
         logger.debug(f"{method} {url}")
 
@@ -1579,6 +1625,7 @@ class RegistryClient:
             response = requests.request(
                 method=method, url=url, headers=headers, data=data, params=params, timeout=120
             )
+        # extra_headers already merged into `headers` above.
 
         try:
             response.raise_for_status()
@@ -2265,6 +2312,116 @@ class RegistryClient:
 
         result = AgentDetail(**response.json())
         logger.info(f"Agent updated successfully: {path}")
+        return result
+
+    def patch_agent(
+        self,
+        path: str,
+        patch: dict[str, Any],
+        if_match: str | None = None,
+    ) -> AgentDetail:
+        """
+        Partially update an agent using RFC 7396 JSON Merge Patch semantics.
+
+        Only the keys present in `patch` are changed; everything else is left
+        untouched. Registrant-only fields (e.g. registered_by, num_stars) are
+        rejected by the server with a 422.
+
+        Args:
+            path: Agent path (e.g. /code-reviewer)
+            patch: Mapping of fields to change. Use camelCase aliases for A2A
+                fields (e.g. {"protocolVersion": "1.1"}); a JSON null clears
+                an optional field.
+            if_match: Optional weak ETag from a prior GET/PATCH for optimistic
+                concurrency. When supplied and stale, the server returns 412.
+
+        Returns:
+            The full updated agent detail.
+
+        Raises:
+            requests.HTTPError: 400 empty/malformed patch, 403 unauthorized or
+                federated, 404 not found, 412 precondition failed, 422 validation.
+        """
+        logger.info(f"Patching agent: {path}")
+        logger.debug(f"Patch body: {json.dumps(patch, indent=2, default=str)}")
+
+        extra_headers = {"If-Match": if_match} if if_match else None
+        response = self._make_request(
+            method="PATCH",
+            endpoint=f"/api/agents{path}",
+            data=patch,
+            extra_headers=extra_headers,
+        )
+
+        result = AgentDetail(**response.json())
+        logger.info(f"Agent patched successfully: {path}")
+        return result
+
+    def submit_agent_batch(
+        self,
+        items: list[dict[str, Any]],
+        idempotency_key: str | None = None,
+    ) -> AgentBatchSubmitResponse:
+        """
+        Submit an asynchronous batch of agent operations.
+
+        The call returns immediately (202) with a job_id; poll
+        get_agent_batch(job_id) for progress and per-item results. Each item is
+        a dict with an "op" discriminator:
+            {"op": "register", "card": {...}}
+            {"op": "patch", "path": "/x", "card": {...}}
+            {"op": "replace", "path": "/x", "card": {...}}
+            {"op": "delete", "path": "/x"}
+
+        Args:
+            items: List of batch operation items (at least one).
+            idempotency_key: Optional key; re-submitting the same key returns
+                the original job instead of creating a new one.
+
+        Returns:
+            Batch submit response with job_id and status_url. The
+            idempotent_replay flag is True when the server replayed a prior job.
+
+        Raises:
+            requests.HTTPError: 413 if the body or item count is too large,
+                422 for malformed items, 429 if too many concurrent jobs.
+        """
+        logger.info(f"Submitting agent batch with {len(items)} item(s)")
+
+        body: dict[str, Any] = {"items": items}
+        if idempotency_key:
+            body["idempotency_key"] = idempotency_key
+
+        response = self._make_request(method="POST", endpoint="/api/agents/batch", data=body)
+
+        payload = response.json()
+        replayed = response.headers.get("X-Idempotent-Replay", "").lower() == "true"
+        result = AgentBatchSubmitResponse(idempotent_replay=replayed, **payload)
+        logger.info(f"Batch submitted: job_id={result.job_id} replay={result.idempotent_replay}")
+        return result
+
+    def get_agent_batch(self, job_id: str) -> AgentBatchJobStatus:
+        """
+        Fetch the current state and per-item results of a batch job.
+
+        Args:
+            job_id: Identifier returned by submit_agent_batch.
+
+        Returns:
+            Batch job status including state, counts, and per-item results.
+
+        Raises:
+            requests.HTTPError: 403 if not the submitter/admin, 404 unknown job.
+        """
+        logger.info(f"Getting batch job status: {job_id}")
+
+        response = self._make_request(method="GET", endpoint=f"/api/agents/batch/{job_id}")
+
+        result = AgentBatchJobStatus(**response.json())
+        logger.info(
+            f"Batch job {job_id}: state={result.state} "
+            f"succeeded={result.succeeded} failed={result.failed}"
+        )
         return result
 
     def delete_agent(self, path: str) -> None:

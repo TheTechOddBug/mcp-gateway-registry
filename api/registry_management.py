@@ -2152,6 +2152,135 @@ def cmd_agent_update(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_agent_patch(args: argparse.Namespace) -> int:
+    """
+    Partially update an agent using RFC 7396 JSON Merge Patch.
+
+    The patch body is read from a JSON file and sent as-is; only the supplied
+    fields change. An optional weak ETag enables optimistic concurrency.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        config_path = Path(args.config)
+        if not config_path.exists():
+            logger.error(f"Patch file not found: {config_path}")
+            return 1
+
+        with open(config_path) as f:
+            patch = json.load(f)
+
+        if not isinstance(patch, dict):
+            logger.error("Patch file must contain a JSON object")
+            return 1
+
+        client = _create_client(args)
+        response = client.patch_agent(args.path, patch, if_match=args.if_match)
+
+        logger.info(f"Agent patched successfully: {response.name}")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Agent patch failed: {e}")
+        logger.debug("Full error details:", exc_info=True)
+        return 1
+
+
+def cmd_agent_batch_submit(args: argparse.Namespace) -> int:
+    """
+    Submit an asynchronous batch of agent operations from a JSON file.
+
+    The file must contain either a JSON array of items or an object with an
+    "items" array (and optional "idempotency_key").
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        batch_path = Path(args.file)
+        if not batch_path.exists():
+            logger.error(f"Batch file not found: {batch_path}")
+            return 1
+
+        with open(batch_path) as f:
+            payload = json.load(f)
+
+        if isinstance(payload, list):
+            items = payload
+            idempotency_key = args.idempotency_key
+        elif isinstance(payload, dict):
+            items = payload.get("items", [])
+            idempotency_key = args.idempotency_key or payload.get("idempotency_key")
+        else:
+            logger.error("Batch file must be a JSON array or object with 'items'")
+            return 1
+
+        if not items:
+            logger.error("Batch file contains no items")
+            return 1
+
+        client = _create_client(args)
+        response = client.submit_agent_batch(items, idempotency_key=idempotency_key)
+
+        if getattr(args, "json", False):
+            print(json.dumps(response.model_dump(), indent=2, default=str))
+        else:
+            logger.info(
+                f"Batch submitted: job_id={response.job_id} "
+                f"(replay={response.idempotent_replay})"
+            )
+            logger.info(f"Poll status with: agent-batch-status --job-id {response.job_id}")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Agent batch submit failed: {e}")
+        logger.debug("Full error details:", exc_info=True)
+        return 1
+
+
+def cmd_agent_batch_status(args: argparse.Namespace) -> int:
+    """
+    Fetch the current state and per-item results of a batch job.
+
+    Args:
+        args: Command arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        job = client.get_agent_batch(args.job_id)
+
+        if getattr(args, "json", False):
+            print(json.dumps(job.model_dump(), indent=2, default=str))
+            return 0
+
+        logger.info(
+            f"Job {job.job_id}: state={job.state} "
+            f"total={job.total} succeeded={job.succeeded} failed={job.failed}"
+        )
+        for item in job.results:
+            status_label = "OK" if item.status < 400 else "ERR"
+            msg = f"  [{status_label}] #{item.index} {item.op} {item.path or ''} -> {item.status}"
+            if item.error:
+                msg += f" ({item.error.get('code')}: {item.error.get('message')})"
+            logger.info(msg)
+        return 0
+
+    except Exception as e:
+        logger.error(f"Agent batch status failed: {e}")
+        logger.debug("Full error details:", exc_info=True)
+        return 1
+
+
 def cmd_agent_delete(args: argparse.Namespace) -> int:
     """
     Delete an agent from the registry.
@@ -5036,9 +5165,7 @@ Examples:
     server_connect_config_parser.add_argument(
         "--path", required=True, help="Server path (e.g., /my-server)"
     )
-    server_connect_config_parser.add_argument(
-        "--json", action="store_true", help="Output raw JSON"
-    )
+    server_connect_config_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
     # Server search command
     server_search_parser = subparsers.add_parser(
@@ -5129,6 +5256,49 @@ Examples:
     agent_update_parser.add_argument("--path", required=True, help="Agent path")
     agent_update_parser.add_argument(
         "--config", required=True, help="Path to updated agent configuration JSON file"
+    )
+
+    # Agent patch command (RFC 7396 JSON Merge Patch)
+    agent_patch_parser = subparsers.add_parser(
+        "agent-patch", help="Partially update an agent (JSON Merge Patch)"
+    )
+    agent_patch_parser.add_argument("--path", required=True, help="Agent path")
+    agent_patch_parser.add_argument(
+        "--config", required=True, help="Path to JSON file containing fields to patch"
+    )
+    agent_patch_parser.add_argument(
+        "--if-match",
+        dest="if_match",
+        default=None,
+        help="Weak ETag from a prior GET/PATCH for optimistic concurrency",
+    )
+
+    # Agent batch submit command
+    agent_batch_submit_parser = subparsers.add_parser(
+        "agent-batch-submit", help="Submit an async batch of agent operations"
+    )
+    agent_batch_submit_parser.add_argument(
+        "--file", required=True, help="Path to JSON file with batch items"
+    )
+    agent_batch_submit_parser.add_argument(
+        "--idempotency-key",
+        dest="idempotency_key",
+        default=None,
+        help="Optional idempotency key to dedupe re-submissions",
+    )
+    agent_batch_submit_parser.add_argument(
+        "--json", action="store_true", help="Output raw JSON response"
+    )
+
+    # Agent batch status command
+    agent_batch_status_parser = subparsers.add_parser(
+        "agent-batch-status", help="Get the status and results of a batch job"
+    )
+    agent_batch_status_parser.add_argument(
+        "--job-id", dest="job_id", required=True, help="Batch job identifier"
+    )
+    agent_batch_status_parser.add_argument(
+        "--json", action="store_true", help="Output raw JSON response"
     )
 
     # Agent delete command
@@ -5900,6 +6070,9 @@ Examples:
         "agent-list": cmd_agent_list,
         "agent-get": cmd_agent_get,
         "agent-update": cmd_agent_update,
+        "agent-patch": cmd_agent_patch,
+        "agent-batch-submit": cmd_agent_batch_submit,
+        "agent-batch-status": cmd_agent_batch_status,
         "agent-delete": cmd_agent_delete,
         "agent-toggle": cmd_agent_toggle,
         "agent-discover": cmd_agent_discover,

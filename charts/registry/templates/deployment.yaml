@@ -59,6 +59,8 @@ spec:
                 name: registry-otel-config
             - configMapRef:
                 name: registry-app-log-config
+            - configMapRef:
+                name: registry-batch-config
             - secretRef:
                 name: {{ .Values.app.existingSecret | default .Values.app.envSecretName }}
             {{- if eq (.Values.global.authProvider.type | default "keycloak") "keycloak" }}

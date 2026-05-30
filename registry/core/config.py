@@ -797,6 +797,62 @@ class Settings(BaseSettings):
     # DocumentDB Namespace (for multi-tenancy support)
     documentdb_namespace: str = "default"
 
+    # Agent batch API (issue #956)
+    batch_max_operations_per_job: int = Field(
+        default=1000,
+        ge=1,
+        description="Maximum number of items allowed in a single agent batch submission.",
+    )
+    batch_max_concurrent_jobs_per_user: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum number of active (queued or running) batch jobs per submitter.",
+    )
+    batch_job_retention_days: int = Field(
+        default=7,
+        ge=1,
+        description="Retention window for agent batch jobs in MongoDB (TTL index on updated_at).",
+    )
+    batch_worker_poll_interval_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        description="How often the batch worker polls MongoDB for queued jobs.",
+    )
+    batch_worker_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable the in-process agent batch worker loop. Lease-based claiming "
+            "makes multi-worker operation safe: any number of replicas may run "
+            "with this true and cooperatively drain the queue."
+        ),
+    )
+    batch_worker_lease_ttl_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description=(
+            "How long a claimed batch job stays owned before its lease expires "
+            "and another worker may reclaim it. Must exceed the worst-case time "
+            "between lease renewals (slowest single item + heartbeat interval + "
+            "clock-skew slack), or a slow-but-healthy worker risks having its job "
+            "reclaimed and processed concurrently."
+        ),
+    )
+    batch_worker_lease_heartbeat_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        description=(
+            "Interval at which a worker renews the lease on its in-flight job. "
+            "Should be comfortably below batch_worker_lease_ttl_seconds (a common "
+            "shape is TTL = 3-4x the heartbeat) so a renewal is never missed by a "
+            "healthy worker."
+        ),
+    )
+    batch_max_request_bytes: int = Field(
+        default=4 * 1024 * 1024,
+        ge=1024,
+        description="Maximum request body size (bytes) accepted by POST /api/agents/batch.",
+    )
+
     # Container paths - adjust for local development
     container_app_dir: Path = Path("/app")
     container_registry_dir: Path = Path("/app/registry")

@@ -678,6 +678,46 @@ variable "registration_webhook_timeout_seconds" {
 }
 
 # =============================================================================
+# AGENT BATCH API (Issue #956)
+# =============================================================================
+
+variable "batch_worker_enabled" {
+  description = "Enable the in-process agent batch worker loop. v1 single-worker constraint: exactly one task should set this to true."
+  type        = bool
+  default     = true
+}
+
+variable "batch_max_operations_per_job" {
+  description = "Maximum number of items allowed in a single agent batch submission."
+  type        = number
+  default     = 1000
+}
+
+variable "batch_max_concurrent_jobs_per_user" {
+  description = "Maximum number of active (queued or running) batch jobs per submitter."
+  type        = number
+  default     = 3
+}
+
+variable "batch_job_retention_days" {
+  description = "Retention window for agent batch jobs in MongoDB (TTL index on updated_at)."
+  type        = number
+  default     = 7
+}
+
+variable "batch_worker_poll_interval_seconds" {
+  description = "How often the batch worker polls MongoDB for queued jobs."
+  type        = number
+  default     = 1.0
+}
+
+variable "batch_max_request_bytes" {
+  description = "Maximum request body size (bytes) accepted by POST /api/agents/batch."
+  type        = number
+  default     = 4194304
+}
+
+# =============================================================================
 # REGISTRATION GATE / ADMISSION CONTROL (Issue #809)
 # =============================================================================
 

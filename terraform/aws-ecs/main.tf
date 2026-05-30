@@ -178,6 +178,14 @@ module "mcp_gateway" {
   registration_webhook_auth_token      = var.registration_webhook_auth_token
   registration_webhook_timeout_seconds = var.registration_webhook_timeout_seconds
 
+  # Agent batch API (issue #956)
+  batch_worker_enabled               = var.batch_worker_enabled
+  batch_max_operations_per_job       = var.batch_max_operations_per_job
+  batch_max_concurrent_jobs_per_user = var.batch_max_concurrent_jobs_per_user
+  batch_job_retention_days           = var.batch_job_retention_days
+  batch_worker_poll_interval_seconds = var.batch_worker_poll_interval_seconds
+  batch_max_request_bytes            = var.batch_max_request_bytes
+
   # Registration gate / admission control (issue #809)
   registration_gate_enabled              = var.registration_gate_enabled
   registration_gate_url                  = var.registration_gate_url

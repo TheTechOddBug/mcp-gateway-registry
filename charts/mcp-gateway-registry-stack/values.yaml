@@ -266,6 +266,18 @@ registry:
     registrationWebhookAuthToken: ""
     registrationWebhookTimeoutSeconds: "10"
 
+    # Agent batch API (issue #956)
+    # Lease-based claiming makes multi-worker operation safe: any number of
+    # replicas may set batchWorkerEnabled=true.
+    batchWorkerEnabled: true
+    batchMaxOperationsPerJob: "1000"
+    batchMaxConcurrentJobsPerUser: "3"
+    batchJobRetentionDays: "7"
+    batchWorkerPollIntervalSeconds: "1.0"
+    batchWorkerLeaseTtlSeconds: "60.0"
+    batchWorkerLeaseHeartbeatSeconds: "15.0"
+    batchMaxRequestBytes: "4194304"
+
     # Registration gate / admission control (issue #809)
     registrationGateEnabled: false
     registrationGateUrl: ""

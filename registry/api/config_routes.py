@@ -321,6 +321,20 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("github_api_base_url", "API Base URL", False),
         ],
     },
+    "agent_batch": {
+        "title": "Agent Batch API",
+        "order": 21,
+        "fields": [
+            ("batch_worker_enabled", "Worker Enabled", False),
+            ("batch_max_operations_per_job", "Max Operations Per Job", False),
+            ("batch_max_concurrent_jobs_per_user", "Max Concurrent Jobs Per User", False),
+            ("batch_job_retention_days", "Job Retention (days)", False),
+            ("batch_worker_poll_interval_seconds", "Worker Poll Interval (s)", False),
+            ("batch_worker_lease_ttl_seconds", "Worker Lease TTL (s)", False),
+            ("batch_worker_lease_heartbeat_seconds", "Worker Lease Heartbeat (s)", False),
+            ("batch_max_request_bytes", "Max Request Bytes", False),
+        ],
+    },
 }
 
 
@@ -380,10 +394,10 @@ def _format_value(
 
     if field_name.endswith("_seconds"):
         unit = "seconds"
-        if isinstance(value, (int, float)) and value >= 3600:
+        if isinstance(value, int | float) and value >= 3600:
             hours = value / 3600
             display = f"{value} ({hours:.1f} hours)"
-        elif isinstance(value, (int, float)) and value >= 60:
+        elif isinstance(value, int | float) and value >= 60:
             minutes = value / 60
             display = f"{value} ({minutes:.0f} minutes)"
     elif field_name.endswith("_ms"):
@@ -795,7 +809,7 @@ def _export_as_tfvars(include_sensitive: bool = False) -> str:
                 lines.append(f"# {tf_key} = null")
             elif isinstance(value, bool):
                 lines.append(f"{tf_key} = {str(value).lower()}")
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, int | float):
                 lines.append(f"{tf_key} = {value}")
             elif isinstance(value, str):
                 lines.append(f'{tf_key} = "{value}"')
