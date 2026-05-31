@@ -60,6 +60,8 @@ The generated queries cover:
 - **tag-based:** Tag values as queries (should find all assets with that tag)
 - **description-derived:** Key phrases from descriptions (tests semantic matching)
 
+These are simple programmatically generated queries using keyword extraction from your asset catalog. They provide a reasonable baseline for measuring search quality but are not a substitute for human-curated queries. You are encouraged to review the generated file, remove low-quality entries, and add your own queries that reflect how your users actually search. The format is straightforward (see [Ground Truth Format](#ground-truth-format) below).
+
 ### Step 3: Run Benchmark
 
 ```bash
