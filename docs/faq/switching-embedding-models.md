@@ -38,7 +38,7 @@ After restarting, the registry uses the new collection (e.g., `mcp_embeddings_10
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     embeddings-missing
 ```
 
@@ -55,7 +55,7 @@ Embeddings Index Status:
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     embeddings-reindex --all-missing
 ```
 
@@ -73,7 +73,7 @@ Reindex complete: 380 success, 0 failed
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     server-search --query "documentation search"
 ```
 

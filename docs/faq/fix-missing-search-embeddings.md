@@ -20,7 +20,7 @@ The registry provides admin APIs to detect and fix this.
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     embeddings-missing
 ```
 
@@ -53,7 +53,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     embeddings-reindex --all-missing
 ```
 
@@ -63,7 +63,7 @@ This finds all missing documents and generates their embeddings in batches of 10
 
 ```bash
 uv run python api/registry_management.py \
-    --registry-url http://localhost --token-file .token \
+    --registry-url https://your-registry-url --token-file .token \
     embeddings-reindex --paths /atlassian/ /my-new-agent
 ```
 
