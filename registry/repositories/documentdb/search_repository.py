@@ -110,6 +110,10 @@ def _tokens_match_text(
 # path(5.0) + name(3.0) + description(2.0) + tag(1.5) + metadata(1.0) + tool(1.0) = 13.5
 MAX_LEXICAL_BOOST: float = 13.5
 
+# RRF sensitivity constant (industry standard: k=60)
+# Higher k smooths differences between ranks; lower k amplifies top positions.
+RRF_K: int = 60
+
 # Maximum fraction of max_results any single entity type can claim
 # when other entity types have results competing for slots.
 # 0.6 means no type gets more than 60% of total unless no competition.
@@ -207,6 +211,52 @@ def _distribute_results(
     )
 
     return selected
+
+
+def _reciprocal_rank_fusion(
+    vector_ranked: list[dict],
+    keyword_ranked: list[dict],
+    k: int = RRF_K,
+) -> list[tuple[dict, float]]:
+    """Combine vector and keyword ranked lists using Reciprocal Rank Fusion.
+
+    RRF produces a single merged ranking from two independently-ranked lists
+    without needing score normalization. The formula per document is:
+
+        rrf_score = sum over lists: 1 / (k + rank)
+
+    where rank starts at 1 for the top result in each list.
+
+    This is the industry standard approach used by Elasticsearch, OpenSearch,
+    MongoDB Atlas, and Azure AI Search (all with k=60).
+
+    Args:
+        vector_ranked: Documents sorted by vector similarity (best first).
+            Documents missing from this list (no embedding) simply receive
+            no vector contribution.
+        keyword_ranked: Documents sorted by text_boost (best first).
+        k: Sensitivity constant. Default 60 (industry standard).
+            Higher k reduces the influence of top positions.
+
+    Returns:
+        List of (doc, rrf_score) tuples sorted by rrf_score descending.
+    """
+    scores: dict[str, float] = {}
+    doc_map: dict[str, dict] = {}
+
+    for rank_zero, doc in enumerate(vector_ranked):
+        doc_id = doc.get("_id") or doc.get("path", f"__vec_{rank_zero}")
+        scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank_zero + 1)
+        doc_map[doc_id] = doc
+
+    for rank_zero, doc in enumerate(keyword_ranked):
+        doc_id = doc.get("_id") or doc.get("path", f"__kw_{rank_zero}")
+        scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank_zero + 1)
+        doc_map[doc_id] = doc
+
+    results = [(doc_map[doc_id], score) for doc_id, score in scores.items()]
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
 
 
 def _build_status_filter(
@@ -1180,22 +1230,31 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             )
 
             all_docs = await cursor.to_list(length=None)
-            logger.info(f"Client-side search: Retrieved {len(all_docs)} documents with embeddings")
+            docs_with_embeddings = sum(
+                1 for d in all_docs if d.get("embedding")
+            )
+            logger.info(
+                "Client-side search: Retrieved %d documents (%d with embeddings)",
+                len(all_docs),
+                docs_with_embeddings,
+            )
 
             # Tokenize query for keyword matching
             query_tokens = _tokenize_query(query)
             logger.debug(f"Client-side search tokens: {query_tokens}")
 
-            # Calculate cosine similarity for each document
-            scored_docs = []
-            for doc in all_docs:
-                embedding = doc.get("embedding", [])
-                if not embedding:
-                    vector_score = 0.0
-                else:
-                    vector_score = cosine_similarity(query_embedding, embedding)
+            # Score each document on BOTH axes independently for RRF
+            vector_scored: list[tuple[dict, float]] = []
+            keyword_scored: list[tuple[dict, float]] = []
 
-                # Add text-based boost using tokenized matching
+            for doc in all_docs:
+                # --- Vector score (only for docs with embeddings) ---
+                embedding = doc.get("embedding", [])
+                if embedding:
+                    vector_score = cosine_similarity(query_embedding, embedding)
+                    vector_scored.append((doc, vector_score))
+
+                # --- Keyword text_boost (all docs participate) ---
                 text_boost = 0.0
                 name = doc.get("name", "")
                 description = doc.get("description", "")
@@ -1203,8 +1262,6 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                 tools = doc.get("tools", [])
                 matching_tools = []
 
-                # Token-based matching for text boost
-                # Check path match first (highest priority - user explicitly named the server)
                 path = doc.get("path", "")
                 server_name_matched = False
                 if path and _tokens_match_text(query_tokens, path):
@@ -1215,16 +1272,17 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     server_name_matched = True
                 if description and _tokens_match_text(query_tokens, description):
                     text_boost += 2.0
-                # Check if any token matches any tag
-                if tags and any(_tokens_match_text(query_tokens, tag) for tag in tags):
+                if tags and any(
+                    _tokens_match_text(query_tokens, tag) for tag in tags
+                ):
                     text_boost += 1.5
 
-                # Check metadata_text match
                 metadata_text = doc.get("metadata_text", "")
-                if metadata_text and _tokens_match_text(query_tokens, metadata_text):
+                if metadata_text and _tokens_match_text(
+                    query_tokens, metadata_text
+                ):
                     text_boost += 1.0
 
-                # Check if any token matches any tool name or description
                 for tool in tools:
                     tool_name = tool.get("name", "")
                     tool_desc = tool.get("description") or ""
@@ -1239,59 +1297,70 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                                 "tool_name": tool_name,
                                 "description": tool_desc,
                                 "relevance_score": 1.0,
-                                "match_context": tool_desc or f"Tool: {tool_name}",
+                                "match_context": tool_desc
+                                or f"Tool: {tool_name}",
                             }
                         )
                     elif server_name_matched:
-                        # If server name/path matched, include all tools with base score
                         matching_tools.append(
                             {
                                 "tool_name": tool_name,
                                 "description": tool_desc,
                                 "relevance_score": 0.8,
-                                "match_context": tool_desc or f"Tool: {tool_name}",
+                                "match_context": tool_desc
+                                or f"Tool: {tool_name}",
                             }
                         )
 
-                # Store matching tools for later use
                 doc["_matching_tools"] = matching_tools
+                doc["text_boost"] = text_boost
 
-                # Hybrid score: vector score + normalized text boost
-                # Normalize vector_score to [0, 1] range (cosine can be [-1, 1])
-                normalized_vector_score = (vector_score + 1.0) / 2.0
-                # Text boost multiplier: 0.1 (same as DocumentDB search path)
-                # Path match (5.0) adds +0.50, Name match (3.0) adds +0.30
-                text_boost_contribution = text_boost * 0.1
-                relevance_score = normalized_vector_score + text_boost_contribution
-                relevance_score = max(0.0, min(1.0, relevance_score))
+                if text_boost > 0:
+                    keyword_scored.append((doc, text_boost))
 
+            # Sort each list independently (best first)
+            vector_scored.sort(key=lambda x: x[1], reverse=True)
+            keyword_scored.sort(key=lambda x: x[1], reverse=True)
+
+            if settings.search_fusion_method == "rrf":
                 logger.info(
-                    "Score for '%s' (type=%s): vector=%.4f, "
-                    "normalized_vector=%.4f, text_boost=%.1f, "
-                    "boost_contrib=%.4f, final=%.4f",
-                    doc.get("name"),
-                    doc.get("entity_type"),
-                    vector_score,
-                    normalized_vector_score,
-                    text_boost,
-                    text_boost_contribution,
-                    relevance_score,
+                    "RRF inputs: %d vector-ranked docs, %d keyword-ranked docs",
+                    len(vector_scored),
+                    len(keyword_scored),
                 )
-
-                scored_docs.append(
-                    {
-                        "doc": doc,
-                        "relevance_score": relevance_score,
-                        "vector_score": vector_score,
-                        "text_boost": text_boost,
-                    }
+                vector_ranked_docs = [doc for doc, _ in vector_scored]
+                keyword_ranked_docs = [doc for doc, _ in keyword_scored]
+                scored_tuples = _reciprocal_rank_fusion(
+                    vector_ranked_docs, keyword_ranked_docs
                 )
+                for doc, rrf_score in scored_tuples[:10]:
+                    logger.info(
+                        "RRF score for '%s' (type=%s): %.6f, text_boost=%.1f",
+                        doc.get("name"),
+                        doc.get("entity_type"),
+                        rrf_score,
+                        doc.get("text_boost", 0.0),
+                    )
+            else:
+                scored_tuples = []
+                for doc, vector_score in vector_scored:
+                    text_boost = doc.get("text_boost", 0.0)
+                    normalized_vector_score = (vector_score + 1.0) / 2.0
+                    text_boost_contribution = text_boost * 0.1
+                    relevance_score = max(
+                        0.0, min(1.0, normalized_vector_score + text_boost_contribution)
+                    )
+                    scored_tuples.append((doc, relevance_score))
+                for doc, text_boost in keyword_scored:
+                    doc_id = doc.get("_id") or doc.get("path")
+                    if not any(
+                        (d.get("_id") or d.get("path")) == doc_id
+                        for d, _ in scored_tuples
+                    ):
+                        relevance_score = min(1.0, text_boost * 0.1)
+                        scored_tuples.append((doc, relevance_score))
+                scored_tuples.sort(key=lambda x: x[1], reverse=True)
 
-            # Sort by relevance score (descending)
-            scored_docs.sort(key=lambda x: x["relevance_score"], reverse=True)
-
-            # Convert to (doc, score) tuples and distribute with soft caps
-            scored_tuples = [(item["doc"], item["relevance_score"]) for item in scored_docs]
             selected = _distribute_results(scored_tuples, max_results)
 
             # Format results to match the API contract
@@ -1906,43 +1975,40 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                 keyword_added_count,
             )
 
-            # Calculate hybrid scores for ALL results before grouping
-            # This ensures we log every document's score for diagnosis
-            scored_results = []
-            for doc in results:
-                entity_type = doc.get("entity_type")
-                doc_embedding = doc.get("embedding", [])
-                vector_score = cosine_similarity(query_embedding, doc_embedding)
-                text_boost = doc.get("text_boost", 0.0)
+            # Combine vector and keyword signals using configured fusion method
+            vector_ranked_docs = list(results)
+            keyword_ranked_docs = sorted(
+                [doc for doc in results if doc.get("text_boost", 0.0) > 0],
+                key=lambda d: d.get("text_boost", 0.0),
+                reverse=True,
+            )
 
-                # Normalize vector_score from [-1, 1] to [0, 1]
-                normalized_vector_score = (vector_score + 1.0) / 2.0
-
-                # Text boost multiplier: 0.1 gives significant weight to keyword matches
-                # Name match (3.0) adds +0.30, Description (2.0) adds +0.20
-                text_boost_contribution = text_boost * 0.1
-                relevance_score = normalized_vector_score + text_boost_contribution
-                relevance_score = max(0.0, min(1.0, relevance_score))
-
-                logger.info(
-                    "Score for '%s' (type=%s): vector=%.4f, "
-                    "normalized_vector=%.4f, text_boost=%.1f, "
-                    "boost_contrib=%.4f, final=%.4f",
-                    doc.get("name"),
-                    entity_type,
-                    vector_score,
-                    normalized_vector_score,
-                    text_boost,
-                    text_boost_contribution,
-                    relevance_score,
+            if settings.search_fusion_method == "rrf":
+                scored_results = _reciprocal_rank_fusion(
+                    vector_ranked_docs, keyword_ranked_docs
                 )
+                for doc, rrf_score in scored_results[:10]:
+                    logger.info(
+                        "RRF score for '%s' (type=%s): %.6f, text_boost=%.1f",
+                        doc.get("name"),
+                        doc.get("entity_type"),
+                        rrf_score,
+                        doc.get("text_boost", 0.0),
+                    )
+            else:
+                scored_results = []
+                for doc in results:
+                    doc_embedding = doc.get("embedding", [])
+                    vector_score = cosine_similarity(query_embedding, doc_embedding)
+                    text_boost = doc.get("text_boost", 0.0)
+                    normalized_vector_score = (vector_score + 1.0) / 2.0
+                    text_boost_contribution = text_boost * 0.1
+                    relevance_score = max(
+                        0.0, min(1.0, normalized_vector_score + text_boost_contribution)
+                    )
+                    scored_results.append((doc, relevance_score))
+                scored_results.sort(key=lambda x: x[1], reverse=True)
 
-                scored_results.append((doc, relevance_score))
-
-            # Sort by hybrid score descending
-            scored_results.sort(key=lambda x: x[1], reverse=True)
-
-            # Distribute results using global ranking with soft caps
             selected_results = _distribute_results(scored_results, max_results)
 
             # Group selected results by entity type for the response

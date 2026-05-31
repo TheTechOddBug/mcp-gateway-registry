@@ -1,0 +1,42 @@
+[
+  {
+    "query": "book hotels",
+    "description": "Travel booking capability (broad match expected)"
+  },
+  {
+    "query": "atlassian",
+    "description": "Exact product name match (should find atlassian server)"
+  },
+  {
+    "query": "machine learning",
+    "description": "Semantic concept (tests vector similarity)"
+  },
+  {
+    "query": "current time",
+    "description": "Specific tool match (current time API)"
+  },
+  {
+    "query": "cloudflare",
+    "description": "Exact server name match"
+  },
+  {
+    "query": "documentation search",
+    "description": "Capability description match"
+  },
+  {
+    "query": "ads",
+    "description": "Short ambiguous keyword"
+  },
+  {
+    "query": "amenities",
+    "description": "Domain-specific term"
+  },
+  {
+    "query": "book flights",
+    "description": "Travel domain (similar to book hotels)"
+  },
+  {
+    "query": "pdf",
+    "description": "Skill name match"
+  }
+]
