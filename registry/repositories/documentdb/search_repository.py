@@ -2035,46 +2035,21 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     include_disabled=include_disabled,
                 )
 
-            # DocumentDB vector search returns results sorted by similarity
-            # We get more results than needed to allow for text-based re-ranking
+            # DocumentDB vector search returns results sorted by similarity.
+            # Run separate vector search per entity type to ensure each type
+            # gets fair representation in the candidate pool (prevents servers
+            # from crowding out agents/skills in large registries).
             ef_search = settings.vector_search_ef_search
-            k_value = max(max_results * 3, 50)  # At least 50 to avoid missing docs
-            pipeline: list[dict[str, Any]] = [
-                {
-                    "$search": {
-                        "vectorSearch": {
-                            "vector": query_embedding,
-                            "path": "embedding",
-                            "similarity": "cosine",
-                            "k": k_value,
-                            "efSearch": ef_search,
-                        }
-                    }
-                }
-            ]
-            logger.info(
-                "Vector search pipeline: k=%d, efSearch=%d",
-                k_value,
-                ef_search,
-            )
+            k_per_type = max(max_results * 2, 30)
 
-            # Apply entity type filter if specified
-            if entity_types:
-                pipeline.append({"$match": {"entity_type": {"$in": entity_types}}})
-
-            # Apply lifecycle status and enabled filter
             status_filter = _build_status_filter(
                 include_draft=include_draft,
                 include_deprecated=include_deprecated,
                 include_disabled=include_disabled,
             )
-            if status_filter:
-                pipeline.append({"$match": status_filter})
 
             # Tokenize query and create regex pattern for matching any token
             query_tokens = _tokenize_query(query)
-            # Create regex that matches any token (e.g., "current|time|timezone")
-            # Escape special regex characters in tokens for safety
             escaped_tokens = [re.escape(token) for token in query_tokens]
             token_regex = "|".join(escaped_tokens) if escaped_tokens else query
             logger.info(
@@ -2084,54 +2059,68 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                 token_regex,
             )
 
+            text_boost_stage = _build_text_boost_stage(token_regex)
+
+            search_types = entity_types or [
+                "mcp_server", "a2a_agent", "skill", "virtual_server"
+            ]
+
+            results = []
+            result_ids: set[str] = set()
+
+            for search_type in search_types:
+                pipeline: list[dict[str, Any]] = [
+                    {
+                        "$search": {
+                            "vectorSearch": {
+                                "vector": query_embedding,
+                                "path": "embedding",
+                                "similarity": "cosine",
+                                "k": k_per_type,
+                                "efSearch": ef_search,
+                            }
+                        }
+                    },
+                    {"$match": {"entity_type": search_type}},
+                ]
+                if status_filter:
+                    pipeline.append({"$match": status_filter})
+                pipeline.append(text_boost_stage)
+                pipeline.append({"$sort": {"text_boost": -1}})
+                pipeline.append({"$limit": k_per_type})
+
+                cursor = collection.aggregate(pipeline)
+                type_results = await cursor.to_list(length=k_per_type)
+
+                for doc in type_results:
+                    doc_id = doc.get("_id")
+                    if doc_id not in result_ids:
+                        results.append(doc)
+                        result_ids.add(doc_id)
+
+            logger.info(
+                "Per-type vector search for '%s': %d total candidates "
+                "(k_per_type=%d, efSearch=%d, types=%s)",
+                query,
+                len(results),
+                k_per_type,
+                ef_search,
+                search_types,
+            )
+
             # NOTE: DocumentDB does not support $unionWith, so we run a separate
             # keyword query and merge results in Python code after the main pipeline.
-            # Reuse shared helper for consistent matching across all fields
             keyword_match_filter = _build_keyword_match_filter(
                 token_regex=token_regex,
                 entity_types=entity_types,
             )
 
-            # Add text-based scoring for re-ranking using shared helper
-            # Scores: path (+5.0), name (+3.0), description (+2.0),
-            # tags (+1.5), tools (+1.0 per match)
-            text_boost_stage = _build_text_boost_stage(token_regex)
-            pipeline.append(text_boost_stage)
-
-            # Sort by text boost (descending), keeping vector search order as secondary
-            pipeline.append({"$sort": {"text_boost": -1}})
-
-            # Fetch more candidates than max_results to allow for global ranking.
-            # The _distribute_results() function will pick the top max_results.
-            candidate_limit = max(max_results * 3, 50)
-            pipeline.append({"$limit": candidate_limit})
-
-            cursor = collection.aggregate(pipeline)
-            results = await cursor.to_list(length=candidate_limit)
-
-            # Log vector search results for diagnosis
-            logger.info(
-                "Vector search for '%s' returned %d documents (k=%d, efSearch=%d)",
-                query,
-                len(results),
-                k_value,
-                ef_search,
+            keyword_cursor = collection.find(keyword_match_filter).limit(
+                max(max_results, 10)
             )
-            for i, doc in enumerate(results):
-                logger.info(
-                    "  Vector result [%d]: name='%s', type=%s, text_boost=%.1f, path='%s'",
-                    i,
-                    doc.get("name"),
-                    doc.get("entity_type"),
-                    doc.get("text_boost", 0.0),
-                    doc.get("path"),
-                )
-
-            # DocumentDB doesn't support $unionWith, so we run a separate keyword
-            # query to find documents that match by name/path/description/tags/tools
-            # but may not appear in vector search results
-            keyword_cursor = collection.find(keyword_match_filter).limit(5)
-            keyword_results = await keyword_cursor.to_list(length=5)
+            keyword_results = await keyword_cursor.to_list(
+                length=max(max_results, 10)
+            )
 
             logger.info(
                 "Keyword search for '%s' found %d candidates",
@@ -2152,7 +2141,6 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             # Merge keyword results with vector results, avoiding duplicates
             # Calculate text_boost and matching_tools for keyword results since they
             # didn't go through the aggregation pipeline
-            result_ids = {doc.get("_id") for doc in results}
             keyword_added_count = 0
             for kw_doc in keyword_results:
                 if kw_doc.get("_id") not in result_ids:
