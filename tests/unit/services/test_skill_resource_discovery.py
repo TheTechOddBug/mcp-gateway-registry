@@ -380,8 +380,14 @@ class TestDiscoverSkillResources:
 
         response = MagicMock()
         response.status_code = 200
-        response.json = MagicMock(return_value=[{"type": "blob", "path": "x/r.py", "size": 100}])
-        response.headers = {"x-next-page": "9"}  # never empty -> would loop
+        # Fresh list per call: real httpx parses a new list each response, so
+        # the loop's payload.extend(page_payload) appends distinct objects. A
+        # shared return_value list would make payload.extend(payload) double the
+        # list every iteration (exponential blow-up) and OOM before the cap.
+        response.json = MagicMock(
+            side_effect=lambda: [{"type": "blob", "path": "x/r.py", "size": 100}]
+        )
+        response.headers = {"x-next-page": "9"}  # never empty -> would loop forever without the cap
 
         client_instance = MagicMock()
         client_instance.get = AsyncMock(return_value=response)
