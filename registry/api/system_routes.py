@@ -9,10 +9,11 @@ import os
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..auth.dependencies import nginx_proxied_auth
 from ..core.config import settings
+from ..core.update_check import get_state as get_update_check_state
 from ..version import __version__
 
 logger = logging.getLogger(__name__)
@@ -389,3 +390,29 @@ async def get_system_stats(
     except Exception as e:
         logger.error(f"Failed to get system stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to compute system statistics")
+
+
+@router.get("/api/system/update-check")
+async def get_update_check(
+    user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+) -> dict:
+    """Return cached update-check state for admins.
+
+    Reads the most recent result of the background poller defined in
+    ``registry.core.update_check``. Never makes a network call itself.
+    Non-admins receive 403 — the registry running version is admin-only
+    operational metadata, and the GitHub release tag would otherwise leak
+    to any authenticated user.
+
+    Uses ``nginx_proxied_auth`` (not ``enhanced_auth``) so the endpoint works
+    with both a browser session cookie AND a Bearer JWT (validated by nginx,
+    forwarded as identity headers). This matches the sibling ``/api/stats`` and
+    ``/api/system/telemetry-detection`` routes and lets CLI / token-file callers
+    reach it the same way they reach the rest of ``/api/*``.
+    """
+    if not user_context.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator permissions are required for this operation",
+        )
+    return get_update_check_state().to_dict()

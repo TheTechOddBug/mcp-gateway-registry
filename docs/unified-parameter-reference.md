@@ -394,6 +394,21 @@ tabs and `/api/custom*` endpoints are not registered, so there is no behavior ch
 
 ---
 
+## Group 13c — Update Check (Admin Banner, Issue #1218)
+
+Background poll of the GitHub Releases API that surfaces a newer registry version in an admin-only banner
+(`GET /api/system/update-check`). **Registry-only** and non-sensitive. Fail-silent (never affects registry
+operation, so it is air-gap safe) and skipped on dev/local builds (a plain `docker compose up` has `BUILD_VERSION`
+unset; `build_and_run.sh` sets it to a non-semver git-describe string that the version parser skips). Set the
+enable flag to `false` for air-gapped clusters or to silence the banner.
+
+| Parameter            | Docker (`.env`)               | Terraform (`.tfvars`)         | Helm (`values.yaml`)                     | Purpose                                                                                              |
+|----------------------|-------------------------------|-------------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------|
+| Enable update check  | `UPDATE_CHECK_ENABLED`        | `update_check_enabled`        | `registry.app.updateCheck.enabled`       | Enable the background GitHub-release poll + admin banner. Default `true`. Set `false` for air-gapped. |
+| Poll interval (hours)| `UPDATE_CHECK_INTERVAL_HOURS` | `update_check_interval_hours` | `registry.app.updateCheck.intervalHours` | Polling interval in hours (minimum 1). Default `24`.                                              |
+
+---
+
 ## Group 14 — GitHub Private Repo Access (for SKILL.md fetching)
 
 Only the Helm `mcpgw` subchart and Docker expose these today.
