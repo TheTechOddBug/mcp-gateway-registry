@@ -240,3 +240,51 @@ class TestFileBackendGroupMappingsBulkDefault:
 
     async def test_empty_returns_empty(self, file_repo):
         assert await file_repo.get_group_mappings_bulk([]) == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestFileGetAllGroupMappingsInversion:
+    """The file backend must invert the YAML ``{group: [scopes]}`` structure
+    into the canonical ``{scope: [groups]}`` shape that
+    ``map_cognito_groups_to_scopes`` expects (#930).
+    """
+
+    @pytest.fixture
+    def file_repo(self):
+        r = FileScopeRepository.__new__(FileScopeRepository)
+        r._scopes_data = {
+            "group_mappings": {
+                "mcp-registry-admin": [
+                    "registry-admins",
+                    "mcp-servers-unrestricted/read",
+                    "mcp-servers-unrestricted/execute",
+                ],
+                "registry-admins": ["registry-admins"],
+                "registry-users-lob1": ["registry-users-lob1"],
+            },
+        }
+        return r
+
+    async def test_inverts_yaml_to_canonical_shape(self, file_repo):
+        result = await file_repo.get_all_group_mappings()
+
+        # Keys must be scope names, values must be Keycloak groups
+        assert "registry-admins" in result
+        assert "mcp-registry-admin" in result["registry-admins"]
+        # registry-admins appears in two group entries
+        assert "registry-admins" in result["registry-admins"]
+
+        assert "mcp-servers-unrestricted/read" in result
+        assert result["mcp-servers-unrestricted/read"] == ["mcp-registry-admin"]
+
+        assert "mcp-servers-unrestricted/execute" in result
+        assert result["mcp-servers-unrestricted/execute"] == ["mcp-registry-admin"]
+
+        assert "registry-users-lob1" in result
+        assert result["registry-users-lob1"] == ["registry-users-lob1"]
+
+    async def test_empty_group_mappings(self, file_repo):
+        file_repo._scopes_data = {}
+        result = await file_repo.get_all_group_mappings()
+        assert result == {}
