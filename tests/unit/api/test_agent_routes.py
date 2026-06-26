@@ -504,6 +504,48 @@ class TestRegisterAgent:
             assert data["agent"]["path"] == "/new-agent"
 
     @pytest.mark.asyncio
+    async def test_register_agent_honors_supplied_id(self, test_app, mock_user_context):
+        """A caller-supplied id is stored verbatim on the agent card (#1276)."""
+        supplied_id = "arn:aws:bedrock:us-east-1:123456789012:agent/my-agent"
+        request_data = {
+            "name": "id-agent",
+            "description": "Agent with a caller-supplied id",
+            "url": "http://localhost:9000/id-agent",
+            "version": "1.0",
+            "tags": "test",
+            "supportedProtocol": "a2a",
+            "id": supplied_id,
+        }
+
+        captured = {}
+
+        async def capture_register(card):
+            captured["card"] = card
+            return True
+
+        with (
+            patch("registry.api.agent_routes.agent_service") as mock_agent_service,
+            patch("registry.utils.agent_validator.agent_validator") as mock_validator,
+            patch("registry.search.service.faiss_service") as mock_faiss,
+        ):
+            mock_agent_service.get_agent_info = AsyncMock(return_value=None)
+            mock_agent_service.register_agent = AsyncMock(side_effect=capture_register)
+            mock_agent_service.is_agent_enabled = AsyncMock(return_value=True)
+
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validation_result.errors = []
+            mock_validation_result.warnings = []
+            mock_validator.validate_agent_card = AsyncMock(return_value=mock_validation_result)
+            mock_faiss.add_or_update_entity = AsyncMock()
+
+            response = test_app.post("/agents/register", json=request_data)
+
+            assert response.status_code == status.HTTP_201_CREATED
+            assert captured["card"].id == supplied_id
+
+
+    @pytest.mark.asyncio
     async def test_register_agent_path_conflict(
         self, test_app, mock_user_context, sample_agent_card
     ):

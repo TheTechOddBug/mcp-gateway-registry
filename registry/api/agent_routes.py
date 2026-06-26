@@ -48,6 +48,7 @@ from ..schemas.duplicate_check_models import (
     AgentDuplicateCheckRequest,
     DuplicateCheckResult,
 )
+from ..services._asset_id import resolve_asset_id
 from ..services.agent_batch_service import (
     ConcurrentJobLimitError,
     agent_batch_service,
@@ -556,6 +557,7 @@ async def register_agent(
             description=request.description,
             url=request.url,
             path=path,
+            id=resolve_asset_id(request.id),
             version=request.version,
             status=request.status,
             provider=provider_obj,
