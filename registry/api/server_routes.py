@@ -1014,6 +1014,26 @@ def _to_dt(value: Any) -> datetime | None:
     return None
 
 
+def _require_admin(user_context: dict | None) -> None:
+    """Reject the request unless the caller is an authenticated admin.
+
+    Mirrors the sibling ``_require_admin`` helpers in management_routes.py,
+    log_routes.py, etc. Used to gate scope/group mutation endpoints, which
+    have no finer-grained permission model and must be admin-only.
+
+    Args:
+        user_context: Authenticated user context (may be None if auth failed).
+
+    Raises:
+        HTTPException: 403 if the user is missing or not an admin.
+    """
+    if not user_context or not user_context.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator permissions are required for this operation",
+        )
+
+
 def _check_server_permission(
     permission: str,
     server_name: str,
@@ -4170,6 +4190,26 @@ async def update_server_auth_credential(
     if not server_path.startswith("/"):
         server_path = "/" + server_path
 
+    # Look up the server first so the permission check can use its display name.
+    existing_server = await server_service.get_server_info(server_path, include_credentials=True)
+    if not existing_server:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Server not found",
+                "reason": f"No server registered at path '{server_path}'",
+            },
+        )
+
+    # Authorization: rewriting a backend credential is a server modification, so
+    # require the same modify_service permission as PUT/PATCH /servers/{path}.
+    # nginx_proxied_auth only authenticates; it does not authorize.
+    _check_server_permission(
+        "modify_service",
+        existing_server.get("server_name", server_path),
+        user_context,
+    )
+
     # Validate auth_scheme
     if body.auth_scheme not in VALID_AUTH_SCHEMES:
         return JSONResponse(
@@ -4189,26 +4229,6 @@ async def update_server_auth_credential(
                 "reason": "auth_credential is required when auth_scheme is not 'none'",
             },
         )
-
-    # Look up existing server (with credentials so we can update properly)
-    existing_server = await server_service.get_server_info(server_path, include_credentials=True)
-    if not existing_server:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": "Server not found",
-                "reason": f"No server registered at path '{server_path}'",
-            },
-        )
-
-    # Authorization: updating a server's stored backend credential is a server
-    # modification. Require modify_service permission, matching PUT/PATCH
-    # /servers/{path}.
-    _check_server_permission(
-        "modify_service",
-        existing_server.get("server_name", server_path),
-        user_context,
-    )
 
     # Build update dict
     existing_server["auth_scheme"] = body.auth_scheme
@@ -4627,6 +4647,7 @@ async def add_server_to_groups_api(
       -F "group_names=admin,developers"
     ```
     """
+    # Mapping servers into scope groups changes access control, so it is admin-only.
     _require_admin(user_context)
 
     logger.info(
@@ -4668,6 +4689,7 @@ async def remove_server_from_groups_api(
       -F "group_names=developers"
     ```
     """
+    # Removing servers from scope groups changes access control, so it is admin-only.
     _require_admin(user_context)
 
     logger.info(
@@ -4785,6 +4807,7 @@ async def create_group_api(
       -F "create_in_idp=true"
     ```
     """
+    # Creating scope groups is an access-control change, so it is admin-only.
     _require_admin(user_context)
 
     logger.info(
@@ -4915,6 +4938,7 @@ async def delete_group_api(
       -F "force=false"
     ```
     """
+    # Deleting scope groups is an access-control change, so it is admin-only.
     _require_admin(user_context)
 
     logger.info(
@@ -5084,6 +5108,10 @@ async def import_group_definition(
     from ..services.scope_service import import_group
     from ..utils.iam_manager import get_iam_manager
 
+    # Importing a group definition writes group_mappings and ui_permissions
+    # (including privileged scopes like mcp-registry-admin), so it is admin-only.
+    _require_admin(user_context)
+
     try:
         # Parse request body
         body = await request.json()
@@ -5110,7 +5138,9 @@ async def import_group_definition(
             f"for group '{scope_name}'"
         )
 
-        # Import group definition
+        # Import group definition. This route is admin-only (see _require_admin
+        # above); allow_privileged satisfies the service- and repository-layer
+        # privileged-scope guards for legitimate admin imports.
         success = await import_group(
             scope_name=scope_name,
             scope_type=scope_type,
@@ -5118,6 +5148,7 @@ async def import_group_definition(
             server_access=server_access,
             group_mappings=group_mappings,
             ui_permissions=ui_permissions,
+            allow_privileged=bool(user_context and user_context.get("is_admin")),
         )
 
         if not success:
@@ -5518,8 +5549,9 @@ async def remove_server_version(
     """
     decoded_path = "/" + service_path if not service_path.startswith("/") else service_path
 
-    # Authorization: removing a version mutates the server. Require
-    # modify_service permission, matching PUT/PATCH /servers/{path}.
+    # Authorization: removing a version mutates the server, so require the same
+    # modify_service permission as PUT/PATCH /servers/{path}. nginx_proxied_auth
+    # only authenticates; it does not authorize.
     existing_server = await server_service.get_server_info(decoded_path)
     if not existing_server:
         raise HTTPException(status_code=404, detail="Service path not registered")
@@ -5564,8 +5596,9 @@ async def set_default_version(
     """
     decoded_path = "/" + service_path if not service_path.startswith("/") else service_path
 
-    # Authorization: changing the default version mutates the server. Require
-    # modify_service permission, matching PUT/PATCH /servers/{path}.
+    # Authorization: changing the default version mutates the server, so require
+    # the same modify_service permission as PUT/PATCH /servers/{path}.
+    # nginx_proxied_auth only authenticates; it does not authorize.
     existing_server = await server_service.get_server_info(decoded_path)
     if not existing_server:
         raise HTTPException(status_code=404, detail="Service path not registered")
