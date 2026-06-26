@@ -135,7 +135,7 @@ class TestSkillModels:
         from uuid import uuid4
 
         info = SkillInfo(
-            id=uuid4(),
+            id=str(uuid4()),
             path=skill.path,
             name=skill.name,
             description=skill.description,
