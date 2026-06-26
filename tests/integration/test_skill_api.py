@@ -186,6 +186,36 @@ class TestSkillService:
         mock_skill_repository.create.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_register_skill_honors_supplied_id(
+        self,
+        skill_data,
+        mock_url_validation,
+        mock_skill_repository,
+        mock_search_repository,
+    ):
+        """A caller-supplied id reaches the built SkillCard verbatim (#1276)."""
+        from registry.schemas.skill_models import SkillRegistrationRequest
+        from registry.services.skill_service import SkillService
+
+        supplied_id = "arn:aws:bedrock:us-east-1:123456789012:skill/my-skill"
+
+        # Echo back whatever card the service builds, so create() doesn't mask it
+        mock_skill_repository.create.side_effect = lambda card: card
+
+        service = SkillService()
+        service._repo = mock_skill_repository
+        service._search_repo = mock_search_repository
+
+        request = SkillRegistrationRequest(**{**skill_data, "id": supplied_id})
+        result = await service.register_skill(request, owner="testuser")
+
+        # The card handed to the repository carries the supplied id...
+        created_card = mock_skill_repository.create.call_args.args[0]
+        assert created_card.id == supplied_id
+        # ...and so does what the service returns
+        assert result.id == supplied_id
+
+    @pytest.mark.asyncio
     async def test_get_skill(self, mock_skill_repository, mock_search_repository):
         """Test getting a skill by path."""
         from registry.schemas.skill_models import SkillCard

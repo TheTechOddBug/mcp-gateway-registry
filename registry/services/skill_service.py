@@ -12,6 +12,7 @@ import ipaddress
 import logging
 import re
 import socket
+from ._asset_id import resolve_asset_id
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import (
@@ -1212,6 +1213,7 @@ def _build_skill_card(
 
     return SkillCard(
         path=path,
+        id=resolve_asset_id(request.id),
         name=request.name,
         description=request.description,
         skill_md_url=request.skill_md_url,
