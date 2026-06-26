@@ -664,6 +664,76 @@ class TestGetServersJSON:
         assert len(server["tool_list"]) == 2
         assert server["num_tools"] == 2
 
+    def test_status_filter_returns_only_matching(self, test_client_admin, mock_server_service):
+        """?status=beta returns only beta servers (Issue #1330). Forces fallback path."""
+        mock_server_service.get_all_servers = AsyncMock(
+            return_value={
+                "/a": {
+                    "server_name": "A",
+                    "description": "",
+                    "tags": [],
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "proxy_pass_url": "http://x",
+                    "status": "beta",
+                },
+                "/b": {
+                    "server_name": "B",
+                    "description": "",
+                    "tags": [],
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "proxy_pass_url": "http://y",
+                    "status": "draft",
+                },
+            }
+        )
+
+        response = test_client_admin.get("/api/servers?status=beta")
+
+        assert response.status_code == 200
+        servers = response.json()["servers"]
+        assert {s["display_name"] for s in servers} == {"A"}
+
+    def test_status_filter_active_includes_missing_status(
+        self, test_client_admin, mock_server_service
+    ):
+        """?status=active also matches legacy docs with no status field."""
+        mock_server_service.get_all_servers = AsyncMock(
+            return_value={
+                "/legacy": {
+                    "server_name": "Legacy",
+                    "description": "",
+                    "tags": [],
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "proxy_pass_url": "http://x",
+                    # no status field
+                },
+                "/draft": {
+                    "server_name": "Draft",
+                    "description": "",
+                    "tags": [],
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "proxy_pass_url": "http://y",
+                    "status": "draft",
+                },
+            }
+        )
+
+        response = test_client_admin.get("/api/servers?status=active")
+
+        assert response.status_code == 200
+        servers = response.json()["servers"]
+        assert {s["display_name"] for s in servers} == {"Legacy"}
+
+    def test_status_filter_invalid_returns_400(self, test_client_admin):
+        """An invalid status value is rejected with 400."""
+        response = test_client_admin.get("/api/servers?status=bogus")
+        assert response.status_code == 400
+        assert "Invalid status" in response.json()["detail"]
+
 
 # =============================================================================
 # TEST POST /toggle/{service_path:path} - Toggle Service
@@ -858,6 +928,123 @@ class TestRegisterService:
             assert data["service"]["server_name"] == "New Server"
             mock_server_service.register_server.assert_called_once()
             mock_nginx_reload_scheduler.mark_dirty.assert_called()
+
+    def test_register_api_enforced_status_rejects_mismatch(
+        self,
+        test_client_admin,
+        mock_server_service,
+        mock_nginx_service,
+        mock_nginx_reload_scheduler,
+        mock_health_service,
+    ):
+        """POST /api/servers/register with status != enforced status returns 400.
+
+        Regression test for issue #1330: enforcement must run on the PUBLIC
+        register_service_api handler (/api/servers/register), not only the
+        legacy /register route.
+        """
+        with (
+            patch(
+                "registry.auth.dependencies.user_has_ui_permission_for_service",
+                return_value=True,
+            ),
+            patch(
+                "registry.services.lifecycle_events.settings.registration_enforced_status",
+                "draft",
+            ),
+        ):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={
+                    "name": "Enf Mismatch",
+                    "description": "test",
+                    "path": "/enf-mismatch",
+                    "proxy_pass_url": "http://localhost:9000",
+                    "status": "active",
+                },
+            )
+
+        assert response.status_code == 400
+        assert "draft" in response.json()["detail"].lower()
+        mock_server_service.register_server.assert_not_called()
+
+    def test_register_api_enforced_status_forces_missing(
+        self,
+        test_client_admin,
+        mock_server_service,
+        mock_nginx_service,
+        mock_nginx_reload_scheduler,
+        mock_health_service,
+    ):
+        """POST /api/servers/register with no status is forced to the enforced value."""
+        mock_server_service.register_server.return_value = {
+            "success": True,
+            "message": "Server registered successfully",
+            "is_new_version": False,
+        }
+        with (
+            patch(
+                "registry.auth.dependencies.user_has_ui_permission_for_service",
+                return_value=True,
+            ),
+            patch(
+                "registry.services.lifecycle_events.settings.registration_enforced_status",
+                "draft",
+            ),
+        ):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={
+                    "name": "Enf Missing",
+                    "description": "test",
+                    "path": "/enf-missing",
+                    "proxy_pass_url": "http://localhost:9000",
+                },
+            )
+
+        assert response.status_code == 201
+        # The persisted server_entry carries the forced status.
+        persisted = mock_server_service.register_server.call_args[0][0]
+        assert persisted["status"] == "draft"
+
+    def test_register_api_no_enforcement_keeps_status(
+        self,
+        test_client_admin,
+        mock_server_service,
+        mock_nginx_service,
+        mock_nginx_reload_scheduler,
+        mock_health_service,
+    ):
+        """With enforcement unset, an explicit status is preserved (backwards compat)."""
+        mock_server_service.register_server.return_value = {
+            "success": True,
+            "message": "Server registered successfully",
+            "is_new_version": False,
+        }
+        with (
+            patch(
+                "registry.auth.dependencies.user_has_ui_permission_for_service",
+                return_value=True,
+            ),
+            patch(
+                "registry.services.lifecycle_events.settings.registration_enforced_status",
+                None,
+            ),
+        ):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={
+                    "name": "No Enf",
+                    "description": "test",
+                    "path": "/no-enf",
+                    "proxy_pass_url": "http://localhost:9000",
+                    "status": "active",
+                },
+            )
+
+        assert response.status_code == 201
+        persisted = mock_server_service.register_server.call_args[0][0]
+        assert persisted["status"] == "active"
 
     def test_register_service_no_permission(self, test_client_regular, mock_server_service):
         """Test registration fails when user lacks register_service permission."""
