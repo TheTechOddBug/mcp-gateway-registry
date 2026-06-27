@@ -40,6 +40,7 @@ from ..schemas.server_update_models import (
     ServerUpdateRequest,
 )
 from ..services.canonical_export import redact_backend_urls, to_canonical
+from ..services._asset_id import InvalidAssetIdError, resolve_asset_id
 from ..services.registration_gate_service import check_registration_gate
 from ..services.security_scanner import security_scanner_service
 from ..services.server_service import server_service
@@ -1092,6 +1093,7 @@ async def register_service(
     mcp_endpoint: Annotated[str | None, Form()] = None,
     sse_endpoint: Annotated[str | None, Form()] = None,
     metadata: Annotated[str | None, Form()] = None,
+    id: Annotated[str | None, Form()] = None,
     visibility: Annotated[str, Form()] = "public",
     allowed_groups: Annotated[str | None, Form()] = None,
     auth_scheme: Annotated[str, Form()] = "none",
@@ -1193,11 +1195,21 @@ async def register_service(
 
     visibility, allowed_groups_list = _validate_visibility_and_groups(visibility, allowed_groups)
 
-    # Create server entry with auto-generated UUID
-    from uuid import uuid4
+    # Resolve caller-supplied id (or auto-generate). No Pydantic model guards
+    # this form route, so resolve_asset_id is the only id validation here —
+    # map its InvalidAssetIdError to 422 explicitly.
+    try:
+        resolved_id = resolve_asset_id(id)
+    except InvalidAssetIdError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid asset id: {e}",
+        )
+    if id is not None:
+        logger.info(f"Honoring caller-supplied id for server '{name}'")
 
     server_entry: dict[str, Any] = {
-        "id": str(uuid4()),
+        "id": resolved_id,
         "server_name": name,
         "description": description,
         "path": path,

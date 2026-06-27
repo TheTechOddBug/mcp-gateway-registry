@@ -868,6 +868,81 @@ class TestRegisterService:
             mock_server_service.register_server.assert_called_once()
             mock_faiss_service.add_or_update_service.assert_called_once()
             mock_nginx_reload_scheduler.mark_dirty.assert_called()
+    
+    def test_register_service_honors_supplied_id(
+        self,
+        test_client_admin,
+        mock_server_service,
+        mock_faiss_service,
+        mock_nginx_service,
+        mock_nginx_reload_scheduler,
+        mock_health_service,
+    ):
+        """A caller-supplied id is stored on the server entry verbatim (#1276)."""
+        supplied_id = "arn:aws:bedrock:us-east-1:123456789012:server/my-server"
+        mock_server_service.register_server.return_value = {
+            "success": True,
+            "message": "Server registered successfully",
+            "is_new_version": False,
+        }
+
+        with patch(
+            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+        ):
+            response = test_client_admin.post(
+                "/api/register",
+                data={
+                    "name": "Id Server",
+                    "description": "Server with a caller-supplied id",
+                    "path": "/id-server",
+                    "proxy_pass_url": "http://localhost:9000",
+                    "tags": "test",
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "id": supplied_id,
+                },
+            )
+
+            assert response.status_code == 201
+            assert response.json()["service"]["id"] == supplied_id
+            # And the entry handed to the service carried it too
+            entry = mock_server_service.register_server.call_args.args[0]
+            assert entry["id"] == supplied_id
+
+    def test_register_service_rejects_invalid_id(
+        self,
+        test_client_admin,
+        mock_server_service,
+        mock_faiss_service,
+        mock_nginx_service,
+        mock_nginx_reload_scheduler,
+        mock_health_service,
+    ):
+        """A blank-after-strip supplied id is rejected with 422 (#1276).
+
+        This form route has no Pydantic model guarding it, so resolve_asset_id
+        is the only id validation — the route maps InvalidAssetIdError to 422.
+        """
+        with patch(
+            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+        ):
+            response = test_client_admin.post(
+                "/api/register",
+                data={
+                    "name": "Bad Id Server",
+                    "description": "Server with an invalid id",
+                    "path": "/bad-id-server",
+                    "proxy_pass_url": "http://localhost:9000",
+                    "tags": "test",
+                    "num_tools": 0,
+                    "license": "MIT",
+                    "id": "   ",
+                },
+            )
+
+            assert response.status_code == 422
+            # register_server must never be reached on a bad id
+            mock_server_service.register_server.assert_not_called()
 
     def test_register_service_no_permission(self, test_client_regular, mock_server_service):
         """Test registration fails when user lacks register_service permission."""
