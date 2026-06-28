@@ -3524,6 +3524,7 @@ async def register_service_api(
     mcp_endpoint: Annotated[str | None, Form()] = None,
     sse_endpoint: Annotated[str | None, Form()] = None,
     metadata: Annotated[str | None, Form()] = None,
+    id: Annotated[str | None, Form()] = None,
     version: Annotated[str | None, Form()] = None,
     status: Annotated[str | None, Form()] = None,
     provider_organization: Annotated[str | None, Form()] = None,
@@ -3700,11 +3701,21 @@ async def register_service_api(
         if "security-pending-local" not in tag_list:
             tag_list.append("security-pending-local")
 
-    # Create server entry with auto-generated UUID
-    from uuid import uuid4
+    # Resolve caller-supplied id (or auto-generate). Like the /register form
+    # route, this JSON route has no Pydantic model guarding it, so
+    # resolve_asset_id is the only id validation -- map InvalidAssetIdError to 422.
+    try:
+        resolved_id = resolve_asset_id(id)
+    except InvalidAssetIdError as e:
+        raise HTTPException(
+            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid asset id: {e}",
+        )
+    if id is not None:
+        logger.info(f"Honoring caller-supplied id for server '{name}'")
 
     server_entry: dict[str, Any] = {
-        "id": str(uuid4()),
+        "id": resolved_id,
         "server_name": name,
         "description": description,
         "path": path,
