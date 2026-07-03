@@ -3540,3 +3540,149 @@ class TestSessionCookieSecureDefault:
         """Even secure-by-default must not emit Secure over plain HTTP."""
         assert self._resolve_cookie_secure({}, is_https=False) is False
         assert self._resolve_cookie_secure({"secure": True}, is_https=False) is False
+
+class TestForwardHeadersIngressStrip:
+    """Egress ingress-auth policy (issue #1266): client auth headers are ingress
+    credentials, stripped on egress. X-Authorization and Cookie are ALWAYS
+    stripped; Authorization is stripped unless relay_authorization=True (set only
+    for the built-in internal registry-tools server). No general relay mode --
+    upstream creds come from the egress vault.
+    """
+
+    def _forward(self, incoming, relay=False):
+        from auth_server.server import _forward_headers
+
+        return _forward_headers(incoming, relay_authorization=relay)
+
+    def test_strips_authorization_by_default(self):
+        """Non-relay (default): Authorization stripped."""
+        out = self._forward({"Authorization": "Bearer a", "Accept": "x"})
+        assert "authorization" not in {k.lower() for k in out}
+        assert out.get("Accept") == "x"
+
+    def test_strips_x_authorization_always_even_when_relaying(self):
+        """X-Authorization is never forwarded, even for the internal relay server."""
+        out = self._forward({"X-Authorization": "Bearer x"}, relay=True)
+        assert "x-authorization" not in {k.lower() for k in out}
+
+    def test_strips_cookie_always_even_when_relaying(self):
+        """Cookie is never forwarded, even for the internal relay server."""
+        out = self._forward({"Cookie": "mcp_gateway_session=abc"}, relay=True)
+        assert "cookie" not in {k.lower() for k in out}
+
+    def test_relays_authorization_only_when_flag_set(self):
+        """relay_authorization=True keeps Authorization (internal relay server)."""
+        out = self._forward({"Authorization": "Bearer a"}, relay=True)
+        assert out.get("Authorization") == "Bearer a"
+
+    def test_relay_flag_does_not_readmit_x_authorization_or_cookie(self):
+        """With relay on, only Authorization is relayed; X-Authorization/Cookie stay stripped."""
+        out = self._forward(
+            {"Authorization": "Bearer a", "X-Authorization": "Bearer x", "Cookie": "s=1"},
+            relay=True,
+        )
+        assert out.get("Authorization") == "Bearer a"
+        assert "x-authorization" not in {k.lower() for k in out}
+        assert "cookie" not in {k.lower() for k in out}
+
+    def test_case_insensitive(self):
+        """Lowercase header keys are handled identically."""
+        out = self._forward(
+            {"authorization": "Bearer a", "x-authorization": "Bearer x", "cookie": "s=1"},
+            relay=False,
+        )
+        assert "authorization" not in {k.lower() for k in out}
+        assert "x-authorization" not in {k.lower() for k in out}
+        assert "cookie" not in {k.lower() for k in out}
+
+    def test_still_strips_hop_by_hop_and_x_upstream_url(self):
+        """Regression: existing exclusions (hop-by-hop, X-Upstream-Url) still apply."""
+        out = self._forward(
+            {"X-Upstream-Url": "http://x", "Connection": "keep-alive", "Accept": "y"},
+        )
+        assert "x-upstream-url" not in {k.lower() for k in out}
+        assert "connection" not in {k.lower() for k in out}
+        assert out.get("Accept") == "y"
+
+    def test_preserves_non_auth_headers(self):
+        """Regression: non-auth headers pass through untouched."""
+        out = self._forward(
+            {"Content-Type": "application/json", "Mcp-Session-Id": "vs-abc", "Accept": "z"},
+        )
+        assert out.get("Content-Type") == "application/json"
+        assert out.get("Mcp-Session-Id") == "vs-abc"
+        assert out.get("Accept") == "z"
+
+    def test_internal_relay_server_set_is_airegistry_tools(self):
+        """The internal relay allowlist is the single hardcoded registry-tools server."""
+        from auth_server.server import _INTERNAL_INGRESS_RELAY_SERVERS
+
+        assert _INTERNAL_INGRESS_RELAY_SERVERS == frozenset({"airegistry-tools"})
+
+    def test_proxy_authorization_stripped(self):
+        """Proxy-Authorization (hop-by-hop and an auth header) never reaches upstream."""
+        out = self._forward({"Proxy-Authorization": "Bearer p"}, relay=True)
+        assert "proxy-authorization" not in {k.lower() for k in out}
+
+    def test_empty_headers_no_crash(self):
+        """Empty input yields empty output without error."""
+        assert self._forward({}) == {}
+
+    def test_relay_false_strips_all_three_auth_headers_together(self):
+        """The core leak-closure: a request carrying all three auth headers to a
+        non-internal server forwards none of them."""
+        out = self._forward(
+            {
+                "Authorization": "Bearer a",
+                "X-Authorization": "Bearer x",
+                "Cookie": "mcp_gateway_session=s",
+                "Accept": "application/json",
+            },
+            relay=False,
+        )
+        assert set(k.lower() for k in out) == {"accept"}
+
+    def test_bearer_value_not_needed_key_only(self):
+        """Stripping is by header name, independent of value shape."""
+        out = self._forward({"Authorization": "Basic Zm9vOmJhcg=="}, relay=False)
+        assert "authorization" not in {k.lower() for k in out}
+
+
+class TestInternalRelayDecision:
+    """The mcp_proxy relay decision keys on the verified `server` claim (first
+    path segment), matches the hardcoded internal set exactly, and normalizes
+    case. Mirrors the inline logic in mcp_proxy (issue #1266).
+    """
+
+    def _decides_relay(self, server_claim):
+        from auth_server.server import _INTERNAL_INGRESS_RELAY_SERVERS
+
+        # Mirror mcp_proxy: registered_server = (claims.get("server") or "").lower()
+        registered_server = (server_claim or "").lower()
+        return registered_server in _INTERNAL_INGRESS_RELAY_SERVERS
+
+    def test_exact_internal_server_relays(self):
+        assert self._decides_relay("airegistry-tools") is True
+
+    def test_case_insensitive_match(self):
+        assert self._decides_relay("AiRegistry-Tools") is True
+
+    def test_missing_claim_does_not_relay(self):
+        assert self._decides_relay("") is False
+        assert self._decides_relay(None) is False
+
+    def test_similar_but_not_exact_name_does_not_relay(self):
+        """No substring/prefix match: only the exact internal name relays."""
+        for name in (
+            "airegistry-tools-evil",
+            "evil-airegistry-tools",
+            "airegistry",
+            "airegistry_tools",
+            "ai-registry",
+        ):
+            assert self._decides_relay(name) is False, name
+
+    def test_federated_prefixed_name_does_not_relay(self):
+        """A federated copy (e.g. server claim 'ai-registry' from /ai-registry/...)
+        is a different first path segment and must NOT relay."""
+        assert self._decides_relay("ai-registry") is False
