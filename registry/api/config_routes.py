@@ -14,6 +14,7 @@ from ..auth.dependencies import enhanced_auth
 from ..core.config import DeploymentMode, RegistryMode, settings
 from ..core.metrics import CONFIG_EXPORT_REQUESTS, CONFIG_VIEW_REQUESTS
 from ..schemas.registry_card import LifecycleStatus
+from ..utils.request_utils import get_client_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -21,6 +22,15 @@ router = APIRouter()
 
 # ---------------------------------------------------------------------------
 # Rate limiting state (in-memory sliding window, per-user)
+#
+# NOTE (cross-replica limitation): this window is PROCESS-LOCAL. With multiple
+# registry replicas behind a load balancer, an attacker (or a compromised admin
+# session) can multiply the effective limit by fanning requests across replicas,
+# and a replica restart resets the window. It is a courtesy throttle, not a
+# security control. The primary protection for the sensitive export is the
+# deny-by-default confirmation gate in export_config(); a shared/distributed
+# limiter (e.g. backed by the datastore) is the follow-up hardening if a hard
+# cluster-wide cap is required.
 # ---------------------------------------------------------------------------
 _rate_limit_cache: dict[str, list[float]] = {}
 RATE_LIMIT_REQUESTS = 10
@@ -650,8 +660,9 @@ async def get_full_config(
 
     CONFIG_VIEW_REQUESTS.labels(user_type="admin").inc()
 
-    # Audit log
-    client_ip = request.client.host if request.client else "unknown"
+    # Audit log. Use the trusted-hop resolver so the recorded IP is the real
+    # client behind the proxy, not the proxy's loopback peer.
+    client_ip = get_client_ip(request)
     logger.info(
         "Config view requested by user=%s ip=%s groups=%s",
         username,
@@ -1039,14 +1050,48 @@ async def export_config(
     ),
     include_sensitive: bool = Query(
         False,
-        description="Include sensitive values (use with caution)",
+        description=(
+            "Include sensitive values in the export. Denied by default. When "
+            "true you MUST also pass confirm_sensitive_export=true to "
+            "acknowledge that every configured secret will be written to the "
+            "response in cleartext."
+        ),
+    ),
+    confirm_sensitive_export: bool = Query(
+        False,
+        description=(
+            "Explicit acknowledgement required alongside include_sensitive=true "
+            "to bulk-export secrets. Without it, sensitive values are masked."
+        ),
     ),
 ) -> PlainTextResponse:
-    """Export configuration in the specified format."""
+    """Export configuration in the specified format.
+
+    Sensitive values are masked unless the caller explicitly opts in with BOTH
+    include_sensitive=true AND confirm_sensitive_export=true. This deny-by-
+    default posture prevents a single admin request from silently dumping every
+    secret in the deployment; the second flag forces an explicit acknowledgement
+    of the blast radius. On any ambiguity the export fails closed (masked).
+    """
     if not user_context.get("is_admin", False):
         raise HTTPException(
             status_code=403,
             detail="Admin access required to export configuration",
+        )
+
+    # Deny-by-default: a sensitive export requires the explicit second
+    # acknowledgement. Passing include_sensitive without the confirmation is
+    # rejected outright rather than silently downgraded, so a caller who
+    # believes they are exporting secrets is told the request was refused.
+    if include_sensitive and not confirm_sensitive_export:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Exporting sensitive values requires explicit confirmation. "
+                "Re-issue the request with both include_sensitive=true and "
+                "confirm_sensitive_export=true to acknowledge that all "
+                "configured secrets will be returned in cleartext."
+            ),
         )
 
     username = user_context.get("username", "unknown")
@@ -1062,8 +1107,10 @@ async def export_config(
         includes_sensitive=str(include_sensitive),
     ).inc()
 
-    # Audit log
-    client_ip = request.client.host if request.client else "unknown"
+    # Audit log. Use the trusted-hop client IP resolver rather than the raw
+    # (spoofable) forwarded header so the audit trail records a non-forgeable
+    # source when behind the reverse proxy.
+    client_ip = get_client_ip(request)
     logger.info(
         "Config export requested by user=%s format=%s include_sensitive=%s ip=%s",
         username,
