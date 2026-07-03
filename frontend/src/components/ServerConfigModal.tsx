@@ -92,8 +92,17 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
   // Per-server override for the trailing '/mcp' transport segment on the gateway
   // URL. null = auto-detect from proxy_pass_url.
   const [appendMcpPath, setAppendMcpPath] = useState<boolean | null>(null);
+  // Per-user egress credential vault mode ('none' | 'oauth_user'). When
+  // 'oauth_user' the gateway injects the user's vaulted upstream token on
+  // egress, so the Connect config must emit NO server Authorization/API-key
+  // header (the client sends none; a placeholder would be forwarded verbatim
+  // and break the connection).
+  const [egressAuthMode, setEgressAuthMode] = useState<string>('none');
 
   const useOAuthLogin = !!oauthClientId && !isRegistryOnly;
+  // True when the gateway supplies the upstream credential itself (egress 3LO),
+  // so the client must not send any server-auth header.
+  const egressManaged = egressAuthMode === 'oauth_user';
 
   // Fetch JWT token when modal opens (only in gateway mode, and only for remote servers).
   // Local stdio servers don't go through the gateway — no token needed.
@@ -137,6 +146,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
         setAppendMcpPath(
           typeof resp.data.append_mcp_path === 'boolean' ? resp.data.append_mcp_path : null
         );
+        setEgressAuthMode(resp.data.egress_auth_mode ?? 'none');
         if (resp.data.decrypt_failures > 0) {
           setConnectConfigError(
             `${resp.data.decrypt_failures} custom header(s) could not be decrypted.`
@@ -322,7 +332,18 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
     // Build headers object: custom first, then auth_scheme, then gateway auth.
     // When the IDE handles login via OAuth (useOAuthLogin), the static gateway
     // token is omitted - the IDE obtains it through the OAuth/PKCE flow.
-    const buildHeaders = (includeGatewayToken = true) => {
+    // The server-auth header is dropped (default includeServerAuth) in two
+    // cases, for every IDE that emits it: (1) OAuth-login mode, and (2)
+    // egress-managed servers (egress_auth_mode == 'oauth_user'). In both the
+    // gateway injects the upstream credential itself, so the client must NOT
+    // send a server Authorization/API-key header (the [YOUR_SERVER_AUTH_TOKEN]
+    // placeholder would be forwarded as-is and break the connection). IDEs that
+    // can't run OAuth login (Roo Code / Kiro / VS Code default) still keep the
+    // static gateway token, just not server auth.
+    const buildHeaders = (
+      includeGatewayToken = true,
+      includeServerAuth = !useOAuthLogin && !egressManaged,
+    ) => {
       const headers: Record<string, string> = {};
 
       // Custom headers go first so auth_scheme and gateway auth overwrite collisions
@@ -331,7 +352,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
       }
 
       // Add server authentication headers if server requires auth
-      if (server.auth_scheme && server.auth_scheme !== 'none') {
+      if (includeServerAuth && server.auth_scheme && server.auth_scheme !== 'none') {
         if (server.auth_scheme === 'bearer') {
           headers['Authorization'] = 'Bearer [YOUR_SERVER_AUTH_TOKEN]';
         } else if (server.auth_scheme === 'api_key') {
@@ -355,7 +376,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
         // key (upper-snake) is Cursor's documented MCP OAuth config shape; it
         // intentionally differs from the lowercase keys elsewhere in this file.
         if (useOAuthLogin) {
-          const oauthHeaders = buildHeaders(false);
+          const oauthHeaders = buildHeaders(false, false);
           return {
             mcpServers: {
               [serverName]: {
@@ -409,15 +430,14 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
           },
         };
       case 'kiro':
+        // Kiro supports Dynamic Client Registration (DCR): it discovers and
+        // registers its own OAuth client against the gateway, so the config
+        // only needs the server URL. No static bearer token, and no
+        // disabled/autoApprove blocks.
         return {
           mcpServers: {
             [serverName]: {
               url,
-              ...(includeAuthHeaders && {
-                headers: buildHeaders(),
-              }),
-              disabled: false,
-              autoApprove: [],
             },
           },
         };
@@ -436,7 +456,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
           },
         };
     }
-  }, [server.name, server.auth_scheme, server.auth_header_name, selectedIDE, isRegistryOnly, isDCR, useOAuthLogin, oauthClientId, jwtToken, customHeaders, buildConnectUrl]);
+  }, [server.name, server.auth_scheme, server.auth_header_name, selectedIDE, isRegistryOnly, isDCR, useOAuthLogin, egressManaged, oauthClientId, jwtToken, customHeaders, buildConnectUrl]);
 
   const generateCodexCommand = useCallback(() => {
     const url = buildConnectUrl();
@@ -524,7 +544,10 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
     for (const h of customHeaders) {
       headerLines.push(`      ${h.name}: ${h.value}`);
     }
-    if (server.auth_scheme && server.auth_scheme !== 'none') {
+    // Server auth header. Skipped in OAuth-login mode: the gateway injects the
+    // server's stored egress credential upstream, so the client must not send a
+    // server Authorization/API-key header (the placeholder would break it).
+    if (!useOAuthLogin && !egressManaged && server.auth_scheme && server.auth_scheme !== 'none') {
       if (server.auth_scheme === 'bearer') {
         headerLines.push(`      Authorization: Bearer [YOUR_SERVER_AUTH_TOKEN]`);
       } else if (server.auth_scheme === 'api_key') {
@@ -552,7 +575,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
     lines.push('    timeout: 300');
 
     return lines.join('\n');
-  }, [server.name, server.auth_scheme, server.description, server.auth_header_name, isRegistryOnly, jwtToken, customHeaders, buildConnectUrl]);
+  }, [server.name, server.auth_scheme, server.description, server.auth_header_name, isRegistryOnly, useOAuthLogin, egressManaged, jwtToken, customHeaders, buildConnectUrl]);
 
   const generateClaudeCodeCommand = useCallback(() => {
     const serverName = server.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -598,8 +621,10 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
       command += ` \\\n  --header "${h.name}: ${h.value}"`;
     }
 
-    // Server auth header
-    if (server.auth_scheme && server.auth_scheme !== 'none') {
+    // Server auth header. Skipped in OAuth-login mode: the gateway injects the
+    // server's stored egress credential upstream, so the client must not send a
+    // server Authorization/API-key header (the placeholder would break it).
+    if (!useOAuthLogin && !egressManaged && server.auth_scheme && server.auth_scheme !== 'none') {
       if (server.auth_scheme === 'bearer') {
         command += ` \\\n  --header "Authorization: Bearer [YOUR_SERVER_AUTH_TOKEN]"`;
       } else if (server.auth_scheme === 'api_key') {
@@ -614,7 +639,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
     }
 
     return command;
-  }, [server.name, server.auth_scheme, server.auth_header_name, isRegistryOnly, isDCR, useOAuthLogin, oauthClientId, oauthCallbackPort, jwtToken, customHeaders, buildConnectUrl]);
+  }, [server.name, server.auth_scheme, server.auth_header_name, isRegistryOnly, isDCR, useOAuthLogin, egressManaged, oauthClientId, oauthCallbackPort, jwtToken, customHeaders, buildConnectUrl]);
 
 
   const copyConfigToClipboard = useCallback(async () => {
@@ -834,7 +859,7 @@ const ServerConfigModal: React.FC<ServerConfigModalProps> = ({
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     selectedIDE === ide
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-800'
                   }`}
                 >
                   {IDE_LABELS[ide]}

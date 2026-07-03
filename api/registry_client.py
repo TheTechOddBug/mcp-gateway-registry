@@ -284,6 +284,44 @@ class AgentRescanResponse(BaseModel):
     output_file: str | None = Field(None, description="Path to scan output file")
 
 
+class PullCardFieldChange(BaseModel):
+    """A single field that differs between local and remote agent card."""
+
+    field: str = Field(..., description="Field name that changed")
+    current_value: Any = Field(..., description="Current value in the local registry")
+    remote_value: Any = Field(..., description="Value from the remote agent card")
+
+
+class PullCardResponse(BaseModel):
+    """Response from POST /api/agents/{path}/pull-card (dry-run and apply modes).
+
+    Note: a successful remote fetch always refreshes `health_status` and
+    `last_health_check` on the local record, regardless of `dry_run`. Apart
+    from that side effect, dry-run mode performs no writes.
+    """
+
+    agent_path: str = Field(..., description="Agent path in the registry")
+    dry_run: bool = Field(..., description="Whether this was a dry-run (preview only)")
+    remote_card_url: str = Field(..., description="URL the remote card was fetched from")
+    changes: list[PullCardFieldChange] = Field(
+        default_factory=list,
+        description="List of A2A-spec fields that differ between local and remote",
+    )
+    has_changes: bool = Field(..., description="Whether any A2A-spec fields differ")
+    applied: bool = Field(
+        False,
+        description="Whether changes were applied (only true when dry_run=false and has_changes=true)",
+    )
+    health_status: str = Field(
+        "healthy",
+        description="Health status updated as side effect of successful fetch",
+    )
+    remote_card: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The full remote agent card as received",
+    )
+
+
 class SkillSecurityScanResponse(BaseModel):
     """Skill security scan results response model."""
 
@@ -1661,6 +1699,7 @@ class RegistryClient:
             or endpoint.startswith("/api/management")
             or endpoint.startswith("/api/iam")
             or endpoint.startswith("/api/search")
+            or endpoint.startswith("/api/ard")
             or endpoint.startswith("/api/federation")
             or endpoint.startswith("/api/peers")
             or endpoint.startswith("/api/skills")
@@ -1673,6 +1712,9 @@ class RegistryClient:
             or endpoint == "/api/servers/groups/import"
             or "/auth-credential" in endpoint
             or "/versions" in endpoint
+            # The server rate endpoint (POST /api/servers/{path}/rate) takes a
+            # JSON RatingRequest body, not form data.
+            or endpoint.endswith("/rate")
             or (method in ("PUT", "PATCH") and endpoint.startswith("/api/servers/"))
         ):
             # Send as JSON for agent, management, search, federation, and import endpoints
@@ -1777,6 +1819,10 @@ class RegistryClient:
         """
         Toggle service enabled/disabled status.
 
+        The POST /api/servers/toggle endpoint requires an explicit ``new_state``
+        rather than flipping the current state itself, so this reads the current
+        enabled state first and sends the opposite.
+
         Args:
             service_path: Path of service to toggle
 
@@ -1788,11 +1834,24 @@ class RegistryClient:
         """
         logger.info(f"Toggling service: {service_path}")
 
+        # Read current state so we can send the opposite as new_state.
+        current = self.get_server(service_path)
+        new_state = not current.is_enabled
+
         response = self._make_request(
-            method="POST", endpoint="/api/servers/toggle", data={"service_path": service_path}
+            method="POST",
+            endpoint="/api/servers/toggle",
+            data={"path": service_path, "new_state": str(new_state).lower()},
         )
 
-        result = ToggleResponse(**response.json())
+        # The endpoint returns {service_path, new_enabled_state, message, ...};
+        # map it onto ToggleResponse rather than passing the raw keys.
+        body = response.json()
+        result = ToggleResponse(
+            path=body.get("service_path", service_path),
+            is_enabled=body.get("new_enabled_state", new_state),
+            message=body.get("message", ""),
+        )
         logger.info(f"Service toggled: {service_path} -> enabled={result.is_enabled}")
         return result
 
@@ -2780,6 +2839,162 @@ class RegistryClient:
         )
         return result
 
+    def ard_search(
+        self,
+        text: str,
+        filter: dict[str, Any] | None = None,
+        federation: str = "auto",
+        page_size: int = 10,
+        page_token: str | None = None,
+    ) -> dict[str, Any]:
+        """ARD Registry search (POST /api/ard/search).
+
+        Args:
+            text: Natural-language query (required).
+            filter: ARD query.filter, e.g. {"type": ["mcp_server"], "tags": ["finance"]}.
+            federation: auto | referrals | none (Phase 2 returns own-index results).
+            page_size: Max results in the page (1-100).
+            page_token: Opaque cursor from a previous response.
+
+        Returns:
+            ARD SearchResponse dict: {"results": [...], "referrals": [...], "pageToken": ...}.
+
+        Raises:
+            requests.HTTPError: On a non-2xx ARD response (body is {errorCode, message}).
+        """
+        logger.info(f"ARD search: text={text!r} filter={filter} federation={federation}")
+        query: dict[str, Any] = {"text": text}
+        if filter:
+            query["filter"] = filter
+        request_data: dict[str, Any] = {
+            "query": query,
+            "federation": federation,
+            "pageSize": page_size,
+        }
+        if page_token:
+            request_data["pageToken"] = page_token
+        response = self._make_request(method="POST", endpoint="/api/ard/search", data=request_data)
+        result = response.json()
+        logger.info(f"ARD search returned {len(result.get('results', []))} results")
+        return result
+
+    def ard_browse(
+        self,
+        filters: list[str] | None = None,
+        order_by: str = "identifier",
+        page_size: int = 20,
+        page_token: str | None = None,
+    ) -> dict[str, Any]:
+        """ARD Registry browse (GET /api/ard/agents) over all catalog asset types.
+
+        Args:
+            filters: Repeated key=value filters, e.g. ["type=mcp_server", "tags=finance"].
+            order_by: identifier | displayName | updatedAt.
+            page_size: Max items in the page (1-100).
+            page_token: Opaque cursor from a previous response.
+
+        Returns:
+            ARD ListResponse dict: {"items": [...], "total": N, "pageToken": ...}.
+        """
+        logger.info(f"ARD browse: filters={filters} order_by={order_by}")
+        params: dict[str, Any] = {"orderBy": order_by, "pageSize": page_size}
+        if filters:
+            params["filter"] = filters  # requests encodes a list as repeated params
+        if page_token:
+            params["pageToken"] = page_token
+        response = self._make_request(method="GET", endpoint="/api/ard/agents", params=params)
+        result = response.json()
+        logger.info(f"ARD browse returned {len(result.get('items', []))} of {result.get('total')}")
+        return result
+
+    def ard_ingestion_sync(
+        self,
+        source_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Trigger ARD ai-catalog ingestion (POST /api/federation/ai_catalog/sync).
+
+        Args:
+            source_id: Sync only this source; None syncs all enabled sources.
+
+        Returns:
+            Dict: {"message": ..., "results": [SyncResult, ...]}.
+        """
+        logger.info(f"ARD ingestion sync: source_id={source_id}")
+        params = {"source_id": source_id} if source_id else None
+        response = self._make_request(
+            method="POST", endpoint="/api/federation/ai_catalog/sync", params=params
+        )
+        return response.json()
+
+    def ard_ingestion_status(self) -> dict[str, Any]:
+        """Return ARD ingestion per-source state (GET /api/federation/ai_catalog/status)."""
+        logger.info("ARD ingestion status")
+        response = self._make_request(method="GET", endpoint="/api/federation/ai_catalog/status")
+        return response.json()
+
+    def ard_ingestion_set_enabled(
+        self,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        """Enable/disable ARD ai-catalog ingestion in the federation config.
+
+        Reads the current federation config, flips ``ai_catalog.enabled``, and
+        saves it back (POST /api/federation/config). Requires that a config
+        already exists (add a source first, which creates it).
+        """
+        logger.info(f"ARD ingestion set enabled={enabled}")
+        config = self._make_request(method="GET", endpoint="/api/federation/config").json()
+        config.setdefault("ai_catalog", {})["enabled"] = enabled
+        response = self._make_request(method="POST", endpoint="/api/federation/config", data=config)
+        return response.json()
+
+    def ard_ingestion_add_source(
+        self,
+        source_id: str,
+        uri: str | None = None,
+        domain: str | None = None,
+        expected_identity: str | None = None,
+        enable: bool = False,
+    ) -> dict[str, Any]:
+        """Add an ARD ai-catalog ingestion source.
+
+        POSTs to /api/federation/config/default/ai_catalog/sources. Provide
+        either ``uri`` or ``domain``. When ``enable`` is True, also turns on
+        ai_catalog ingestion after the source is created.
+        """
+        logger.info(f"ARD ingestion add source: {source_id} (uri={uri} domain={domain})")
+        body: dict[str, Any] = {"source_id": source_id}
+        if uri:
+            body["uri"] = uri
+        if domain:
+            body["domain"] = domain
+        if expected_identity:
+            body["expected_identity"] = expected_identity
+        response = self._make_request(
+            method="POST",
+            endpoint="/api/federation/config/default/ai_catalog/sources",
+            data=body,
+        )
+        result = response.json()
+        if enable:
+            self.ard_ingestion_set_enabled(True)
+        return result
+
+    def ard_ingestion_remove_source(
+        self,
+        source_id: str,
+    ) -> dict[str, Any]:
+        """Remove an ARD ai-catalog ingestion source.
+
+        DELETEs /api/federation/config/default/ai_catalog/sources/{source_id}.
+        """
+        logger.info(f"ARD ingestion remove source: {source_id}")
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/federation/config/default/ai_catalog/sources/{source_id}",
+        )
+        return response.json()
+
     def rate_agent(self, path: str, rating: int) -> RatingResponse:
         """
         Submit a rating for an agent (1-5 stars).
@@ -2863,6 +3078,51 @@ class RegistryClient:
             f"Safe={result.is_safe}, Critical={result.critical_issues}, "
             f"High={result.high_severity}, Medium={result.medium_severity}, "
             f"Low={result.low_severity}"
+        )
+        return result
+
+    def pull_card_agent(
+        self,
+        path: str,
+        dry_run: bool = True,
+    ) -> PullCardResponse:
+        """
+        Pull the latest A2A agent card from the remote endpoint.
+
+        Fetches /.well-known/agent-card.json from the agent's host and
+        compares it with the local record. In dry-run mode (default), returns
+        the diff without applying changes. With dry_run=false, applies the
+        A2A-spec fields while preserving registry-specific metadata
+        (tags, ratings, visibility, trust_level, sync_metadata, etc.).
+
+        Note: a successful fetch always refreshes the local agent's
+        health_status and last_health_check regardless of dry_run.
+
+        Args:
+            path: Agent path (e.g., /jewel-homes-support-agent)
+            dry_run: If True (default), preview only. If False, apply changes.
+
+        Returns:
+            PullCardResponse with diff, optional apply, and remote card.
+
+        Raises:
+            requests.HTTPError on 400/403/404/502.
+        """
+        normalized = path if path.startswith("/") else f"/{path}"
+        logger.info(
+            f"Pulling agent card for '{normalized}' (dry_run={dry_run})"
+        )
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/agents{normalized}/pull-card",
+            params={"dry_run": "true" if dry_run else "false"},
+        )
+
+        result = PullCardResponse(**response.json())
+        logger.info(
+            f"Pull-card for '{normalized}': has_changes={result.has_changes}, "
+            f"change_count={len(result.changes)}, applied={result.applied}"
         )
         return result
 

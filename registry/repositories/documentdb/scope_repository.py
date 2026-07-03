@@ -7,6 +7,11 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 
+from ...auth.privileged_constants import (
+    ADMIN_ACTION_PREFIXES,
+    PRIVILEGED_GRANTS,
+    PRIVILEGED_SCOPE_NAMES,
+)
 from ..interfaces import ScopeRepositoryBase
 from .client import get_collection_name, get_documentdb_client
 
@@ -22,6 +27,78 @@ def _looks_like_guid(
 ) -> bool:
     """Return True if the string matches the GUID/UUID shape."""
     return bool(_GUID_RE.match(value or ""))
+
+
+# Admin-boundary constants are imported from registry.auth.privileged_constants
+# (the dependency-free leaf module that is the single source of truth, shared
+# with the admin-derivation rule in registry/auth/dependencies.py). Module-level
+# aliases are kept so existing references and tests that import these private
+# names from this module keep working.
+#
+# IMPORTANT: admin is conferred only by the literal "all" grant, NOT "*". "*" on
+# a mutating action grants access to every server WITHOUT admin (see issue
+# #663), which is why PRIVILEGED_GRANTS is {"all"} and not {"all", "*"}.
+_PRIVILEGED_ACTION_PREFIXES = ADMIN_ACTION_PREFIXES
+_PRIVILEGED_GRANTS = PRIVILEGED_GRANTS
+_PRIVILEGED_SCOPE_NAMES = PRIVILEGED_SCOPE_NAMES
+
+
+def _grants_admin(
+    ui_permissions: dict | None,
+) -> bool:
+    """Return True if ui_permissions would confer admin privileges.
+
+    Admin is conferred by any mutating UI action (see
+    _PRIVILEGED_ACTION_PREFIXES) granted with "all" access. This is the same
+    rule _user_is_admin uses to derive admin status per request, so a group
+    carrying such permissions promotes its members to admin.
+
+    Args:
+        ui_permissions: Dict mapping UI actions to lists of allowed resources.
+
+    Returns:
+        True if the permissions would confer admin, False otherwise.
+    """
+    if not ui_permissions:
+        return False
+    for action, resources in ui_permissions.items():
+        if action.startswith(_PRIVILEGED_ACTION_PREFIXES) and (
+            _PRIVILEGED_GRANTS & set(resources or [])
+        ):
+            return True
+    return False
+
+
+def _is_privileged_write(
+    group_name: str,
+    group_mappings: list | None,
+    ui_permissions: dict | None,
+) -> bool:
+    """Return True if a group write would confer administrative access.
+
+    Defense-in-depth that mirrors the service layer's
+    ``_import_touches_privileged_scope`` so the deepest (repository) layer is
+    also the most complete -- it catches all three admin-conferring vectors:
+
+    1. The scope/group itself is a privileged name.
+    2. It maps to a privileged group. ``_grants_admin``
+       alone does NOT cover this.
+    3. Its ui_permissions grant a mutating action to "all" (``_grants_admin``).
+
+    Args:
+        group_name: The scope/group being written.
+        group_mappings: IdP group names this scope maps to.
+        ui_permissions: UI permission grants for this scope.
+
+    Returns:
+        True if the write requires admin authorization.
+    """
+    if group_name in _PRIVILEGED_SCOPE_NAMES:
+        return True
+    for mapped in group_mappings or []:
+        if mapped in _PRIVILEGED_SCOPE_NAMES:
+            return True
+    return _grants_admin(ui_permissions)
 
 
 def _flatten_server_access(
@@ -69,13 +146,35 @@ class DocumentDBScopeRepository(ScopeRepositoryBase):
         self._collection: AsyncIOMotorCollection | None = None
         self._collection_name = get_collection_name("mcp_scopes")
         self._scopes_cache: dict[str, Any] = {}
+        self._indexes_created = False
 
     async def _get_collection(self) -> AsyncIOMotorCollection:
-        """Get DocumentDB collection."""
+        """Get DocumentDB collection, creating indexes on first access."""
         if self._collection is None:
             db = await get_documentdb_client()
             self._collection = db[self._collection_name]
+            await self._ensure_indexes()
         return self._collection
+
+    async def _ensure_indexes(self) -> None:
+        """Create the multikey index on group_mappings if not present.
+
+        ``get_group_mappings`` / ``get_group_mappings_bulk`` filter on
+        ``group_mappings`` (``find({"group_mappings": ...})`` and the bulk
+        ``$in``). Without an index on that array field each query is a full
+        collection scan; the multikey index turns it into an index seek and
+        is what makes the bulk ``$in`` actually cheap.
+        """
+        if self._indexes_created or self._collection is None:
+            return
+        try:
+            await self._collection.create_index("group_mappings")
+            self._indexes_created = True
+            logger.info(f"Created group_mappings index for {self._collection_name}")
+        except Exception as e:
+            logger.warning(
+                f"Could not create group_mappings index for {self._collection_name}: {e}"
+            )
 
     async def load_all(self) -> None:
         """Load all scopes from DocumentDB."""
@@ -162,6 +261,60 @@ class DocumentDBScopeRepository(ScopeRepositoryBase):
         except Exception as e:
             logger.error(f"Error getting group mappings for '{keycloak_group}': {e}", exc_info=True)
             return []
+
+    async def get_group_mappings_bulk(
+        self,
+        groups: list[str],
+    ) -> list[str]:
+        """Union of scope names mapped to any of the given groups in one query.
+
+        Collapses the per-group ``find`` fan-out into a single ``$in`` query,
+        backed by the ``group_mappings`` index. Returns a de-duplicated,
+        order-stable list of scope names.
+        """
+        unique = sorted({g for g in groups if g})
+        if not unique:
+            return []
+
+        collection = await self._get_collection()
+        try:
+            cursor = collection.find({"group_mappings": {"$in": unique}})
+            seen: set[str] = set()
+            scope_names: list[str] = []
+            async for doc in cursor:
+                scope_id = doc["_id"]
+                if scope_id not in seen:
+                    seen.add(scope_id)
+                    scope_names.append(scope_id)
+            logger.debug(
+                f"DocumentDB READ: bulk group mappings for {len(unique)} groups "
+                f"-> {len(scope_names)} scopes"
+            )
+            return scope_names
+        except Exception as e:
+            logger.error(f"Error getting bulk group mappings: {e}", exc_info=True)
+            return []
+
+    async def get_all_mapped_group_names(self) -> set[str]:
+        """Union of every scope document's group_mappings array.
+
+        Uses a single projected query (not the in-memory cache) so the result
+        reflects group mappings added after the process last loaded scopes.
+        Returns an empty set on error so callers can fail open.
+        """
+        logger.debug("DocumentDB READ: Getting all mapped group names from DB")
+        collection = await self._get_collection()
+
+        names: set[str] = set()
+        try:
+            cursor = collection.find({}, {"group_mappings": 1})
+            async for doc in cursor:
+                names.update(doc.get("group_mappings") or [])
+            logger.debug(f"DocumentDB READ: Found {len(names)} distinct mapped group names")
+            return names
+        except Exception as e:
+            logger.error(f"Error getting all mapped group names: {e}", exc_info=True)
+            return set()
 
     async def get_server_scopes(
         self,
@@ -697,6 +850,7 @@ class DocumentDBScopeRepository(ScopeRepositoryBase):
         ui_permissions: dict = None,
         agent_access: list = None,
         is_idp_managed: bool = True,
+        allow_privileged: bool = False,
     ) -> bool:
         """
         Import a complete group definition.
@@ -711,11 +865,30 @@ class DocumentDBScopeRepository(ScopeRepositoryBase):
             is_idp_managed: Whether PATCH/DELETE should call the upstream IdP.
                 Defaults to True to preserve pre-#946 behavior for callers
                 that do not explicitly pass the flag.
+            allow_privileged: Whether to permit writing admin-conferring
+                ui_permissions (mutating action with "all"/"*"). Defaults to
+                False so untrusted/public callers cannot mint admin groups.
+                Admin-gated callers (IAM management routes, IdP sync) pass True.
 
         Returns:
             True if successful, False otherwise
         """
         try:
+            # Defense in depth: refuse to write admin-conferring group definitions
+            # unless the caller has explicitly enforced an admin check. The public
+            # External API import path never passes allow_privileged=True. This
+            # covers all three vectors (privileged name, privileged group_mapping,
+            # admin-conferring ui_permissions) -- broader than ui_permissions
+            # alone, so the deepest layer is also the most complete.
+            if not allow_privileged and _is_privileged_write(
+                group_name, group_mappings, ui_permissions
+            ):
+                logger.error(
+                    f"Refusing to import privileged group '{group_name}' "
+                    f"without allow_privileged=True (mappings={group_mappings})"
+                )
+                return False
+
             collection = await self._get_collection()
 
             # Set defaults

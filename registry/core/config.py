@@ -12,7 +12,6 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # typos with the same messages.
 ALLOWED_STORAGE_BACKENDS: frozenset[str] = frozenset(
     {
-        "file",
         "documentdb",
         "mongodb-ce",
         "mongodb",
@@ -31,6 +30,16 @@ MONGODB_BACKENDS: frozenset[str] = frozenset(
         "mongodb-ce",
         "mongodb",
         "mongodb-atlas",
+    }
+)
+
+
+# Accepted values for SECRET_STORE_BACKEND (per-user egress credential vault).
+# Mirrors the ALLOWED_STORAGE_BACKENDS pattern.
+ALLOWED_SECRET_STORES: frozenset[str] = frozenset(
+    {
+        "secrets-manager",
+        "openbao",
     }
 )
 
@@ -134,6 +143,25 @@ class Settings(BaseSettings):
     registration_webhook_timeout_seconds: int = Field(
         default=10,
         description="Timeout for webhook HTTP calls in seconds",
+    )
+    registration_webhook_signing_secret: str | None = Field(
+        default=None,
+        description=(
+            "Shared secret for HMAC-SHA256 signing of outbound registration "
+            "webhook payloads. When set, an X-Registry-Signature header is added. "
+            "When unset, no signature is sent (current behavior)."
+        ),
+    )
+
+    # Lifecycle workflow settings (Issue #1330)
+    registration_enforced_status: str | None = Field(
+        default=None,
+        description=(
+            "When set (e.g. 'draft'), mandates the initial lifecycle status for all "
+            "new asset registrations. A registration with no status is forced to this "
+            "value; a registration with a different explicit status fails with 4xx. "
+            "Unset = current behavior (new assets default to 'active')."
+        ),
     )
 
     # Registration Gate Configuration (Admission Control, Issue #809)
@@ -257,6 +285,41 @@ class Settings(BaseSettings):
     # Well-known discovery settings
     enable_wellknown_discovery: bool = True
     wellknown_cache_ttl: int = 300  # 5 minutes
+
+    # ARD Catalog Publisher settings (issue #1294)
+    # Publishes /.well-known/ai-catalog.json per the Agentic Resource Discovery spec.
+    ard_catalog_enabled: bool = Field(
+        default=True,
+        description="Enable the /.well-known/ai-catalog.json ARD publisher endpoint",
+    )
+    ard_registry_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enable the ARD Registry adapter (POST /api/ard/search, GET /api/ard/agents) "
+            "and the self application/ai-registry+json catalog entry. Independent of the "
+            "Phase 1 publisher toggle ard_catalog_enabled."
+        ),
+    )
+    ard_publisher_domain: str = Field(
+        default="",
+        description=(
+            "FQDN used as the ARD URN publisher (urn:air:<domain>:...). "
+            "Empty means derive from the host of registry_url; "
+            "falls back to 'example.com' if no resolvable host is available."
+        ),
+    )
+    ard_catalog_default_namespace: str = Field(
+        default="",
+        description=(
+            "Optional override for the URN namespace segment. "
+            "Empty uses the entity type (server/agent/skill)."
+        ),
+    )
+
+    # ARD Phase 3 ingestion (issue #1296): all behavior config lives in the DB
+    # (FederationConfig.ai_catalog) and is managed via the federation API / External
+    # Registries UI, mirroring the Anthropic/ASOR/AWS upstream registries. No
+    # per-knob env vars here by design.
 
     # MCP OAuth discovery settings (RFC 9728 / RFC 8414)
     mcp_https_required: bool = Field(
@@ -525,6 +588,17 @@ class Settings(BaseSettings):
     idp_group_filter_prefix: str = Field(
         default="",
         description="Comma-separated prefixes to filter IdP groups in IAM > Groups page",
+    )
+
+    # Login-time group allowlist (applies to all identity providers). When set,
+    # only these exact group names/IDs are stored in a user's session at login.
+    # When empty, the registry auto-derives the allowlist from scope mappings.
+    allowed_idp_groups: str = Field(
+        default="",
+        description=(
+            "Comma-separated exact IdP group names/IDs to keep in the session at "
+            "login. Empty means auto-derive from scope mappings (recommended)."
+        ),
     )
 
     # M2M direct registration (issue #851)
@@ -818,6 +892,17 @@ class Settings(BaseSettings):
             "with unusually large tool catalogs."
         ),
     )
+    mcp_proxy_timeout: float = Field(
+        default=30.0,
+        ge=1.0,
+        description=(
+            "Timeout (seconds) for the auth-server proxy hop's upstream MCP "
+            "request. Raise for servers with long-running tools. The generated "
+            "/mcp-proxy/ nginx blocks derive their proxy_read_timeout from this "
+            "value (plus a 30s buffer), so raising it lifts the whole proxy "
+            "chain; no separate nginx change is needed."
+        ),
+    )
     tool_filter_audit_log_level: str = Field(
         default="INFO",
         description=(
@@ -838,7 +923,7 @@ class Settings(BaseSettings):
         default=5,
         ge=0,
         description=(
-            "Clock-skew leeway (seconds) on the /mcp-proxy internal token " "exp/iat checks."
+            "Clock-skew leeway (seconds) on the /mcp-proxy internal token exp/iat checks."
         ),
     )
 
@@ -902,16 +987,104 @@ class Settings(BaseSettings):
 
     # Storage Backend Configuration
     storage_backend: str = Field(
-        default="file",
+        default="mongodb-ce",
         description=(
             "Storage backend selection. Accepted values: "
-            "file, documentdb, mongodb-ce, mongodb, mongodb-atlas. "
+            "documentdb, mongodb-ce, mongodb, mongodb-atlas. "
             "mongodb, mongodb-atlas, and mongodb-ce are aliases that route to "
             "the same MongoDB/DocumentDB repositories. documentdb is retained "
             "for AWS DocumentDB-specific auth (SCRAM-SHA-1). Unknown values "
-            "fail startup with a clear error listing accepted values."
+            "fail startup with a clear error listing accepted values. "
+            "The 'file' backend was removed in v1.24.8."
         ),
     )
+
+    # Per-User Egress Credential Vault (third-party OBO support)
+    egress_auth_enabled: bool = Field(
+        default=False,
+        description="Switch for the per-user egress credential vault feature.",
+    )
+    secret_store_backend: str = Field(
+        default="openbao",
+        description=(
+            "Secret store for per-user egress tokens. Accepted values: secrets-manager, openbao."
+        ),
+    )
+    egress_oauth_callback_base_url: str = Field(
+        default="",
+        description=(
+            "Public base URL for the egress OAuth callback "
+            "({base}/oauth2/egress/callback). Empty means derive from "
+            "registry_url; if neither is set, startup fails when "
+            "egress_auth_enabled."
+        ),
+    )
+    egress_token_refresh_skew_seconds: int = Field(
+        default=300,
+        description="Refresh an access token when it expires within this window.",
+    )
+    egress_refresh_worker_interval_seconds: int = Field(
+        default=120,
+        description="Background refresh-loop scan interval; 0 disables the proactive sweep.",
+    )
+    egress_state_ttl_seconds: int = Field(
+        default=600,
+        description="Lifetime of the signed+encrypted OAuth consent state.",
+    )
+    egress_consent_use_elicitation: bool = Field(
+        default=False,
+        description=(
+            "How consent is delivered on a tools/call (etc.) for an unconnected "
+            "egress server. False (default, LLD baseline): a SUCCESSFUL tool "
+            "result with isError=true whose text carries the connect URL -- works "
+            "on every MCP client. True (enhancement): a -32042 "
+            "URLElicitationRequiredError -- cleaner UX but only on clients that "
+            "understand url-mode elicitation (others may swallow it)."
+        ),
+    )
+    egress_registry_internal_url: str = Field(
+        default="http://registry:8080",
+        description=(
+            "Internal URL auth_server uses to reach the registry's "
+            "/_internal/egress-token vend endpoint. The registry app binds loopback, "
+            "so this goes through nginx (registry:8080 -> :80 -> 127.0.0.1:7860), "
+            "which fronts the internal-only location."
+        ),
+    )
+    auth_server_nginx_marker_secret: str = Field(
+        default="",
+        description=(
+            "Shared secret: nginx force-sets it as X-Validate-Source-Secret on "
+            "the /validate subrequest; auth_server only mints the egress-capable mcp-proxy "
+            "token when it matches, so a direct :8888 /validate call with a forged "
+            "X-Resolved-Upstream cannot obtain one. Required (non-empty) when "
+            "EGRESS_AUTH_ENABLED=true -- startup fails otherwise, since an empty marker "
+            "would mint unconditionally. Treat as a secret."
+        ),
+    )
+    aws_secrets_region: str = Field(
+        default="",
+        description="AWS region for Secrets Manager (secret_store_backend=secrets-manager).",
+    )
+    secrets_manager_kms_key_id: str = Field(
+        default="",
+        description="Optional CMK for Secrets Manager envelope encryption.",
+    )
+    secrets_manager_path_prefix: str = Field(
+        default="mcp/egress",
+        description="Secret name prefix for the egress vault in Secrets Manager.",
+    )
+    openbao_addr: str = Field(
+        default="",
+        description="OpenBao server address (secret_store_backend=openbao).",
+    )
+    openbao_namespace: str = Field(default="", description="OpenBao namespace (optional).")
+    openbao_kv_mount: str = Field(default="secret", description="OpenBao KV v2 mount point.")
+    openbao_auth_method: str = Field(
+        default="token",
+        description="OpenBao auth method: token | kubernetes | approle.",
+    )
+    openbao_role: str = Field(default="", description="OpenBao role for kubernetes/approle auth.")
 
     @field_validator("app_log_dir", mode="before")
     @classmethod
@@ -975,23 +1148,53 @@ class Settings(BaseSettings):
     ) -> str:
         """Reject unknown STORAGE_BACKEND values at startup.
 
-        Empty string and None coerce to "file" (the historical default). Any
-        other value is normalized (stripped, lowercased) and compared against
-        ALLOWED_STORAGE_BACKENDS. Unknown values raise ValueError with the
-        full allowlist in the error message so operators can fix the env var
-        without a round-trip through the code.
+        Empty string and None coerce to "mongodb-ce" (the default since
+        v1.24.8). Any other value is normalized (stripped, lowercased) and
+        compared against ALLOWED_STORAGE_BACKENDS. The legacy "file" value
+        is rejected with an actionable migration message.
 
         Safe to echo v in the error: storage_backend is a non-secret config
         name. Do not copy this pattern for fields that could hold credentials.
         """
         if v is None or v == "":
-            return "file"
+            return "mongodb-ce"
         if not isinstance(v, str):
             raise ValueError(f"STORAGE_BACKEND must be a string, got {type(v).__name__}")
         normalized = v.strip().lower()
+        if normalized == "file":
+            raise ValueError(
+                "The 'file' storage backend was removed in v1.24.8. "
+                "Set STORAGE_BACKEND to 'mongodb-ce' or 'documentdb'. "
+                "To migrate existing data, run: "
+                "python scripts/migrate-file-to-mongodb.py"
+            )
         if normalized not in ALLOWED_STORAGE_BACKENDS:
             accepted = ", ".join(sorted(ALLOWED_STORAGE_BACKENDS))
             raise ValueError(f"Invalid STORAGE_BACKEND={v!r}. Accepted values: {accepted}.")
+        return normalized
+
+    @field_validator("secret_store_backend", mode="before")
+    @classmethod
+    def _validate_secret_store_backend(
+        cls,
+        v: str | None,
+    ) -> str:
+        """Reject unknown SECRET_STORE_BACKEND values at startup.
+
+        Empty/None coerce to "openbao" (the default). Other values are
+        normalized and checked against ALLOWED_SECRET_STORES. Non-secret config
+        name, so echoing v in the error is safe. The egress-requires-Mongo
+        cross-field check lives in the model validator below, not here
+        (single-field validators can't see sibling fields).
+        """
+        if v is None or v == "":
+            return "openbao"
+        if not isinstance(v, str):
+            raise ValueError(f"SECRET_STORE_BACKEND must be a string, got {type(v).__name__}")
+        normalized = v.strip().lower()
+        if normalized not in ALLOWED_SECRET_STORES:
+            accepted = ", ".join(sorted(ALLOWED_SECRET_STORES))
+            raise ValueError(f"Invalid SECRET_STORE_BACKEND={v!r}. Accepted values: {accepted}.")
         return normalized
 
     @field_validator("internal_deployment_type", mode="before")
@@ -1120,6 +1323,69 @@ class Settings(BaseSettings):
                 "Set it to a value at least 32 bytes long, identical across all auth_server "
                 "and registry replicas (see chart values.yaml: global.secretKey)."
             )
+        if len(self.secret_key.encode()) < 32:
+            raise RuntimeError(
+                "SECRET_KEY must be at least 32 bytes long. The current value is too short "
+                "to safely sign HS256 tokens and derive the internal service-token signing "
+                "key (a short key can be brute-forced offline from any captured token). "
+                "Set it to a strong random value at least 32 bytes long, identical across "
+                "all auth_server and registry replicas (see chart values.yaml: global.secretKey)."
+            )
+        if not self.auth_server_nginx_marker_secret:
+            raise RuntimeError(
+                "AUTH_SERVER_NGINX_MARKER_SECRET environment variable is required. "
+                "Set it to a strong random value (at least 32 bytes), identical across all "
+                "auth_server and registry replicas (see chart values.yaml). Without it, the "
+                "auth_server mints mcp-proxy tokens unconditionally, letting a direct :8888 "
+                "/validate call with a forged X-Resolved-Upstream bypass nginx and obtain one."
+            )
+        if len(self.auth_server_nginx_marker_secret.encode()) < 32:
+            raise RuntimeError(
+                "AUTH_SERVER_NGINX_MARKER_SECRET must be at least 32 bytes long. Set it to a "
+                "strong random value at least 32 bytes long, identical across all auth_server "
+                "and registry replicas (see chart values.yaml)."
+            )
+        self._validate_egress_auth_config()
+
+    def _validate_egress_auth_config(self) -> None:
+        """Cross-field startup checks for the egress credential vault.
+
+        Single-field validators can't see siblings, so these live here:
+        - L0: the refresh lease lock is Mongo-only, so the vault requires a
+          Mongo-family storage_backend (the default 'file' backend has no lock
+          home -> would silently drop cross-replica single-flight refresh).
+        - a public callback base URL is required to build the redirect_uri.
+
+        The nginx marker secret is required unconditionally (in __init__), not
+        just for egress, since it guards all mcp-proxy token minting.
+        """
+        if not self.egress_auth_enabled:
+            return
+
+        if self.storage_backend not in MONGODB_BACKENDS:
+            raise ValueError(
+                f"EGRESS_AUTH_ENABLED=true requires a Mongo-family STORAGE_BACKEND "
+                f"(one of: {', '.join(sorted(MONGODB_BACKENDS))}); got "
+                f"{self.storage_backend!r}."
+            )
+
+        if not self.egress_oauth_callback_base_url and not self.registry_url:
+            raise ValueError(
+                "EGRESS_AUTH_ENABLED=true requires EGRESS_OAUTH_CALLBACK_BASE_URL "
+                "(the public base URL for {base}/oauth2/egress/callback), or a "
+                "REGISTRY_URL to derive it from; neither is set."
+            )
+
+    @property
+    def egress_oauth_callback_base(self) -> str:
+        """Resolved public base URL for the egress OAuth callback.
+
+        Explicit egress_oauth_callback_base_url wins; otherwise fall back to
+        registry_url (the callback is served by the same host through nginx).
+        Both empty is rejected at startup by _validate_egress_auth_config when
+        egress is enabled, so a non-empty value is guaranteed there.
+        """
+        return self.egress_oauth_callback_base_url or self.registry_url
 
     @property
     def embeddings_model_dir(self) -> Path:
@@ -1182,14 +1448,6 @@ class Settings(BaseSettings):
         which computes the same path via log_dir.
         """
         return self.log_dir / "registry.log"
-
-    @property
-    def faiss_index_path(self) -> Path:
-        return self.servers_dir / "service_index.faiss"
-
-    @property
-    def faiss_metadata_path(self) -> Path:
-        return self.servers_dir / "service_index_metadata.json"
 
     @property
     def dotenv_path(self) -> Path:

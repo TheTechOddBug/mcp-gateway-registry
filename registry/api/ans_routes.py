@@ -171,10 +171,19 @@ async def get_agent_ans_status(
     _check_ans_enabled()
     path = _normalize_path(path)
     from registry.repositories.factory import get_agent_repository
+    from registry.services.visibility import user_can_access_agent_from_doc
 
     repo = get_agent_repository()
     agent = await repo.get(path)
     if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Authorization: ANS metadata is per-agent data; gate on the same
+    # visibility check as the agent read endpoints so a private/group agent's
+    # metadata is not exposed to users who cannot see the agent. Reuse the
+    # agent doc we already fetched via the *_from_doc helper so the check does
+    # not trigger a second identical agent lookup.
+    if not user_can_access_agent_from_doc(agent.model_dump(), user_context or {}):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     ans_metadata = agent.ans_metadata
@@ -253,10 +262,20 @@ async def get_server_ans_status(
     _check_ans_enabled()
     path = _normalize_path(path)
     from registry.repositories.factory import get_server_repository
+    from registry.services.visibility import user_can_access_server_from_doc
 
     repo = get_server_repository()
     server = await repo.get(path)
     if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Authorization: ANS metadata is per-server data; gate on the same
+    # visibility check as the server read endpoints so a private/group server's
+    # metadata is not exposed to users who cannot see the server. Reuse the
+    # server doc we already fetched via the *_from_doc helper so the check does
+    # not re-fetch the server just to re-confirm it exists.
+    server_name = server.get("server_name") or path.strip("/")
+    if not user_can_access_server_from_doc(path, server_name, user_context or {}):
         raise HTTPException(status_code=404, detail="Server not found")
 
     ans_metadata = server.get("ans_metadata")

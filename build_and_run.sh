@@ -218,7 +218,6 @@ if [ ! -f .env ]; then
     log "Example .env file:"
     log "SECRET_KEY=your_secret_key_here"
     log "# SECRET_KEY is auto-generated if not set. It is used to sign JWT session tokens."
-    log "# For Financial Info server API keys, see servers/fininfo/README_SECRETS.md"
     exit 1
 fi
 
@@ -239,47 +238,10 @@ log "Stopping existing services (if any)..."
 $COMPOSE_CMD $COMPOSE_FILES down --remove-orphans || log "No existing services to stop"
 log "Existing services stopped"
 
-# Clean up FAISS index files to force registry to recreate them
-log "Checking FAISS index files..."
-MCPGATEWAY_SERVERS_DIR="${HOME}/mcp-gateway/servers"
-FAISS_FILES=("service_index.faiss" "service_index_metadata.json")
-
-# Check if FAISS index files exist
-FAISS_EXISTS=false
-for file in "${FAISS_FILES[@]}"; do
-    file_path="$MCPGATEWAY_SERVERS_DIR/$file"
-    if [ -f "$file_path" ]; then
-        FAISS_EXISTS=true
-        break
-    fi
-done
-
-if [ "$FAISS_EXISTS" = true ]; then
-    echo ""
-    echo "╔════════════════════════════════════════════════════════════════════════════╗"
-    echo "║                         FAISS INDEX FILES EXIST                            ║"
-    echo "╠════════════════════════════════════════════════════════════════════════════╣"
-    echo "║                                                                            ║"
-    echo "║  Existing FAISS index files were found in:                                ║"
-    echo "║  $MCPGATEWAY_SERVERS_DIR/"
-    echo "║                                                                            ║"
-    echo "║  These files contain your server registry and search index.               ║"
-    echo "║  To preserve your registered servers, these files will NOT be deleted.    ║"
-    echo "║                                                                            ║"
-    echo "║  If you need to regenerate the FAISS index (e.g., after corruption):      ║"
-    echo "║  1. Delete the existing files:                                            ║"
-    echo "║     rm $MCPGATEWAY_SERVERS_DIR/service_index*"
-    echo "║  2. The registry will automatically rebuild the index on startup          ║"
-    echo "║                                                                            ║"
-    echo "╚════════════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    log "Keeping existing FAISS index files - NOT deleting"
-else
-    log "No existing FAISS index files found - will be created on first startup"
-fi
-
 # Clean up any root-owned directories from previous Docker runs
 log "Checking for root-owned directories from previous Docker runs..."
+
+MCPGATEWAY_SERVERS_DIR="${HOME}/mcp-gateway/servers"
 
 # Check and remove root-owned directories
 for dir in "$MCPGATEWAY_SERVERS_DIR" "${HOME}/mcp-gateway/agents" "${HOME}/mcp-gateway/auth_server" "${HOME}/mcp-gateway/security_scans" "${HOME}/mcp-gateway/federation.json"; do
@@ -348,45 +310,6 @@ else
     log "WARNING: cli/examples directory not found - seed agents will not be copied"
 fi
 
-# Copy scopes.yml to ${HOME}/mcp-gateway/auth_server
-AUTH_SERVER_DIR="${HOME}/mcp-gateway/auth_server"
-TARGET_SCOPES_FILE="$AUTH_SERVER_DIR/scopes.yml"
-
-log "Checking scopes.yml configuration..."
-if [ -f "auth_server/scopes.yml" ]; then
-    # Create the target directory if it doesn't exist
-    mkdir -p "$AUTH_SERVER_DIR"
-
-    # Check if scopes.yml already exists in the target directory
-    if [ -f "$TARGET_SCOPES_FILE" ]; then
-        echo ""
-        echo "╔════════════════════════════════════════════════════════════════════════════╗"
-        echo "║                            SCOPES.YML EXISTS                               ║"
-        echo "╠════════════════════════════════════════════════════════════════════════════╣"
-        echo "║                                                                            ║"
-        echo "║  An existing scopes.yml file was found at:                                ║"
-        echo "║  $TARGET_SCOPES_FILE"
-        echo "║                                                                            ║"
-        echo "║  This file contains your custom groups and server configurations.         ║"
-        echo "║  To preserve your settings, this file will NOT be overwritten.            ║"
-        echo "║                                                                            ║"
-        echo "║  If you need to restore the default scopes.yml from the codebase:         ║"
-        echo "║  1. Delete the existing file:                                             ║"
-        echo "║     rm $TARGET_SCOPES_FILE"
-        echo "║  2. Re-run this script                                                    ║"
-        echo "║                                                                            ║"
-        echo "╚════════════════════════════════════════════════════════════════════════════╝"
-        echo ""
-        log "Keeping existing scopes.yml - NOT overwriting"
-    else
-        # Copy scopes.yml for first-time setup
-        cp auth_server/scopes.yml "$AUTH_SERVER_DIR/"
-        log "scopes.yml copied successfully to $AUTH_SERVER_DIR (initial setup)"
-    fi
-else
-    log "WARNING: auth_server/scopes.yml not found in codebase"
-fi
-
 # Create empty security_scans directory for Docker mount
 SECURITY_SCANS_DIR="${HOME}/mcp-gateway/security_scans"
 log "Creating empty security_scans directory for Docker mount"
@@ -429,6 +352,25 @@ if ! grep -q "SECRET_KEY=" .env || grep -q "SECRET_KEY=$" .env || grep -q "SECRE
     log "SECRET_KEY added to .env"
 else
     log "SECRET_KEY already exists in .env"
+fi
+
+# Generate a random AUTH_SERVER_NGINX_MARKER_SECRET if not already in .env.
+# Required by both auth_server and registry: it guards all mcp-proxy token
+# minting (a direct :8888 /validate with a forged X-Resolved-Upstream cannot
+# obtain a token without it). Must be identical across both services.
+if ! grep -q "AUTH_SERVER_NGINX_MARKER_SECRET=" .env || grep -q "AUTH_SERVER_NGINX_MARKER_SECRET=$" .env || grep -q "AUTH_SERVER_NGINX_MARKER_SECRET=\"\"" .env; then
+    log "Generating AUTH_SERVER_NGINX_MARKER_SECRET..."
+    MARKER_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))') || handle_error "Failed to generate AUTH_SERVER_NGINX_MARKER_SECRET"
+
+    # Remove any existing empty marker line
+    sed -i '/^AUTH_SERVER_NGINX_MARKER_SECRET=$/d' .env 2>/dev/null || true
+    sed -i '/^AUTH_SERVER_NGINX_MARKER_SECRET=""$/d' .env 2>/dev/null || true
+
+    # Add new marker secret
+    echo "AUTH_SERVER_NGINX_MARKER_SECRET=$MARKER_SECRET" >> .env
+    log "AUTH_SERVER_NGINX_MARKER_SECRET added to .env"
+else
+    log "AUTH_SERVER_NGINX_MARKER_SECRET already exists in .env"
 fi
 
 # Validate required environment variables
@@ -512,74 +454,82 @@ validate_predeployment() {
 
 validate_predeployment
 
-# Start metrics service first to generate API keys
-log "Starting metrics service first..."
-$COMPOSE_CMD $COMPOSE_FILES up -d metrics-service || handle_error "Failed to start metrics service"
+# Start metrics service first to generate API keys.
+# Gated: --prebuilt compose no longer ships metrics-service (OTel-native
+# metrics replaced the legacy HTTP POST path). Skip the start, the health
+# wait, and the per-service token generation entirely when the service
+# isn't declared, instead of failing the whole deployment.
+if $COMPOSE_CMD $COMPOSE_FILES config --services 2>/dev/null | grep -q "^metrics-service$"; then
+    log "Starting metrics service first..."
+    $COMPOSE_CMD $COMPOSE_FILES up -d metrics-service || handle_error "Failed to start metrics service"
 
-# Wait for metrics service to be ready
-log "Waiting for metrics service to be ready..."
-max_retries=30
-retry_count=0
-while [ $retry_count -lt $max_retries ]; do
-    if curl -f http://localhost:8890/health &>/dev/null; then
-        log "Metrics service is ready"
-        break
+    # Wait for metrics service to be ready
+    log "Waiting for metrics service to be ready..."
+    max_retries=30
+    retry_count=0
+    while [ $retry_count -lt $max_retries ]; do
+        if curl -f http://localhost:8890/health &>/dev/null; then
+            log "Metrics service is ready"
+            break
+        fi
+        sleep 2
+        retry_count=$((retry_count + 1))
+        log "Waiting for metrics service... ($retry_count/$max_retries)"
+    done
+
+    if [ $retry_count -eq $max_retries ]; then
+        handle_error "Metrics service did not become ready within expected time"
     fi
-    sleep 2
-    retry_count=$((retry_count + 1))
-    log "Waiting for metrics service... ($retry_count/$max_retries)"
-done
 
-if [ $retry_count -eq $max_retries ]; then
-    handle_error "Metrics service did not become ready within expected time"
-fi
+    # Generate dynamic pre-shared tokens for metrics authentication
+    log "Setting up dynamic pre-shared tokens for services..."
 
-# Generate dynamic pre-shared tokens for metrics authentication
-log "Setting up dynamic pre-shared tokens for services..."
+    # Get all services from compose file that might need metrics (exclude monitoring services)
+    METRICS_SERVICES=$($COMPOSE_CMD $COMPOSE_FILES config --services 2>/dev/null | grep -v -E "(prometheus|grafana|metrics-db)" | sort | uniq)
 
-# Get all services from compose file that might need metrics (exclude monitoring services)
-METRICS_SERVICES=$($COMPOSE_CMD $COMPOSE_FILES config --services 2>/dev/null | grep -v -E "(prometheus|grafana|metrics-db)" | sort | uniq)
-
-if [ -z "$METRICS_SERVICES" ]; then
-    log "WARNING: No services found for metrics configuration"
-else
-    log "Found services for metrics: $(echo $METRICS_SERVICES | tr '\n' ' ')"
-fi
-
-# Check if tokens already exist in .env
-source .env 2>/dev/null || true
-
-# Generate tokens for each service dynamically
-for service in $METRICS_SERVICES; do
-    # Convert service name to environment variable format
-    # auth-server -> METRICS_API_KEY_AUTH_SERVER
-    # metrics-service -> METRICS_API_KEY_METRICS_SERVICE (will be skipped as it's the metrics service itself)
-    ENV_VAR_NAME="METRICS_API_KEY_$(echo "$service" | tr '[:lower:]-' '[:upper:]_')"
-    
-    # Skip the metrics service itself and non-metrics services
-    if [ "$service" = "metrics-service" ] || [ "$service" = "prometheus" ] || [ "$service" = "grafana" ]; then
-        continue
-    fi
-    
-    # Get current value
-    CURRENT_VALUE=$(eval echo "\${$ENV_VAR_NAME:-}")
-    
-    # Generate token only if it doesn't exist or is empty
-    if [ -z "$CURRENT_VALUE" ] || [ "$CURRENT_VALUE" = "" ]; then
-        NEW_TOKEN="mcp_metrics_$(openssl rand -hex 16)"
-        
-        # Remove any existing line for this variable
-        sed -i "/^$ENV_VAR_NAME=/d" .env 2>/dev/null || true
-        
-        # Add new token
-        echo "$ENV_VAR_NAME=$NEW_TOKEN" >> .env
-        log "Generated new $service token: ${NEW_TOKEN:0:20}..."
+    if [ -z "$METRICS_SERVICES" ]; then
+        log "WARNING: No services found for metrics configuration"
     else
-        log "Using existing $service token: ${CURRENT_VALUE:0:20}..."
+        log "Found services for metrics: $(echo $METRICS_SERVICES | tr '\n' ' ')"
     fi
-done
 
-log "Dynamic metrics API tokens configured successfully"
+    # Check if tokens already exist in .env
+    source .env 2>/dev/null || true
+
+    # Generate tokens for each service dynamically
+    for service in $METRICS_SERVICES; do
+        # Convert service name to environment variable format
+        # auth-server -> METRICS_API_KEY_AUTH_SERVER
+        # metrics-service -> METRICS_API_KEY_METRICS_SERVICE (will be skipped as it's the metrics service itself)
+        ENV_VAR_NAME="METRICS_API_KEY_$(echo "$service" | tr '[:lower:]-' '[:upper:]_')"
+
+        # Skip the metrics service itself and non-metrics services
+        if [ "$service" = "metrics-service" ] || [ "$service" = "prometheus" ] || [ "$service" = "grafana" ]; then
+            continue
+        fi
+
+        # Get current value
+        CURRENT_VALUE=$(eval echo "\${$ENV_VAR_NAME:-}")
+
+        # Generate token only if it doesn't exist or is empty
+        if [ -z "$CURRENT_VALUE" ] || [ "$CURRENT_VALUE" = "" ]; then
+            NEW_TOKEN="mcp_metrics_$(openssl rand -hex 16)"
+
+            # Remove any existing line for this variable
+            sed -i "/^$ENV_VAR_NAME=/d" .env 2>/dev/null || true
+
+            # Add new token
+            echo "$ENV_VAR_NAME=$NEW_TOKEN" >> .env
+            log "Generated new $service token: ${NEW_TOKEN:0:20}..."
+        else
+            log "Using existing $service token: ${CURRENT_VALUE:0:20}..."
+        fi
+    done
+
+    log "Dynamic metrics API tokens configured successfully"
+else
+    log "metrics-service not declared in compose file (e.g. --prebuilt). Skipping legacy metrics-service start and per-service token generation. Core services emit metrics natively via OpenTelemetry at :9464."
+fi
 
 # Now start all other services with the API keys in environment
 log "Starting remaining services..."
@@ -617,23 +567,6 @@ else
     log "WARNING: Nginx may still be starting up..."
 fi
 
-# Verify FAISS index creation
-log "Verifying FAISS index creation..."
-sleep 5  # Give registry service time to create the index
-
-if [ -f "$MCPGATEWAY_SERVERS_DIR/service_index.faiss" ]; then
-    log "FAISS index created successfully at $MCPGATEWAY_SERVERS_DIR/service_index.faiss"
-    
-    # Check if metadata file also exists
-    if [ -f "$MCPGATEWAY_SERVERS_DIR/service_index_metadata.json" ]; then
-        log "FAISS index metadata created successfully"
-    else
-        log "WARNING: FAISS index metadata file not found"
-    fi
-else
-    log "WARNING: FAISS index not yet created. The registry service will create it on first access."
-fi
-
 # Verify server list includes Atlassian
 log "Verifying server list..."
 if [ -f "$MCPGATEWAY_SERVERS_DIR/atlassian.json" ]; then
@@ -660,7 +593,6 @@ if [[ "$COMPOSE_CMD" == "podman compose" ]]; then
     log "  - Registry API: http://localhost:7860"
     log "  - Auth service: http://localhost:8888"
     log "  - Current Time MCP: http://localhost:8000"
-    log "  - Financial Info MCP: http://localhost:8001"
     log "  - Real Server Fake Tools MCP: http://localhost:8002"
     log "  - MCP Gateway MCP: http://localhost:8003"
 else
@@ -669,7 +601,6 @@ else
     log "  - Registry API: http://localhost:7860"
     log "  - Auth service: http://localhost:8888"
     log "  - Current Time MCP: http://localhost:8000"
-    log "  - Financial Info MCP: http://localhost:8001"
     log "  - Real Server Fake Tools MCP: http://localhost:8002"
     log "  - MCP Gateway MCP: http://localhost:8003"
 fi

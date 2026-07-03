@@ -13,9 +13,11 @@ import {
   CheckIcon,
   ArrowDownTrayIcon,
   TagIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { isEgressAuthEnabled } from '../utils/egressAuth';
 
 interface SidebarProps {
   sidebarOpen: boolean;
@@ -48,6 +50,17 @@ const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen, stats, a
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string>('');
+  const [egressEnabled, setEgressEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void isEgressAuthEnabled().then(enabled => {
+      if (active) setEgressEnabled(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filters = [
     { key: 'all', label: 'All Services', count: 'total' },
@@ -170,6 +183,18 @@ const fetchAdminTokens = async () => {
               <KeyIcon className="h-4 w-4" />
               <span>Generate Token</span>
             </Link>
+
+            {egressEnabled && (
+              <Link
+                to="/connected-accounts"
+                className="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                onClick={() => window.innerWidth < 768 && setSidebarOpen(false)}
+                tabIndex={0}
+              >
+                <LinkIcon className="h-4 w-4" />
+                <span>Connected Accounts</span>
+              </Link>
+            )}
           </div>
 
           {/* User Access Information */}
@@ -671,7 +696,7 @@ const fetchAdminTokens = async () => {
                       <div className="flex justify-end">
                         <button
                           onClick={() => setShowTokenModal(false)}
-                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors text-sm"
+                          className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-800 transition-colors text-sm"
                         >
                           Close
                         </button>

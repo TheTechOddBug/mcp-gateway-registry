@@ -16,10 +16,58 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "use_existing_vpc" {
+  description = "Use an existing VPC and subnet IDs instead of creating a new VPC for this deployment."
+  type        = bool
+  default     = false
+}
+
+variable "existing_vpc_id" {
+  description = "Existing VPC ID to use when use_existing_vpc is true."
+  type        = string
+  default     = ""
+}
+
+variable "existing_public_subnet_ids" {
+  description = "Existing public subnet IDs for internet-facing ALBs when use_existing_vpc is true."
+  type        = list(string)
+  default     = []
+}
+
+variable "existing_private_subnet_ids" {
+  description = "Existing private subnet IDs for ECS tasks, databases, Lambda functions, and EFS when use_existing_vpc is true."
+  type        = list(string)
+  default     = []
+}
+
+variable "existing_private_route_table_ids" {
+  description = "Existing private route table IDs used for VPC gateway endpoints when use_existing_vpc is true and create_vpc_endpoints is true."
+  type        = list(string)
+  default     = []
+}
+
+variable "existing_nat_public_ips" {
+  description = "Optional public NAT or firewall egress IPs for existing-VPC deployments, used to allow private tasks to reach the Keycloak ALB via its public URL."
+  type        = list(string)
+  default     = []
+}
+
+variable "create_vpc_endpoints" {
+  description = "Create STS and S3 VPC endpoints. Set false when using an existing VPC that already provides endpoint, firewall, or internet egress routing."
+  type        = bool
+  default     = true
+}
+
 variable "ingress_cidr_blocks" {
   description = "List of CIDR blocks allowed to access the ALB (main ALB + auth server + registry)"
   type        = list(string)
   default     = ["0.0.0.0/0"]
+}
+
+variable "auth_server_url" {
+  description = "Internal URL the registry/nginx use to reach the auth-server. Set to a Cloud Map / Service Connect FQDN (e.g. http://auth-server.<namespace>.local:8888) for deployments where only FQDNs resolve. Defaults to the Compose-style service name for backward compatibility."
+  type        = string
+  default     = "http://auth-server:8888"
 }
 
 variable "enable_monitoring" {
@@ -127,19 +175,19 @@ variable "keycloak_log_level" {
 variable "registry_image_uri" {
   description = "Container image URI for registry service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/registry:1.24.6"
+  default     = "public.ecr.aws/p3v1o3c6/registry:1.25.0"
 }
 
 variable "auth_server_image_uri" {
   description = "Container image URI for auth server service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/auth-server:1.24.6"
+  default     = "public.ecr.aws/p3v1o3c6/auth-server:1.25.0"
 }
 
 variable "mcpgw_image_uri" {
   description = "Container image URI for mcpgw service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/mcpgw:1.24.6"
+  default     = "public.ecr.aws/p3v1o3c6/mcpgw:1.25.0"
 }
 
 variable "keycloak_image_uri" {
@@ -328,7 +376,7 @@ variable "documentdb_admin_password" {
   description = "DocumentDB Elastic Cluster admin password (minimum 8 characters). Only required when storage_backend is 'documentdb'."
   type        = string
   sensitive   = true
-  default     = "" # Not required when using file storage backend
+  default     = ""
 }
 
 variable "documentdb_shard_capacity" {
@@ -382,7 +430,6 @@ variable "storage_backend" {
     Storage backend selection. Must match the Python-side allowlist in
     registry/core/config.py ALLOWED_STORAGE_BACKENDS (issue #954). Accepted
     values:
-      "file"          - JSON files only. No AWS DocumentDB provisioned.
       "documentdb"    - Provision AWS DocumentDB cluster in this Terraform
                         state and use SCRAM-SHA-1 auth.
       "mongodb-ce"    - Connect to an externally-provisioned MongoDB CE via
@@ -400,10 +447,10 @@ variable "storage_backend" {
 
   validation {
     condition = contains(
-      ["file", "documentdb", "mongodb-ce", "mongodb", "mongodb-atlas"],
+      ["documentdb", "mongodb-ce", "mongodb", "mongodb-atlas"],
       var.storage_backend,
     )
-    error_message = "Storage backend must be one of: file, documentdb, mongodb-ce, mongodb, mongodb-atlas."
+    error_message = "Storage backend must be one of: documentdb, mongodb-ce, mongodb, mongodb-atlas."
   }
 }
 
@@ -554,6 +601,12 @@ variable "entra_graph_base_url" {
 
 variable "idp_group_filter_prefix" {
   description = "Comma-separated list of prefixes to filter IdP groups in IAM > Groups page (e.g., 'mcp-,registry-'). Applies to all identity providers."
+  type        = string
+  default     = ""
+}
+
+variable "allowed_idp_groups" {
+  description = "Comma-separated EXACT IdP group names/IDs to keep in a user's session at login. Empty means auto-derive from scope mappings (recommended). Applies to all identity providers."
   type        = string
   default     = ""
 }
@@ -859,6 +912,19 @@ variable "registration_webhook_timeout_seconds" {
   description = "Timeout for webhook HTTP calls in seconds."
   type        = number
   default     = 10
+}
+
+variable "registration_webhook_signing_secret" {
+  description = "Shared secret for HMAC-SHA256 signing of outbound webhook payloads (X-Registry-Signature). Leave empty to disable signing."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "registration_enforced_status" {
+  description = "When set (e.g. 'draft'), mandates the initial lifecycle status for new asset registrations; mismatched registrations fail with 4xx. Empty = default 'active'."
+  type        = string
+  default     = ""
 }
 
 # =============================================================================
@@ -1188,6 +1254,17 @@ variable "mcp_proxy_max_body_bytes" {
   validation {
     condition     = var.mcp_proxy_max_body_bytes >= 1024
     error_message = "mcp_proxy_max_body_bytes must be at least 1024"
+  }
+}
+
+variable "mcp_proxy_timeout" {
+  description = "Timeout (seconds) for the auth-server proxy hop's upstream MCP request. Raise for servers with long-running tools. Default 30. Values above 60 also require raising proxy_read_timeout on the generated /mcp-proxy/ nginx blocks (they inherit nginx's 60s default)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.mcp_proxy_timeout >= 1
+    error_message = "mcp_proxy_timeout must be at least 1"
   }
 }
 
@@ -1667,4 +1744,64 @@ variable "autoscaling_target_memory" {
   description = "Target memory utilization percentage for autoscaling. Scale-up triggers when average memory exceeds this threshold."
   type        = number
   default     = 80
+}
+
+# ---------------------------------------------------------------------------
+# Per-user egress credential vault (third-party OBO support).
+# secrets-manager backend on ECS (openbao is the EKS/Helm path).
+# ---------------------------------------------------------------------------
+
+variable "egress_auth_enabled" {
+  description = "Enable the per-user egress credential vault. Default: false."
+  type        = bool
+  default     = false
+}
+
+variable "egress_secret_store_backend" {
+  description = "Egress secret store backend: secrets-manager (openbao is the EKS/Helm path)."
+  type        = string
+  default     = "secrets-manager"
+}
+
+variable "egress_oauth_callback_base_url" {
+  description = "Public base URL for the egress OAuth callback ({base}/oauth2/egress/callback)."
+  type        = string
+  default     = ""
+}
+
+variable "egress_token_refresh_skew_seconds" {
+  description = "Refresh a vaulted token this many seconds before expiry."
+  type        = number
+  default     = 300
+}
+
+variable "egress_state_ttl_seconds" {
+  description = "TTL for the AEAD-encrypted egress OAuth state blob."
+  type        = number
+  default     = 600
+}
+
+variable "egress_registry_internal_url" {
+  description = "URL the auth-server uses to reach the registry internal vend endpoint."
+  type        = string
+  default     = "http://registry:8080"
+}
+
+variable "egress_nginx_marker_secret" {
+  description = "Optional override for the nginx marker secret shared by registry + auth-server. Empty auto-generates a strong value (stored in Secrets Manager). The marker is required unconditionally -- both services refuse to start without it."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "egress_secrets_manager_kms_key_id" {
+  description = "Optional KMS CMK id/ARN for the egress Secrets Manager secrets. Empty uses the AWS-managed key."
+  type        = string
+  default     = ""
+}
+
+variable "egress_secrets_manager_path_prefix" {
+  description = "Secrets Manager name prefix for the egress vault (also scopes the task IAM grant)."
+  type        = string
+  default     = "mcp/egress"
 }

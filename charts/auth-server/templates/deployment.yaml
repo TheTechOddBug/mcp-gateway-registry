@@ -30,6 +30,7 @@ spec:
         app.kubernetes.io/name: {{ .Values.app.name }}
         app.kubernetes.io/component: {{ .Values.app.name }}
     spec:
+      serviceAccountName: {{ include "auth-server.serviceAccountName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -58,6 +59,12 @@ spec:
           envFrom:
             - configMapRef:
                 name: auth-server-app-log-config
+            {{- if .Values.egressAuth.enabled }}
+            # Per-user egress credential vault non-secret config (the marker
+            # secret rides the env secret below).
+            - configMapRef:
+                name: auth-server-egress-config
+            {{- end }}
             - secretRef:
                 name: {{ .Values.app.existingSecret | default .Values.app.envSecretName }}
             {{- if eq $authProviderType "keycloak" }}
@@ -170,6 +177,11 @@ spec:
               value: {{ .Values.metrics.exporterPrometheusHost | default "0.0.0.0" | quote }}
             - name: OTEL_EXPORTER_PROMETHEUS_PORT
               value: {{ .Values.metrics.exporterPrometheusPort | default "9464" | quote }}
+            {{- if .Values.metrics.otelExporterOtlpEndpoint }}
+            # Standard OTel SDK var: activates the OTLP push exporter when set.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.metrics.otelExporterOtlpEndpoint | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -186,8 +186,16 @@ class ServerRepositoryBase(ABC):
         pass
 
     @abstractmethod
-    async def count(self) -> int:
+    async def count(
+        self,
+        exclude_versions: bool = False,
+    ) -> int:
         """Get total count of servers.
+
+        Args:
+            exclude_versions: When True, exclude version documents so the count
+                reflects distinct servers only. Defaults to False to preserve
+                the historical count of all documents.
 
         Returns:
             Total number of servers in the repository.
@@ -444,7 +452,6 @@ class ScopeRepositoryBase(ABC):
     Abstract base class for authorization scopes data access.
 
     Implementations:
-    - FileScopeRepository: reads auth_server/scopes.yml
     - DocumentDBScopeRepository: reads mcp-scopes collection
     """
 
@@ -478,6 +485,54 @@ class ScopeRepositoryBase(ABC):
 
         Returns:
             List of scope names. Returns empty list if group not found.
+        """
+        pass
+
+    async def get_group_mappings_bulk(
+        self,
+        groups: list[str],
+    ) -> list[str]:
+        """Get the union of scope names mapped to any of the given groups.
+
+        Batch equivalent of ``get_group_mappings``. ``map_groups_to_scopes``
+        on the auth hot path resolves a user's groups to scopes on every
+        authenticated request; issuing one query per group serializes a
+        round-trip per group — cheap on a local Mongo, seconds on a remote
+        cluster for a user with many groups (same fan-out that
+        ``get_server_scopes_bulk`` was added to fix). Backends that can fetch
+        all mappings in a single query (DocumentDB ``$in``) override this; the
+        default loops over the per-group method so in-memory backends (file)
+        stay correct with no extra cost.
+
+        Args:
+            groups: Group names/IDs to resolve.
+
+        Returns:
+            De-duplicated list of scope names, order-preserving across the
+            input groups. Empty list if none map.
+        """
+        seen: set[str] = set()
+        result: list[str] = []
+        for group in groups:
+            for scope in await self.get_group_mappings(group):
+                if scope not in seen:
+                    seen.add(scope)
+                    result.append(scope)
+        return result
+
+    @abstractmethod
+    async def get_all_mapped_group_names(self) -> set[str]:
+        """
+        Get every IdP group name/ID that is mapped to at least one scope.
+
+        This is the union of every scope document's ``group_mappings`` array,
+        i.e. the set of groups the registry actually grants access through.
+        Groups outside this set produce zero scopes, so they are safe to drop
+        from a user's session at login.
+
+        Returns:
+            Set of group names/IDs. Returns an empty set if no scope has any
+            group mappings.
         """
         pass
 
@@ -796,16 +851,19 @@ class ScopeRepositoryBase(ABC):
         Get all group mappings.
 
         Returns:
-            Dictionary mapping group names to lists of scope names.
+            Dictionary mapping scope names to lists of IdP/Keycloak groups
+            that grant each scope.  Both the DocumentDB and file backends
+            return this canonical shape so ``map_cognito_groups_to_scopes``
+            can invert it uniformly.
 
         Example:
             {
                 "mcp-registry-admin": [
-                    "mcp-registry-admin",
-                    "mcp-servers-unrestricted/read"
+                    "mcp-registry-admin"
                 ],
-                "mcp-registry-user": [
-                    "mcp-servers-unrestricted/read"
+                "mcp-servers-unrestricted/read": [
+                    "mcp-registry-admin",
+                    "registry-admins"
                 ]
             }
         """
@@ -1089,7 +1147,7 @@ class SkillSecurityScanRepositoryBase(ABC):
 
 
 class SearchRepositoryBase(ABC):
-    """Abstract base class for semantic/hybrid search using FAISS or DocumentDB."""
+    """Abstract base class for semantic/hybrid search using DocumentDB."""
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -1577,15 +1635,19 @@ class BackendSessionRepositoryBase(ABC):
         self,
         client_session_id: str,
         backend_key: str,
+        user_id: str | None = None,
     ) -> str | None:
         """Get backend session ID and bump last_used_at atomically.
 
         Args:
             client_session_id: Client-facing session ID
             backend_key: Backend location key
+            user_id: Authenticated user identity the session must belong to.
+                When None, ownership is not enforced (legacy behavior).
 
         Returns:
-            Backend session ID if found, None otherwise
+            Backend session ID if found (and owned by ``user_id`` when given),
+            None otherwise
         """
         pass
 
@@ -1614,12 +1676,15 @@ class BackendSessionRepositoryBase(ABC):
         self,
         client_session_id: str,
         backend_key: str,
+        user_id: str | None = None,
     ) -> None:
         """Delete a stale backend session.
 
         Args:
             client_session_id: Client-facing session ID
             backend_key: Backend location key
+            user_id: Authenticated user identity the session must belong to.
+                When None, ownership is not enforced (legacy behavior).
         """
         pass
 
@@ -1643,14 +1708,21 @@ class BackendSessionRepositoryBase(ABC):
     async def validate_client_session(
         self,
         client_session_id: str,
+        user_id: str | None = None,
+        virtual_server_path: str | None = None,
     ) -> bool:
-        """Check if a client session exists and bump last_used_at.
+        """Check if a client session exists, is owned by ``user_id``, and bump last_used_at.
 
         Args:
             client_session_id: Client-facing session ID
+            user_id: Authenticated user identity the session must belong to.
+                When None, ownership is not enforced (legacy behavior).
+            virtual_server_path: Virtual server path the session was minted for.
+                When None, the path is not enforced (legacy behavior).
 
         Returns:
-            True if session exists, False otherwise
+            True if session exists (and matches ``user_id`` /
+            ``virtual_server_path`` when given), False otherwise
         """
         pass
 

@@ -569,6 +569,14 @@ def test_create_location_block_streamable_http(nginx_service):
     assert "proxy_set_header X-Internal-Token $auth_internal_token" in block
     assert "proxy_buffering off" in block
     assert "auth_request /validate" in block
+    # Upstream timeouts derived from MCP_PROXY_TIMEOUT so long-running MCP tool
+    # calls aren't severed by nginx before the inner auth-server hop times out.
+    # The exact read/send value is asserted in TestResolveMcpProxyReadTimeout;
+    # here we only assert the directives are emitted (no unresolved f-string).
+    assert "proxy_read_timeout " in block
+    assert "proxy_send_timeout " in block
+    assert "proxy_connect_timeout 10s" in block
+    assert "{mcp_proxy_read_timeout}" not in block
 
 
 @pytest.mark.unit
@@ -1007,6 +1015,151 @@ server {
 
 
 # =============================================================================
+# AUTH_SERVER_URL PLACEHOLDER SUBSTITUTION (#553)
+# =============================================================================
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_config_async_auth_server_url_parsing(
+    nginx_service, sample_servers, mock_health_service, mock_atomic_write
+):
+    """Test AUTH_SERVER_URL parsing substitutes placeholders (#553)."""
+    template_content = """
+server {
+    proxy_pass http://{{AUTH_SERVER_HOST}}:{{AUTH_SERVER_PORT}}/validate;
+{{LOCATION_BLOCKS}}
+}
+"""
+
+    with patch.object(nginx_service.nginx_template_path, "exists", return_value=True):
+        with patch("builtins.open", mock_open(read_data=template_content)):
+            with patch("registry.health.service.health_service", mock_health_service):
+                mock_health_service.server_health_status = {
+                    "/test-server": HealthStatus.HEALTHY,
+                }
+
+                with patch.object(nginx_service, "get_additional_server_names", return_value=""):
+                    with patch.object(nginx_service, "reload_nginx", return_value=True):
+                        env_values = {
+                            "AUTH_PROVIDER": "keycloak",
+                            "KEYCLOAK_URL": "http://keycloak:8080",
+                            "AUTH_SERVER_URL": "http://auth.internal.svc.cluster.local:8888",
+                            "NGINX_DISABLE_API_AUTH_REQUEST": "false",
+                        }
+                        with patch(
+                            "os.environ.get",
+                            side_effect=lambda key, default=None: env_values.get(key, default),
+                        ):
+                            result = await nginx_service.generate_config_async(sample_servers)
+
+                            assert result is True
+
+                            written_content = mock_atomic_write.call_args_list[0][0][1]
+                            assert "auth.internal.svc.cluster.local" in written_content
+                            assert "8888" in written_content
+                            assert "{{AUTH_SERVER_HOST}}" not in written_content
+                            assert "{{AUTH_SERVER_PORT}}" not in written_content
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_config_async_auth_server_url_default(
+    nginx_service, sample_servers, mock_health_service, mock_atomic_write
+):
+    """Test AUTH_SERVER_URL defaults to auth-server:8888 when unset (#553)."""
+    template_content = """
+server {
+    proxy_pass http://{{AUTH_SERVER_HOST}}:{{AUTH_SERVER_PORT}}/validate;
+{{LOCATION_BLOCKS}}
+}
+"""
+
+    with patch.object(nginx_service.nginx_template_path, "exists", return_value=True):
+        with patch("builtins.open", mock_open(read_data=template_content)):
+            with patch("registry.health.service.health_service", mock_health_service):
+                mock_health_service.server_health_status = {}
+
+                with patch.object(nginx_service, "get_additional_server_names", return_value=""):
+                    with patch.object(nginx_service, "reload_nginx", return_value=True):
+                        env_values = {
+                            "AUTH_PROVIDER": "keycloak",
+                            "KEYCLOAK_URL": "http://keycloak:8080",
+                            "NGINX_DISABLE_API_AUTH_REQUEST": "false",
+                        }
+                        with patch(
+                            "os.environ.get",
+                            side_effect=lambda key, default=None: env_values.get(key, default),
+                        ):
+                            result = await nginx_service.generate_config_async(sample_servers)
+
+                            assert result is True
+                            written_content = mock_atomic_write.call_args_list[0][0][1]
+                            assert "auth-server" in written_content
+                            assert "8888" in written_content
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_config_async_auth_server_url_parse_fallback(
+    nginx_service, sample_servers, mock_health_service, mock_atomic_write
+):
+    """Test AUTH_SERVER_URL falls back to defaults on parse exception (#553)."""
+    template_content = """
+server {
+    proxy_pass http://{{AUTH_SERVER_HOST}}:{{AUTH_SERVER_PORT}}/validate;
+{{LOCATION_BLOCKS}}
+}
+"""
+
+    env_values = {
+        "AUTH_PROVIDER": "keycloak",
+        "KEYCLOAK_URL": "http://keycloak:8080",
+        "AUTH_SERVER_URL": "http://auth.example.com:9999",
+        "NGINX_DISABLE_API_AUTH_REQUEST": "false",
+    }
+
+    with patch.object(nginx_service.nginx_template_path, "exists", return_value=True):
+        with patch("builtins.open", mock_open(read_data=template_content)):
+            with patch("registry.health.service.health_service", mock_health_service):
+                mock_health_service.server_health_status = {}
+
+                with patch.object(nginx_service, "get_additional_server_names", return_value=""):
+                    with patch.object(nginx_service, "reload_nginx", return_value=True):
+                        with patch(
+                            "os.environ.get",
+                            side_effect=lambda key, default=None: env_values.get(key, default),
+                        ):
+                            # Force urlparse to raise when parsing AUTH_SERVER_URL.
+                            # We need a targeted side_effect: let Keycloak/PF parses
+                            # succeed but fail the auth-server parse.
+                            original_urlparse = urlparse
+                            call_count = {"n": 0}
+
+                            def _selective_urlparse(url):
+                                call_count["n"] += 1
+                                # The auth-server parse is the 3rd urlparse call
+                                # (after Keycloak and PingFederate).
+                                if "auth.example.com" in url:
+                                    raise Exception("parse error")
+                                return original_urlparse(url)
+
+                            with patch(
+                                "registry.core.nginx_service.urlparse",
+                                side_effect=_selective_urlparse,
+                            ):
+                                result = await nginx_service.generate_config_async(
+                                    sample_servers
+                                )
+
+                                assert result is True
+                                written_content = mock_atomic_write.call_args_list[0][0][1]
+                                # Should fall back to defaults
+                                assert "auth-server" in written_content
+                                assert "8888" in written_content
+
+
+# =============================================================================
 # server-scope $backend_url default must NOT exist in conf templates
 # =============================================================================
 
@@ -1172,3 +1325,54 @@ def test_generated_protected_api_block_carries_internal_token():
         "$upstream_http_x_internal_token_registry;" in src
     )
     assert "proxy_set_header X-Internal-Token-Registry $auth_internal_token_registry;" in src
+
+
+@pytest.mark.unit
+class TestResolveMcpProxyReadTimeout:
+    """Tests for the nginx MCP proxy_read_timeout derivation helper.
+
+    The nginx read/send timeout for the /mcp-proxy/ location blocks is derived
+    from settings.mcp_proxy_timeout (MCP_PROXY_TIMEOUT) plus a fixed buffer, so
+    the inner auth-server hop always times out first. Credit: derivation
+    approach contributed by @go-faustino (PR #1321).
+    """
+
+    def test_default_is_upstream_plus_buffer(self):
+        """Default 30s upstream timeout yields 60s (30s + 30s buffer)."""
+        from registry.core import nginx_service as ns
+
+        fake_settings = MagicMock(mcp_proxy_timeout=30.0)
+        with patch.object(ns, "settings", fake_settings):
+            assert ns._resolve_mcp_proxy_read_timeout_seconds() == 60
+
+    def test_raised_upstream_scales(self):
+        """A raised upstream timeout scales the nginx read timeout with headroom."""
+        from registry.core import nginx_service as ns
+
+        fake_settings = MagicMock(mcp_proxy_timeout=300.0)
+        with patch.object(ns, "settings", fake_settings):
+            assert ns._resolve_mcp_proxy_read_timeout_seconds() == 330
+
+    def test_fractional_upstream_rounds_up(self):
+        """A fractional upstream timeout is rounded up before adding the buffer."""
+        from registry.core import nginx_service as ns
+
+        fake_settings = MagicMock(mcp_proxy_timeout=45.5)
+        with patch.object(ns, "settings", fake_settings):
+            assert ns._resolve_mcp_proxy_read_timeout_seconds() == 76
+
+    def test_invalid_value_falls_back_to_default(self):
+        """A non-numeric value falls back to the 30s default (-> 60s)."""
+        from registry.core import nginx_service as ns
+
+        fake_settings = MagicMock(mcp_proxy_timeout="not-a-float")
+        with patch.object(ns, "settings", fake_settings):
+            assert ns._resolve_mcp_proxy_read_timeout_seconds() == 60
+
+    def test_none_value_falls_back_to_default(self):
+        """A missing (None) value falls back to the 30s default (-> 60s)."""
+        from registry.core import nginx_service as ns
+
+        fake_settings = MagicMock(mcp_proxy_timeout=None)
+        with patch.object(ns, "settings", fake_settings):
+            assert ns._resolve_mcp_proxy_read_timeout_seconds() == 60

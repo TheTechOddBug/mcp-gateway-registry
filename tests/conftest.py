@@ -48,7 +48,6 @@ from tests.fixtures.mocks.mock_embeddings import (
     create_mock_litellm_module,
     create_mock_st_module,
 )
-from tests.fixtures.mocks.mock_faiss import create_mock_faiss_module
 
 logger = logging.getLogger(__name__)
 
@@ -139,15 +138,10 @@ def _setup_auto_mocking() -> None:
     """
     Set up automatic mocking for heavy dependencies.
 
-    This function mocks FAISS and sentence-transformers BEFORE they are
-    imported by the application code, avoiding loading large ML models
-    during tests.
+    This function mocks sentence-transformers BEFORE they are imported
+    by the application code, avoiding loading large ML models during
+    tests.
     """
-    # Mock FAISS
-    mock_faiss = create_mock_faiss_module()
-    sys.modules["faiss"] = mock_faiss
-    logger.info("Auto-mocked: faiss")
-
     # Mock sentence_transformers
     mock_st = create_mock_st_module()
     sys.modules["sentence_transformers"] = mock_st
@@ -163,11 +157,14 @@ def _setup_auto_mocking() -> None:
 _setup_auto_mocking()
 
 
-# SECRET_KEY must be set before importing registry.core.config, because
-# Settings() is constructed at module-import time and refuses to start
-# without one. pytest_configure() runs AFTER conftest import, so setting it
-# there is too late.
+# SECRET_KEY and AUTH_SERVER_NGINX_MARKER_SECRET must be set before importing
+# registry.core.config, because Settings() is constructed at module-import time
+# and refuses to start without them. pytest_configure() runs AFTER conftest
+# import, so setting them there is too late.
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing-only-do-not-use-in-production")
+os.environ.setdefault(
+    "AUTH_SERVER_NGINX_MARKER_SECRET", "test-marker-secret-for-testing-only-do-not-use"
+)
 
 
 # Now we can safely import registry modules
@@ -315,6 +312,8 @@ def mock_scope_repository():
     mock = AsyncMock()
     mock.load_all = AsyncMock()
     mock.get_group_mappings.return_value = []
+    mock.get_group_mappings_bulk.return_value = []
+    mock.get_all_mapped_group_names.return_value = set()
     mock.list_groups.return_value = {}  # Return empty dict, not list
     mock.get_group.return_value = None
     mock.get_scope_definition.return_value = None
@@ -371,7 +370,7 @@ def mock_agent_repository():
 @pytest.fixture
 def mock_search_repository():
     """
-    Mock search repository to avoid DocumentDB/FAISS access.
+    Mock search repository to avoid DocumentDB access.
 
     Returns:
         AsyncMock instance with common search repository methods

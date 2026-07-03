@@ -246,6 +246,24 @@ tests:
       - failedTemplate:
           errorPattern: "\"SECRET_KEY\" is a reserved variable"
 
+  - it: fails when extraEnv contains REGISTRATION_WEBHOOK_SIGNING_SECRET (issue #1330)
+    set:
+      extraEnv:
+        - name: REGISTRATION_WEBHOOK_SIGNING_SECRET
+          value: "oops"
+    asserts:
+      - failedTemplate:
+          errorPattern: "\"REGISTRATION_WEBHOOK_SIGNING_SECRET\" is a reserved variable"
+
+  - it: fails when extraEnv contains REGISTRATION_ENFORCED_STATUS (issue #1330)
+    set:
+      extraEnv:
+        - name: REGISTRATION_ENFORCED_STATUS
+          value: "oops"
+    asserts:
+      - failedTemplate:
+          errorPattern: "\"REGISTRATION_ENFORCED_STATUS\" is a reserved variable"
+
   - it: fails when extraEnv contains DOCUMENTDB_PASSWORD
     set:
       extraEnv:
@@ -254,6 +272,24 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "\"DOCUMENTDB_PASSWORD\" is a reserved variable"
+
+  - it: fails when extraEnv contains a reserved egress name (EGRESS_AUTH_ENABLED)
+    set:
+      extraEnv:
+        - name: EGRESS_AUTH_ENABLED
+          value: "true"
+    asserts:
+      - failedTemplate:
+          errorPattern: "\"EGRESS_AUTH_ENABLED\" is a reserved variable"
+
+  - it: fails when extraEnv contains the egress marker secret name
+    set:
+      extraEnv:
+        - name: AUTH_SERVER_NGINX_MARKER_SECRET
+          value: "oops"
+    asserts:
+      - failedTemplate:
+          errorPattern: "\"AUTH_SERVER_NGINX_MARKER_SECRET\" is a reserved variable"
 
   - it: fails when extraEnv contains REGISTRY_API_KEYS
     set:
@@ -290,6 +326,15 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "\"BATCH_WORKER_ENABLED\" is a reserved variable"
+
+  - it: fails when extraEnv contains the otel-config name (OTEL_EXPORTER_OTLP_ENDPOINT)
+    set:
+      extraEnv:
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://oops:4317"
+    asserts:
+      - failedTemplate:
+          errorPattern: "\"OTEL_EXPORTER_OTLP_ENDPOINT\" is a reserved variable"
 
   - it: fails when extraEnv contains UI_TITLE
     set:

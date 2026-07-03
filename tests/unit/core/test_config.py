@@ -30,7 +30,7 @@ class TestSettingsInstantiation:
         can assert the rest of the defaults.
         """
         monkeypatch.delenv("AUTH_SERVER_URL", raising=False)
-        monkeypatch.setenv("SECRET_KEY", "test-key-for-defaults")
+        monkeypatch.setenv("SECRET_KEY", "test-key-for-defaults-at-least-32-bytes-long")
         monkeypatch.chdir(tmp_path)
 
         settings = Settings()
@@ -108,10 +108,27 @@ class TestSettingsInstantiation:
         with pytest.raises(RuntimeError, match="SECRET_KEY"):
             Settings(secret_key="")
 
+    def test_settings_fails_without_marker_secret(self, monkeypatch, tmp_path) -> None:
+        """Settings refuses to instantiate when AUTH_SERVER_NGINX_MARKER_SECRET is unset.
+
+        An empty marker makes the auth_server mint mcp-proxy tokens
+        unconditionally, so a direct :8888 /validate with a forged
+        X-Resolved-Upstream could bypass nginx. The missing-marker path is a
+        hard startup error, like SECRET_KEY.
+        """
+        monkeypatch.delenv("AUTH_SERVER_NGINX_MARKER_SECRET", raising=False)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(RuntimeError, match="AUTH_SERVER_NGINX_MARKER_SECRET"):
+            Settings(
+                secret_key="present-and-at-least-32-bytes-long-key",
+                auth_server_nginx_marker_secret="",
+            )
+
     def test_settings_secret_key_not_overridden(self) -> None:
         """Test that provided secret_key is not overridden."""
         # Arrange
-        custom_key = "my-custom-secret-key-12345"
+        custom_key = "my-custom-secret-key-12345-at-least-32-bytes"
 
         # Act
         settings = Settings(secret_key=custom_key)
@@ -123,7 +140,7 @@ class TestSettingsInstantiation:
         """Test Settings instantiation with custom values."""
         # Arrange
         custom_values = {
-            "secret_key": "test-secret",
+            "secret_key": "test-secret-value-at-least-32-bytes-long",
             "session_cookie_name": "test_cookie",
             "session_max_age_seconds": 3600,
             "embeddings_provider": "litellm",
@@ -160,14 +177,14 @@ class TestSettingsEnvironmentVariables:
     def test_settings_load_from_env_auth(self, monkeypatch) -> None:
         """Test loading auth settings from environment variables."""
         # Arrange
-        monkeypatch.setenv("SECRET_KEY", "env-secret-key")
+        monkeypatch.setenv("SECRET_KEY", "env-secret-key-at-least-32-bytes-long-value")
         monkeypatch.setenv("SESSION_COOKIE_NAME", "env_session")
 
         # Act
         settings = Settings()
 
         # Assert
-        assert settings.secret_key == "env-secret-key"
+        assert settings.secret_key == "env-secret-key-at-least-32-bytes-long-value"
         assert settings.session_cookie_name == "env_session"
 
     def test_settings_load_from_env_embeddings(self, monkeypatch) -> None:
@@ -246,7 +263,10 @@ class TestSettingsEnvironmentVariables:
     def test_settings_optional_fields_none(self) -> None:
         """Test that optional fields can be None."""
         # Act
-        settings = Settings()
+        # _env_file=None isolates the assertion from a developer's local .env
+        # (which may set these keys to empty strings); CI has no .env so this
+        # also matches CI behavior exactly.
+        settings = Settings(_env_file=None)
 
         # Assert - Optional fields should be None by default
         assert settings.embeddings_api_key is None
@@ -550,36 +570,6 @@ class TestSettingsFixedPaths:
         assert result == expected
 
     @patch.object(
-        Settings, "servers_dir", new_callable=lambda: property(lambda self: Path("/test/servers"))
-    )
-    def test_faiss_index_path(self, mock_servers_dir) -> None:
-        """Test faiss_index_path property."""
-        # Arrange
-        settings = Settings()
-
-        # Act
-        result = settings.faiss_index_path
-
-        # Assert
-        expected = Path("/test/servers") / "service_index.faiss"
-        assert result == expected
-
-    @patch.object(
-        Settings, "servers_dir", new_callable=lambda: property(lambda self: Path("/test/servers"))
-    )
-    def test_faiss_metadata_path(self, mock_servers_dir) -> None:
-        """Test faiss_metadata_path property."""
-        # Arrange
-        settings = Settings()
-
-        # Act
-        result = settings.faiss_metadata_path
-
-        # Assert
-        expected = Path("/test/servers") / "service_index_metadata.json"
-        assert result == expected
-
-    @patch.object(
         Settings, "agents_dir", new_callable=lambda: property(lambda self: Path("/test/agents"))
     )
     def test_agent_state_file_path(self, mock_agents_dir) -> None:
@@ -747,6 +737,25 @@ class TestSettingsSecretKey:
         settings = Settings(secret_key=custom)
         assert settings.secret_key == custom
 
+    def test_short_secret_key_rejected(self, monkeypatch, tmp_path) -> None:
+        """A SECRET_KEY shorter than 32 bytes is rejected (Security Finding 28).
+
+        A short key can be brute-forced offline from any captured HS256 token
+        and used to forge tokens or the derived internal service-token key.
+        """
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(RuntimeError, match="at least 32 bytes"):
+            Settings(secret_key="short-key")
+
+    def test_short_marker_secret_rejected(self, monkeypatch, tmp_path) -> None:
+        """An AUTH_SERVER_NGINX_MARKER_SECRET shorter than 32 bytes is rejected."""
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(RuntimeError, match="AUTH_SERVER_NGINX_MARKER_SECRET must be at least"):
+            Settings(
+                secret_key="a-valid-secret-key-of-at-least-32-bytes",
+                auth_server_nginx_marker_secret="short",
+            )
+
 
 # =============================================================================
 # TEST CLASS: Session Cookie Configuration
@@ -780,7 +789,9 @@ class TestSettingsSessionCookie:
     def test_session_cookie_domain_none_by_default(self) -> None:
         """Test that session_cookie_domain is None by default."""
         # Act
-        settings = Settings()
+        # _env_file=None isolates this from a developer's local .env (which may
+        # set SESSION_COOKIE_DOMAIN to an empty string); CI has no .env.
+        settings = Settings(_env_file=None)
 
         # Assert
         assert settings.session_cookie_domain is None

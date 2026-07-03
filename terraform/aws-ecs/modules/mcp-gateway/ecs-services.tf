@@ -109,7 +109,7 @@ module "ecs_service_auth" {
         },
         {
           name  = "AUTH_SERVER_URL"
-          value = "http://auth-server:8888"
+          value = var.auth_server_url
         },
         {
           name  = "AUTH_SERVER_EXTERNAL_URL"
@@ -189,6 +189,10 @@ module "ecs_service_auth" {
         {
           name  = "IDP_GROUP_FILTER_PREFIX"
           value = var.idp_group_filter_prefix
+        },
+        {
+          name  = "ALLOWED_IDP_GROUPS"
+          value = var.allowed_idp_groups
         },
         {
           name  = "IDP_USER_GROUP_FALLBACK_ENABLED_PROVIDERS"
@@ -271,10 +275,6 @@ module "ecs_service_auth" {
         {
           name  = "PINGFEDERATE_GROUPS_CLAIM"
           value = var.pingfederate_groups_claim
-        },
-        {
-          name  = "SCOPES_CONFIG_PATH"
-          value = "/efs/auth_config/auth_config/scopes.yml"
         },
         {
           name  = "SESSION_COOKIE_SECURE"
@@ -424,6 +424,10 @@ module "ecs_service_auth" {
           value = tostring(var.mcp_proxy_max_body_bytes)
         },
         {
+          name  = "MCP_PROXY_TIMEOUT"
+          value = tostring(var.mcp_proxy_timeout)
+        },
+        {
           name  = "TOOL_FILTER_AUDIT_LOG_LEVEL"
           value = var.tool_filter_audit_log_level
         },
@@ -458,6 +462,18 @@ module "ecs_service_auth" {
         {
           name  = "OTEL_EXPORTER_OTLP_PROTOCOL"
           value = "grpc"
+        },
+        # Per-user egress credential vault: auth-server only needs the feature
+        # flag and the internal vend URL (it does NOT touch the secret store).
+        # AUTH_SERVER_NGINX_MARKER_SECRET is injected via secrets/valueFrom below
+        # (required unconditionally, not just for egress).
+        {
+          name  = "EGRESS_AUTH_ENABLED"
+          value = tostring(var.egress_auth_enabled)
+        },
+        {
+          name  = "EGRESS_REGISTRY_INTERNAL_URL"
+          value = var.egress_registry_internal_url
         }
         ],
         # PR #947: MongoDB connection string override (plain-text variant).
@@ -479,6 +495,10 @@ module "ecs_service_auth" {
           {
             name      = "SECRET_KEY"
             valueFrom = aws_secretsmanager_secret.secret_key.arn
+          },
+          {
+            name      = "AUTH_SERVER_NGINX_MARKER_SECRET"
+            valueFrom = aws_secretsmanager_secret.nginx_marker_secret.arn
           },
           {
             name      = "KEYCLOAK_CLIENT_SECRET"
@@ -720,6 +740,11 @@ module "ecs_service_registry" {
     var.cognito_enabled ? {
       CognitoIamRead = aws_iam_policy.cognito_iam_read[0].arn
     } : {},
+    # Per-user egress credential vault: runtime CRUD on per-user secrets under
+    # the egress path prefix (+ CMK KMS when configured). Registry only.
+    var.egress_auth_enabled && var.egress_secret_store_backend == "secrets-manager" ? {
+      EgressVaultAccess = aws_iam_policy.ecs_egress_vault_access[0].arn
+    } : {},
     # Issue #1122: per-task ADOT sidecar needs AMP remote-write permission
     var.enable_observability ? {
       AMPRemoteWrite = aws_iam_policy.adot_amp_write[0].arn
@@ -788,7 +813,7 @@ module "ecs_service_registry" {
         },
         {
           name  = "AUTH_SERVER_URL"
-          value = "http://auth-server:8888"
+          value = var.auth_server_url
         },
         {
           name  = "AUTH_SERVER_EXTERNAL_URL"
@@ -854,6 +879,10 @@ module "ecs_service_registry" {
         {
           name  = "IDP_GROUP_FILTER_PREFIX"
           value = var.idp_group_filter_prefix
+        },
+        {
+          name  = "ALLOWED_IDP_GROUPS"
+          value = var.allowed_idp_groups
         },
         {
           name  = "IDP_USER_GROUP_FALLBACK_ENABLED_PROVIDERS"
@@ -949,10 +978,6 @@ module "ecs_service_registry" {
         {
           name  = "AWS_REGION"
           value = data.aws_region.current.id
-        },
-        {
-          name  = "SCOPES_CONFIG_PATH"
-          value = "/app/auth_server/scopes.yml"
         },
         {
           name  = "EMBEDDINGS_PROVIDER"
@@ -1298,6 +1323,15 @@ module "ecs_service_registry" {
           name  = "REGISTRATION_WEBHOOK_TIMEOUT_SECONDS"
           value = tostring(var.registration_webhook_timeout_seconds)
         },
+        # Lifecycle workflow webhooks (issue #1330)
+        {
+          name  = "REGISTRATION_WEBHOOK_SIGNING_SECRET"
+          value = var.registration_webhook_signing_secret
+        },
+        {
+          name  = "REGISTRATION_ENFORCED_STATUS"
+          value = var.registration_enforced_status
+        },
         # Agent batch API (issue #956)
         {
           name  = "BATCH_WORKER_ENABLED"
@@ -1428,6 +1462,21 @@ module "ecs_service_registry" {
           name  = "OTEL_EXPORTER_OTLP_PROTOCOL"
           value = "grpc"
         },
+        {
+          # Without an explicit service.name, the OTLP push path lands in AMP as
+          # job="unknown_service" and the Grafana panels/job filters miss it
+          # (issue #1326). Match the name used on Compose/Helm so all surfaces
+          # agree.
+          name  = "OTEL_SERVICE_NAME"
+          value = "mcp-gateway-registry"
+        },
+        {
+          # The ADOT sidecar pipeline is metrics-only, so exported traces are
+          # rejected with UNIMPLEMENTED (hundreds of errors/run). Disable the
+          # traces exporter; metrics still flow. Issue #1326.
+          name  = "OTEL_TRACES_EXPORTER"
+          value = "none"
+        },
         # Service Connect namespace for FQDN alias injection in entrypoint.
         # Enables Python health checker to resolve both short names and FQDNs.
         {
@@ -1459,6 +1508,39 @@ module "ecs_service_registry" {
           name  = "GITHUB_API_BASE_URL"
           value = var.github_api_base_url
         },
+        # Per-user egress credential vault (third-party OBO). Registry owns the
+        # full set (secret store + OAuth engine). secrets-manager is the natural
+        # backend on ECS; the task role grants are added in iam.tf when enabled.
+        {
+          name  = "EGRESS_AUTH_ENABLED"
+          value = tostring(var.egress_auth_enabled)
+        },
+        {
+          name  = "SECRET_STORE_BACKEND"
+          value = var.egress_secret_store_backend
+        },
+        {
+          name  = "EGRESS_OAUTH_CALLBACK_BASE_URL"
+          value = var.egress_oauth_callback_base_url
+        },
+        {
+          name  = "EGRESS_TOKEN_REFRESH_SKEW_SECONDS"
+          value = tostring(var.egress_token_refresh_skew_seconds)
+        },
+        {
+          name  = "EGRESS_STATE_TTL_SECONDS"
+          value = tostring(var.egress_state_ttl_seconds)
+        },
+        # AUTH_SERVER_NGINX_MARKER_SECRET is injected via secrets/valueFrom below
+        # (required unconditionally, not just for egress).
+        {
+          name  = "SECRETS_MANAGER_KMS_KEY_ID"
+          value = var.egress_secrets_manager_kms_key_id
+        },
+        {
+          name  = "SECRETS_MANAGER_PATH_PREFIX"
+          value = var.egress_secrets_manager_path_prefix
+        },
         ],
         # PR #947: MongoDB connection string override (plain-text variant).
         # Only emitted when var.mongodb_connection_string is non-empty and a
@@ -1479,6 +1561,10 @@ module "ecs_service_registry" {
           {
             name      = "SECRET_KEY"
             valueFrom = aws_secretsmanager_secret.secret_key.arn
+          },
+          {
+            name      = "AUTH_SERVER_NGINX_MARKER_SECRET"
+            valueFrom = aws_secretsmanager_secret.nginx_marker_secret.arn
           },
           {
             name      = "KEYCLOAK_CLIENT_SECRET"
@@ -1981,6 +2067,19 @@ module "ecs_service_mcpgw" {
         {
           name  = "OTEL_EXPORTER_OTLP_PROTOCOL"
           value = "grpc"
+        },
+        {
+          # Without an explicit service.name, the OTLP push path lands in AMP as
+          # job="unknown_service" (issue #1326). Match the name used on
+          # Compose/Helm so all surfaces agree.
+          name  = "OTEL_SERVICE_NAME"
+          value = "mcp-mcpgw"
+        },
+        {
+          # The ADOT sidecar pipeline is metrics-only; exported traces are
+          # rejected with UNIMPLEMENTED. Disable the traces exporter. Issue #1326.
+          name  = "OTEL_TRACES_EXPORTER"
+          value = "none"
         }
         ],
         # Extra environment variables from user (Issue #1000)

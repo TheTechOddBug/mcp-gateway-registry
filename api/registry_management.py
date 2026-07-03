@@ -1805,6 +1805,161 @@ def cmd_server_connect_config(args: argparse.Namespace) -> int:
         return 1
 
 
+def _parse_ard_filter(pairs: list[str] | None) -> dict[str, Any] | None:
+    """Turn repeated ``key=value`` CLI filters into an ARD query.filter dict."""
+    if not pairs:
+        return None
+    out: dict[str, Any] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise ValueError(f"Invalid --filter (expected key=value): {pair!r}")
+        key, _, value = pair.partition("=")
+        key, value = key.strip(), value.strip()
+        if key in out:
+            existing = out[key]
+            out[key] = [*existing, value] if isinstance(existing, list) else [existing, value]
+        else:
+            out[key] = value
+    return out
+
+
+def cmd_ard_search(args: argparse.Namespace) -> int:
+    """ARD Registry search (POST /api/ard/search)."""
+    try:
+        client = _create_client(args)
+        result = client.ard_search(
+            text=args.query,
+            filter=_parse_ard_filter(args.filter),
+            federation=args.federation,
+            page_size=args.page_size,
+            page_token=args.page_token,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        results = result.get("results", [])
+        logger.info(f"ARD search: {len(results)} result(s)")
+        for r in results:
+            print(
+                f"  [{r.get('score')}] {r.get('displayName')} "
+                f"({r.get('type')}) {r.get('identifier')}"
+            )
+        if result.get("pageToken"):
+            print(f"\nnext pageToken: {result['pageToken']}")
+        return 0
+    except Exception as e:
+        logger.error(f"ARD search failed: {e}")
+        return 1
+
+
+def cmd_ard_agents(args: argparse.Namespace) -> int:
+    """ARD Registry browse (GET /api/ard/agents) over all asset types."""
+    try:
+        client = _create_client(args)
+        result = client.ard_browse(
+            filters=args.filter,
+            order_by=args.order_by,
+            page_size=args.page_size,
+            page_token=args.page_token,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        items = result.get("items", [])
+        logger.info(f"ARD browse: {len(items)} of {result.get('total')} entries")
+        for it in items:
+            print(f"  {it.get('displayName')} ({it.get('type')}) {it.get('identifier')}")
+        if result.get("pageToken"):
+            print(f"\nnext pageToken: {result['pageToken']}")
+        return 0
+    except Exception as e:
+        logger.error(f"ARD browse failed: {e}")
+        return 1
+
+
+def cmd_ard_ingestion_sync(args: argparse.Namespace) -> int:
+    """Trigger ARD ai-catalog ingestion (POST /api/federation/ai_catalog/sync)."""
+    try:
+        client = _create_client(args)
+        result = client.ard_ingestion_sync(source_id=args.source_id)
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        print(result.get("message", "triggered"))
+        for r in result.get("results", []):
+            status = "ok" if r.get("success") else "FAIL"
+            print(
+                f"  [{status}] {r.get('peer_id')}: servers={r.get('servers_synced')} "
+                f"agents={r.get('agents_synced')} gen={r.get('new_generation')} "
+                f"{r.get('error_message') or ''}".rstrip()
+            )
+        return 0
+    except Exception as e:
+        logger.error(f"ARD ingestion sync failed: {e}")
+        return 1
+
+
+def cmd_ard_ingestion_status(args: argparse.Namespace) -> int:
+    """Show ARD ingestion per-source state (GET /api/federation/ai_catalog/status)."""
+    try:
+        client = _create_client(args)
+        result = client.ard_ingestion_status()
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        sources = result.get("sources", [])
+        logger.info(f"ARD ingestion: {len(sources)} source(s)")
+        for s in sources:
+            print(
+                f"  {s.get('source_id')}: gen={s.get('generation')} "
+                f"servers={s.get('servers_synced')} agents={s.get('agents_synced')} "
+                f"skills={s.get('skills_synced')} rejected={s.get('rejected')} "
+                f"failures={s.get('consecutive_failures')} last={s.get('last_synced_at')}"
+            )
+        return 0
+    except Exception as e:
+        logger.error(f"ARD ingestion status failed: {e}")
+        return 1
+
+
+def cmd_ard_ingestion_add_source(args: argparse.Namespace) -> int:
+    """Add an ARD ai-catalog ingestion source (federation config)."""
+    try:
+        client = _create_client(args)
+        result = client.ard_ingestion_add_source(
+            source_id=args.source_id,
+            uri=args.uri,
+            domain=args.domain,
+            expected_identity=args.expected_identity,
+            enable=args.enable,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        print(result.get("message", "added"))
+        if args.enable:
+            print("ai_catalog ingestion enabled")
+        return 0
+    except Exception as e:
+        logger.error(f"ARD ingestion add-source failed: {e}")
+        return 1
+
+
+def cmd_ard_ingestion_remove_source(args: argparse.Namespace) -> int:
+    """Remove an ARD ai-catalog ingestion source (federation config)."""
+    try:
+        client = _create_client(args)
+        result = client.ard_ingestion_remove_source(source_id=args.source_id)
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        print(result.get("message", "removed"))
+        return 0
+    except Exception as e:
+        logger.error(f"ARD ingestion remove-source failed: {e}")
+        return 1
+
+
 def cmd_server_search(args: argparse.Namespace) -> int:
     """
     Perform semantic search across all entity types.
@@ -2582,6 +2737,61 @@ def cmd_agent_toggle(args: argparse.Namespace) -> int:
 
     except Exception as e:
         logger.error(f"Agent toggle failed: {e}")
+        return 1
+
+
+def cmd_agent_pull_card(args: argparse.Namespace) -> int:
+    """
+    Pull the latest A2A agent card from the remote endpoint.
+
+    Default is a dry-run preview (no A2A-spec fields are written, though
+    health_status / last_health_check are always refreshed as a side effect
+    of the fetch succeeding). Use --apply to actually write the A2A-spec
+    fields. Registry-managed fields (tags, ratings, visibility, trust_level,
+    sync_metadata, ...) are never overwritten regardless of mode.
+
+    Args:
+        args: Command arguments with path and optional --apply / --json.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    try:
+        client = _create_client(args)
+        dry_run = not getattr(args, "apply", False)
+        response = client.pull_card_agent(path=args.path, dry_run=dry_run)
+
+        if getattr(args, "json", False):
+            print(json.dumps(response.model_dump(), indent=2, default=str))
+            return 0
+
+        mode = "DRY-RUN" if dry_run else "APPLY"
+        logger.info(f"\nPull-card {mode} for agent '{response.agent_path}':")
+        logger.info(f"  Remote URL: {response.remote_card_url}")
+        logger.info(f"  Health status (refreshed): {response.health_status}")
+        logger.info(f"  Has changes: {response.has_changes}")
+        logger.info(f"  Change count: {len(response.changes)}")
+        if not response.has_changes:
+            logger.info("  Local record already matches remote (no A2A-spec diff).")
+        else:
+            for change in response.changes:
+                logger.info(f"\n  Field: {change.field}")
+                logger.info(
+                    f"    current: {json.dumps(change.current_value, default=str)[:200]}"
+                )
+                logger.info(
+                    f"    remote:  {json.dumps(change.remote_value, default=str)[:200]}"
+                )
+            if dry_run:
+                logger.info("\n  Dry-run: no A2A-spec writes performed. Re-run with --apply to persist.")
+            elif response.applied:
+                logger.info(f"\n  Applied {len(response.changes)} change(s).")
+            else:
+                logger.warning("\n  Apply was requested but did not land (see server logs).")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Pull-card failed: {e}")
         return 1
 
 
@@ -3982,7 +4192,11 @@ def cmd_group_create(args: argparse.Namespace) -> int:
     """
     try:
         client = _create_client(args)
-        result = client.create_keycloak_group(name=args.name, description=args.description)
+        result = client.create_keycloak_group(
+            name=args.name,
+            description=args.description,
+            create_in_idp=getattr(args, "idp", False),
+        )
 
         logger.info(f"IAM group created successfully: {result.name}")
         print(f"\nGroup: {result.name}")
@@ -5984,6 +6198,73 @@ Examples:
         "--json", action="store_true", help="Output raw JSON with all entity types"
     )
 
+    # ARD Registry adapter commands (issue #1295)
+    ard_search_parser = subparsers.add_parser(
+        "ard-search", help="ARD Registry search (POST /api/ard/search)"
+    )
+    ard_search_parser.add_argument("--query", required=True, help="Natural-language query")
+    ard_search_parser.add_argument(
+        "--filter", action="append", default=None,
+        help="ARD filter key=value (repeatable), e.g. --filter type=mcp_server --filter tags=finance",
+    )
+    ard_search_parser.add_argument(
+        "--federation", default="auto", choices=["auto", "referrals", "none"],
+        help="Federation mode (default: auto)",
+    )
+    ard_search_parser.add_argument("--page-size", type=int, default=10, help="Results per page (1-100)")
+    ard_search_parser.add_argument("--page-token", default=None, help="Opaque pagination cursor")
+    ard_search_parser.add_argument("--json", action="store_true", help="Output raw ARD JSON")
+
+    ard_agents_parser = subparsers.add_parser(
+        "ard-agents", help="ARD Registry browse over all asset types (GET /api/ard/agents)"
+    )
+    ard_agents_parser.add_argument(
+        "--filter", action="append", default=None,
+        help="ARD filter key=value (repeatable), e.g. --filter type=a2a_agent",
+    )
+    ard_agents_parser.add_argument(
+        "--order-by", default="identifier", choices=["identifier", "displayName", "updatedAt"],
+        help="Sort field (default: identifier)",
+    )
+    ard_agents_parser.add_argument("--page-size", type=int, default=20, help="Items per page (1-100)")
+    ard_agents_parser.add_argument("--page-token", default=None, help="Opaque pagination cursor")
+    ard_agents_parser.add_argument("--json", action="store_true", help="Output raw ARD JSON")
+
+    ard_ingestion_sync_parser = subparsers.add_parser(
+        "ard-ingestion-sync", help="Trigger ARD ai-catalog ingestion (federation)"
+    )
+    ard_ingestion_sync_parser.add_argument(
+        "--source-id", default=None, help="Sync only this source (default: all enabled)"
+    )
+    ard_ingestion_sync_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    ard_ingestion_status_parser = subparsers.add_parser(
+        "ard-ingestion-status", help="Show ARD ai-catalog ingestion per-source state"
+    )
+    ard_ingestion_status_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    ard_add_source_parser = subparsers.add_parser(
+        "ard-ingestion-add-source", help="Add an ARD ai-catalog ingestion source"
+    )
+    ard_add_source_parser.add_argument("--source-id", required=True, help="Stable source id")
+    ard_add_source_parser.add_argument("--uri", default=None, help="Direct ai-catalog.json URL")
+    ard_add_source_parser.add_argument(
+        "--domain", default=None, help="Domain (resolved via /.well-known/ai-catalog.json)"
+    )
+    ard_add_source_parser.add_argument(
+        "--expected-identity", default=None, help="Optional trustManifest.identity pin"
+    )
+    ard_add_source_parser.add_argument(
+        "--enable", action="store_true", help="Also enable ai_catalog ingestion"
+    )
+    ard_add_source_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    ard_remove_source_parser = subparsers.add_parser(
+        "ard-ingestion-remove-source", help="Remove an ARD ai-catalog ingestion source"
+    )
+    ard_remove_source_parser.add_argument("--source-id", required=True, help="Source id to remove")
+    ard_remove_source_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
     # Server Version Management Commands
 
     # List versions command
@@ -6176,6 +6457,26 @@ Examples:
         "--path", required=True, help="Agent path (e.g., /code-reviewer)"
     )
     agent_rescan_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+    # Agent pull-card command
+    agent_pull_card_parser = subparsers.add_parser(
+        "agent-pull-card",
+        help=(
+            "Pull the latest A2A agent card from the remote endpoint. Default "
+            "is a dry-run preview; use --apply to persist A2A-spec changes."
+        ),
+    )
+    agent_pull_card_parser.add_argument(
+        "--path", required=True, help="Agent path (e.g., /jewel-homes-support-agent)"
+    )
+    agent_pull_card_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply A2A-spec changes (default is a dry-run preview).",
+    )
+    agent_pull_card_parser.add_argument(
+        "--json", action="store_true", help="Output raw JSON instead of the pretty summary."
+    )
 
     # Agent ANS (Agent Name Service) commands
     agent_ans_link_parser = subparsers.add_parser(
@@ -6581,6 +6882,11 @@ Examples:
     group_create_parser = subparsers.add_parser("group-create", help="Create a new IAM group")
     group_create_parser.add_argument("--name", required=True, help="Group name")
     group_create_parser.add_argument("--description", help="Group description")
+    group_create_parser.add_argument(
+        "--idp",
+        action="store_true",
+        help="Also create the group in the configured IdP (Keycloak/Entra), not just the local scopes store",
+    )
 
     # Delete IAM group command
     group_delete_parser = subparsers.add_parser("group-delete", help="Delete an IAM group")
@@ -7036,6 +7342,12 @@ Examples:
         "server-update-credential": cmd_server_update_credential,
         "server-connect-config": cmd_server_connect_config,
         "server-search": cmd_server_search,
+        "ard-search": cmd_ard_search,
+        "ard-agents": cmd_ard_agents,
+        "ard-ingestion-sync": cmd_ard_ingestion_sync,
+        "ard-ingestion-status": cmd_ard_ingestion_status,
+        "ard-ingestion-add-source": cmd_ard_ingestion_add_source,
+        "ard-ingestion-remove-source": cmd_ard_ingestion_remove_source,
         "list-versions": cmd_list_versions,
         "remove-version": cmd_remove_version,
         "set-default-version": cmd_set_default_version,
@@ -7054,6 +7366,7 @@ Examples:
         "agent-rating": cmd_agent_rating,
         "agent-security-scan": cmd_agent_security_scan,
         "agent-rescan": cmd_agent_rescan,
+        "agent-pull-card": cmd_agent_pull_card,
         "agent-ans-link": cmd_agent_ans_link,
         "agent-ans-status": cmd_agent_ans_status,
         "agent-ans-unlink": cmd_agent_ans_unlink,

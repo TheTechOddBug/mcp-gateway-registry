@@ -163,6 +163,8 @@ Fire-and-forget POST on register/delete.
 | Auth header name | `REGISTRATION_WEBHOOK_AUTH_HEADER` | `registration_webhook_auth_header` | `registry.app.registrationWebhookAuthHeader` | `Authorization` auto-prefixes `Bearer `. |
 | Auth token **(secret)** | `REGISTRATION_WEBHOOK_AUTH_TOKEN` | `registration_webhook_auth_token` | `registry.app.registrationWebhookAuthToken` | Token value. |
 | HTTP timeout | `REGISTRATION_WEBHOOK_TIMEOUT_SECONDS` | `registration_webhook_timeout_seconds` | `registry.app.registrationWebhookTimeoutSeconds` | Seconds. Default 10. |
+| Signing secret **(secret)** | `REGISTRATION_WEBHOOK_SIGNING_SECRET` | `registration_webhook_signing_secret` | `registry.app.registrationWebhookSigningSecret` | HMAC-SHA256 signing of payloads (`X-Registry-Signature`). Empty disables. (Issue #1330) |
+| Enforced initial status | `REGISTRATION_ENFORCED_STATUS` | `registration_enforced_status` | `registry.app.registrationEnforcedStatus` | Mandate initial lifecycle status (e.g. `draft`); mismatch 4xx. Empty = default `active`. (Issue #1330) |
 
 ---
 
@@ -253,6 +255,7 @@ Single URL; disables itself when unset.
 | IDE OAuth client id | `IDE_OAUTH_CLIENT_ID` | `ide_oauth_client_id` | `registry.ideOauthClientId` | Registry-wide **default** pre-registered **public** OAuth client_id that IDEs (Cursor, Claude Code, Codex) use to start the gateway login flow. When set, a server's Connect config advertises this client_id and omits the static gateway token, so the IDE shows a login button and runs the OAuth/PKCE flow. A per-server `oauth_client_id` (see below) overrides this default. Use when anonymous Dynamic Client Registration is disabled and a fixed public client is registered instead. Empty (default) keeps the static-token Connect config. Not a secret. |
 | IDE OAuth callback port | `IDE_OAUTH_CALLBACK_PORT` | `ide_oauth_callback_port` | `registry.ideOauthCallbackPort` | Fixed loopback callback port the IDE uses for the OAuth login redirect (`http://localhost:<port>/callback`). Needed for IdPs that match the redirect_uri literally including the port (Okta, Entra, Cognito): register that exact URI on the public client and set the same port here so the Connect dialog emits `--callback-port` (Claude Code). `0` (default) lets the IDE pick a port, which is correct for Keycloak (wildcard loopback redirect). Note: Codex/Cursor cannot pin the port, so this only fully helps Claude Code. |
 | IdP group filter prefixes | `IDP_GROUP_FILTER_PREFIX` | `idp_group_filter_prefix` | `registry.idpGroupFilterPrefix` | Comma-separated prefixes for IAM > Groups. |
+| Login-time IdP group allowlist | `ALLOWED_IDP_GROUPS` | `allowed_idp_groups` | `registry.allowedIdpGroups` / `auth-server.allowedIdpGroups` | Comma-separated EXACT IdP group names/IDs stored in a user's session at login. Empty (default) auto-derives the allowlist from scope mappings. Fixes session bloat and per-request slowness for users with very large IdP group memberships (e.g. Entra ID with hundreds of AD groups). Read by both registry and auth-server. |
 | IdP user-to-group fallback providers | `IDP_USER_GROUP_FALLBACK_ENABLED_PROVIDERS` | `idp_user_group_fallback_enabled_providers` | `registry.idpUserGroupFallbackEnabledProviders` / `auth-server.idpUserGroupFallbackEnabledProviders` | Issue #1127. Comma-separated IdP providers (e.g. `pingfederate`) for which the registry's local `idp_user_groups` collection is consulted to populate empty JWT groups claims. Empty disables fallback for all providers. Default: `pingfederate`. Read by both registry and auth-server. |
 | PingFederate admin URL | `PF_ADMIN_URL` | `pf_admin_url` | `registry.pingfederateAdmin.url` | Issue #1127. Admin API URL used by the registry to create OAuth clients and Simple PCV users. Default: dev-only `https://pingfederate:9999`; override for BYO PingFederate. Read by registry only. |
 | PingFederate admin user | `PF_ADMIN_USER` | `pf_admin_user` | `registry.pingfederateAdmin.user` | Issue #1127. Basic-auth user for the PF admin API. Default: dev-only `administrator`; override in production. Read by registry only. |
@@ -375,6 +378,7 @@ Controls the per-user tool allowlist filter applied at the registry REST endpoin
 |-----------|-----------------|-----------------------|----------------------|---------|
 | Enable MCP tools/list filter | `MCP_TOOLS_LIST_FILTER_ENABLED` | `mcp_tools_list_filter_enabled` | `auth-server.app.mcpToolsListFilterEnabled`, `registry.app.mcpToolsListFilterEnabled` | Master switch for the MCP protocol tools/list filter. Default `true`. REST endpoints always filter regardless of this flag. |
 | MCP proxy max body bytes | `MCP_PROXY_MAX_BODY_BYTES` | `mcp_proxy_max_body_bytes` | `auth-server.app.mcpProxyMaxBodyBytes` | Upper bound (bytes) the auth-server proxy hop buffers when filtering tools/list; oversize returns HTTP 413. Default `2097152` (2 MiB). |
+| MCP proxy timeout | `MCP_PROXY_TIMEOUT` | `mcp_proxy_timeout` | `auth-server.app.mcpProxyTimeout` | Timeout (seconds) for the auth-server proxy hop's upstream MCP request; raise for servers with long-running tools. Minimum `1`. Default `30`. The generated `/mcp-proxy/` nginx blocks derive their `proxy_read_timeout`/`proxy_send_timeout` from this value plus a 30s buffer (default `30` -> `60s`), so raising it lifts the whole proxy chain and no separate nginx change is needed. Terraform var `mcp_proxy_timeout`. |
 | Tool-filter audit log level | `TOOL_FILTER_AUDIT_LOG_LEVEL` | `tool_filter_audit_log_level` | `auth-server.app.toolFilterAuditLogLevel`, `registry.app.toolFilterAuditLogLevel` | Launch-window log level for prune audit lines: `DEBUG`, `INFO`, or `WARNING`. Default `INFO`; flip to `DEBUG` after two quiet weeks in production. |
 | Internal token TTL | `INTERNAL_TOKEN_TTL_SECONDS` | `internal_token_ttl_seconds` | `auth-server.app.internalTokenTtlSeconds`, `registry.app.internalTokenTtlSeconds` | Lifetime (seconds) of the `/validate`-minted internal hop tokens that harden the `/mcp-proxy` hop and the registry `/api/` hop; the replay-window cap. Minimum 5. Default `30`. (auth-server mints; the value is the same TTL on both surfaces.) |
 | Internal token leeway | `INTERNAL_TOKEN_LEEWAY_SECONDS` | `internal_token_leeway_seconds` | `auth-server.app.internalTokenLeewaySeconds`, `registry.app.internalTokenLeewaySeconds` | Clock-skew leeway (seconds) on the internal hop tokens' `exp`/`iat` checks. Default `5`. Verification is always enforced (fail-closed); there is no opt-out. Reuses `SECRET_KEY` — no new secret. |
@@ -430,7 +434,7 @@ Only the Helm `mcpgw` subchart and Docker expose these today.
 
 | Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose |
 |-----------|-----------------|-----------------------|----------------------|---------|
-| Storage backend | `STORAGE_BACKEND` | `storage_backend` | `mongodb-configure.mongodb.storage_backend` | `file` (deprecated), `documentdb`, `mongodb-ce`, `mongodb`, `mongodb-atlas`. |
+| Storage backend | `STORAGE_BACKEND` | `storage_backend` | `mongodb-configure.mongodb.storage_backend` | `documentdb`, `mongodb-ce` (default), `mongodb`, `mongodb-atlas`. The `file` backend was removed in v1.24.8. |
 | Host | `DOCUMENTDB_HOST` | — (derived from module) | `mongodb-configure.mongodb.host` | — |
 | Port | `DOCUMENTDB_PORT` | — | `mongodb-configure.mongodb.port` | Default 27017. |
 | Database | `DOCUMENTDB_DATABASE` | — | `mongodb-configure.mongodb.database` | Default `mcp_registry`. |
@@ -678,6 +682,43 @@ User-supplied environment variables passed to the registry, auth-server, and mcp
 
 ---
 
+## Group 31 — Egress Credential Vault (third-party OBO)
+
+Per-user egress OAuth: MCP servers act on a user's behalf with the user's own
+third-party token (e.g. GitHub), brokered by the gateway's OAuth AS facade and
+stored in a per-user vault. The registry owns the full set (secret store + OAuth
+engine); the auth-server needs only the feature flag, the internal vend URL, and
+the nginx marker secret. Backend: `secrets-manager` is the natural ECS choice;
+`openbao` is the EKS/Helm choice (Kubernetes auth, no static token). Helm reads
+non-secret vars from a discrete `registry-egress-config`
+/ `auth-server-egress-config` ConfigMap; the marker secret is auto-generated and
+shared in the stack `shared-secret`.
+
+| Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose                                                           |
+|-----------|-----------------|-----------------------|----------------------|-------------------------------------------------------------------|
+| Enable vault | `EGRESS_AUTH_ENABLED` | `egress_auth_enabled` | `registry.egressAuth.enabled` / `auth-server.egressAuth.enabled` | Switch for the per-user egress credential vault.                  |
+| Secret store backend | `SECRET_STORE_BACKEND` | `egress_secret_store_backend` | `registry.egressAuth.secretStoreBackend` | `secrets-manager` \| `openbao`.                                   |
+| OAuth callback base URL | `EGRESS_OAUTH_CALLBACK_BASE_URL` | `egress_oauth_callback_base_url` | `registry.egressAuth.oauthCallbackBaseUrl` | Public base for `{base}/oauth2/egress/callback`.                  |
+| Token refresh skew (s) | `EGRESS_TOKEN_REFRESH_SKEW_SECONDS` | `egress_token_refresh_skew_seconds` | `registry.egressAuth.tokenRefreshSkewSeconds` | Refresh a vaulted token this many seconds before expiry.          |
+| Refresh worker interval (s) | `EGRESS_REFRESH_WORKER_INTERVAL_SECONDS` | — | `registry.egressAuth.refreshWorkerIntervalSeconds` | Background refresh sweep interval.                                |
+| OAuth state TTL (s) | `EGRESS_STATE_TTL_SECONDS` | `egress_state_ttl_seconds` | `registry.egressAuth.stateTtlSeconds` | TTL for the AEAD-encrypted OAuth `state` blob.                    |
+| Registry internal vend URL | `EGRESS_REGISTRY_INTERNAL_URL` | `egress_registry_internal_url` | `auth-server.egressAuth.registryInternalUrl` | Auth-server → registry internal vend endpoint.                    |
+| nginx marker secret **(secret)** | `AUTH_SERVER_NGINX_MARKER_SECRET` | `egress_nginx_marker_secret` | auto-generated in stack `shared-secret`; `*.egressAuth.markerSecret` (standalone) | Marker shared by registry + auth-server; required at startup (both refuse to start without it). |
+| Secrets Manager KMS key **(secret)** | `SECRETS_MANAGER_KMS_KEY_ID` | `egress_secrets_manager_kms_key_id` | `registry.egressAuth.secretsManager.kmsKeyId` | Optional CMK for the vault secrets (secrets-manager backend).     |
+| Secrets Manager path prefix | `SECRETS_MANAGER_PATH_PREFIX` | `egress_secrets_manager_path_prefix` | `registry.egressAuth.secretsManager.pathPrefix` | Secret name prefix; also scopes the ECS task IAM grant.           |
+| OpenBao address | `OPENBAO_ADDR` | — | `registry.egressAuth.openbao.addr` | OpenBao server URL (openbao backend).                             |
+| OpenBao namespace | `OPENBAO_NAMESPACE` | — | `registry.egressAuth.openbao.namespace` | Enterprise namespaces only.                                       |
+| OpenBao KV mount | `OPENBAO_KV_MOUNT` | — | `registry.egressAuth.openbao.kvMount` | KV v2 mount point (default `secret`).                             |
+| OpenBao auth method | `OPENBAO_AUTH_METHOD` | — | `registry.egressAuth.openbao.authMethod` | `token` \| `kubernetes`. EKS uses `kubernetes` (no static token). |
+| OpenBao role | `OPENBAO_ROLE` | — | `registry.egressAuth.openbao.role` | Kubernetes-auth role bound to the registry ServiceAccount.        |
+
+**Backend by surface:** ECS wires only the `secrets-manager` knobs (`OPENBAO_*`
+omitted); EKS/Helm defaults to `openbao` with `authMethod: kubernetes` and a
+self-bootstrapping standalone OpenBao (init/unseal/bootstrap Job + unseal
+sidecar, entirely Kubernetes-driven — no KMS, no Secrets Manager).
+
+---
+
 ## Group 30 — Infrastructure-Only (Terraform and Helm) Parameters
 
 These have no `.env` equivalent because they describe the infrastructure, not the running registry.
@@ -687,6 +728,7 @@ These have no `.env` equivalent because they describe the infrastructure, not th
 | Terraform variable | Purpose |
 |--------------------|---------|
 | `ingress_cidr_blocks` | CIDRs allowed to reach the main ALB. |
+| `auth_server_url` | Internal URL the registry/nginx use to reach the auth-server. Defaults to `http://auth-server:8888`; set to a Cloud Map / Service Connect FQDN for FQDN-only deployments. (Docker: `AUTH_SERVER_URL`; Helm: derived from the cluster service FQDN.) |
 | `use_regional_domains` | Regional subdomain pattern. |
 | `base_domain` | Root domain for regional pattern. |
 | `keycloak_domain` | Custom Keycloak hostname. |
@@ -701,6 +743,13 @@ These have no `.env` equivalent because they describe the infrastructure, not th
 | `aws_region` | Deploy region. |
 | `name` | Deployment name prefix. |
 | `vpc_cidr` | VPC CIDR. |
+| `use_existing_vpc` | Deploy into an existing VPC/subnets instead of creating a new VPC. Defaults to `false`. |
+| `existing_vpc_id` | Existing VPC ID to use when `use_existing_vpc` is true. |
+| `existing_public_subnet_ids` | Existing public subnet IDs for internet-facing ALBs (existing-VPC mode). |
+| `existing_private_subnet_ids` | Existing private subnet IDs for ECS tasks, databases, Lambda, and EFS (existing-VPC mode). |
+| `existing_private_route_table_ids` | Existing private route table IDs for VPC gateway endpoints, required when `use_existing_vpc` and `create_vpc_endpoints` are both true. |
+| `existing_nat_public_ips` | Optional public egress IPs that private tasks use to reach the Keycloak public ALB (existing-VPC mode). |
+| `create_vpc_endpoints` | Create STS and S3 VPC endpoints. Set false when the existing VPC already provides endpoint/egress routing. Defaults to `true`. |
 | `enable_monitoring` | CloudWatch dashboards. |
 | `alarm_email` | SNS destination. |
 | `currenttime_replicas`, `mcpgw_replicas`, `realserverfaketools_replicas`, `flight_booking_agent_replicas`, `travel_assistant_agent_replicas` | ECS service desired counts. |

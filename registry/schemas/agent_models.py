@@ -574,6 +574,19 @@ class AgentCard(BaseModel):
         alias="supportedProtocol",
         description="Agent protocol: 'a2a' for A2A protocol agents, 'other' for non-A2A agents",
     )
+    registry_name: str = Field(
+        default="local",
+        description="Registry this agent belongs to (federation origin).",
+    )
+    record_kind: str | None = Field(
+        default=None,
+        description="Origin marker, e.g. 'ard_ingested' for ARD discovery imports.",
+    )
+    ard_source_url: str | None = Field(
+        default=None,
+        alias="ardSourceUrl",
+        description="URL to the source registry's descriptor (ARD discovery imports).",
+    )
 
     model_config = ConfigDict(
         populate_by_name=True  # Allow both snake_case and camelCase on input
@@ -776,6 +789,15 @@ class AgentInfo(BaseModel):
         default=None,
         alias="syncMetadata",
         description="Federation sync metadata for items from peer registries",
+    )
+    record_kind: str | None = Field(
+        default=None,
+        description="Origin marker, e.g. 'ard_ingested' for ARD discovery imports.",
+    )
+    ard_source_url: str | None = Field(
+        default=None,
+        alias="ardSourceUrl",
+        description="URL to the source registry's descriptor (ARD discovery imports).",
     )
     ans_metadata: dict[str, Any] | None = Field(
         default=None,
@@ -1279,3 +1301,57 @@ class AgentBatchJob(BaseModel):
     lease_expires_at: datetime | None = None
     items: list[AgentBatchItem]  # original submission (immutable)
     results: list[AgentBatchItemResult] = Field(default_factory=list)
+
+
+class PullCardFieldChange(BaseModel):
+    """A single field that differs between local and remote agent card."""
+
+    field: str = Field(
+        ...,
+        description="Field name that changed",
+    )
+    current_value: Any = Field(
+        ...,
+        description="Current value in the local registry",
+    )
+    remote_value: Any = Field(
+        ...,
+        description="Value from the remote agent card",
+    )
+
+
+class PullCardResponse(BaseModel):
+    """Response from the pull-card endpoint (dry-run and overwrite modes)."""
+
+    agent_path: str = Field(
+        ...,
+        description="Agent path in the registry",
+    )
+    dry_run: bool = Field(
+        ...,
+        description="Whether this was a dry-run (preview only)",
+    )
+    remote_card_url: str = Field(
+        ...,
+        description="URL the remote card was fetched from",
+    )
+    changes: list[PullCardFieldChange] = Field(
+        default_factory=list,
+        description="List of fields that differ between local and remote",
+    )
+    has_changes: bool = Field(
+        ...,
+        description="Whether any A2A-spec fields differ",
+    )
+    applied: bool = Field(
+        False,
+        description="Whether changes were applied (only true when dry_run=false and has_changes=true)",
+    )
+    health_status: str = Field(
+        "healthy",
+        description="Health status updated as side effect of successful fetch",
+    )
+    remote_card: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The full remote agent card as received",
+    )
