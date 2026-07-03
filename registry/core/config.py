@@ -65,6 +65,7 @@ def _normalize_cors_origin(value: str) -> str | None:
         return f"{scheme}://{host}:{port}"
     return f"{scheme}://{host}"
 
+
 # Accepted values for STORAGE_BACKEND. Keep in sync with the Terraform allowlist
 # at terraform/aws-ecs/variables.tf (issue #955) so both layers reject the same
 # typos with the same messages.
@@ -891,6 +892,18 @@ class Settings(BaseSettings):
     # Audit Logging MongoDB Configuration
     audit_log_mongodb_enabled: bool = True  # Enable/disable MongoDB storage for audit logs
     audit_log_mongodb_ttl_days: int = 7  # Days to retain audit events in MongoDB (default 7 days)
+
+    # Audit durability guard. When audit logging is enabled, the audit trail is
+    # only tamper-resistant and queryable if it lands in a durable store
+    # (MongoDB/DocumentDB). Best-effort JSON log lines are NOT a durable audit
+    # trail: they can be lost on container restart, are not queryable for
+    # forensics, and are trivially rotated away. When this guard is True
+    # (default) the application FAILS CLOSED at startup if audit logging is
+    # enabled but no durable sink is available, rather than silently degrading to
+    # non-durable log lines. Set to False ONLY in local/dev environments where a
+    # non-durable audit trail is acceptable; doing so emits a loud startup
+    # warning. See threat-model repudiation hardening.
+    audit_log_require_durable: bool = True
 
     # Deployment Mode Configuration
     deployment_mode: DeploymentMode = Field(
