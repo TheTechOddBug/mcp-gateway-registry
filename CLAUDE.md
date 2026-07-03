@@ -771,6 +771,14 @@ working in those areas.
 - **Read endpoints:** redaction + access checks must be uniform across the whole
   entity family (versions, bulk, discovery projections, search, admin-config
   reads) via one shared helper — not just the reported endpoint.
+- **Tokens/JWT:** never derive `verify_aud`/issuer/alg from an unverified claim —
+  enforce audience against a config allowlist, fail closed. Never auto-grant
+  groups/admin from a code-shipped mapping (config-driven, fail closed).
+- **Admin ops:** refuse self-delete + last-admin removal/demotion (fail closed if
+  the admin population can't be counted); audit admin-tier grants.
+- **Never put a secret on subprocess argv** (world-readable via `ps`) — pass via
+  `env=`/stdin. **Trust forwarded metadata only from the proxy hop:** rightmost/
+  trusted XFF (not leftmost), allowlist `Host` before building a redirect_uri.
 - **Frontend:** one shared URL-scheme guard on every dynamic href/`window.open`/
   markdown link (allowlist http/https/mailto, render unsafe as text); enforce
   `react/jsx-no-script-url`.

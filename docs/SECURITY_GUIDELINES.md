@@ -99,7 +99,9 @@ sanitizer that isn't called) is equivalent to no check.
   (`proxy_pass_url`, backend, host, path), and reject metacharacters + non-http(s)
   schemes at registration.
 - **Escape user input used in `$regex`/regex-match queries** (`re.escape`), and
-  never fall back to a raw user string when tokenization yields nothing.
+  never fall back to a raw user string when tokenization yields nothing. Escape
+  at the SINK (the repository method that builds the query), not at the caller —
+  a caller-escape contract silently breaks the moment a new caller forgets it.
 
 ## Authorization & ownership
 
@@ -145,6 +147,31 @@ sanitizer that isn't called) is equivalent to no check.
 - **Verify externally-supplied JWTs** (signature/issuer/audience/expiry) against
   the IdP JWKS before trusting any claim. Never `verify_signature=False` on a
   token whose claims drive identity or authorization.
+- **Never derive a verification decision from an unverified claim.** Decoding a
+  token unverified to read `aud`/`cid` and then setting `verify_aud=False` (or
+  picking the issuer/algorithm) from that value defeats the check — any
+  genuinely-signed token from the same issuer, even one minted for a different
+  resource in the tenant, is then accepted (confused deputy). Enforce audience
+  against a config-driven allowlist with `verify_aud=True`; fail closed (reject)
+  when the allowlist is unconfigured rather than accepting any audience.
+- **Never auto-grant groups/roles/admin from a code-shipped mapping.** A
+  hardcoded `client_id → [groups]` (or default-admin) table in an M2M/SSO sync
+  path silently confers privilege. Drive the mapping from config, fail closed to
+  no groups when unset/malformed, and grep every provider's sync sibling (okta,
+  auth0, …) for the same pattern.
+- **Protect the admin population from lockout and self-harm.** Admin user-mgmt
+  must refuse self-deletion, refuse removing/demoting the LAST admin (count
+  remaining admins first, fail closed if the population can't be enumerated), and
+  emit a distinct audit event on any admin-tier grant. Derive "who is admin" from
+  the SAME privileged-scope rule the request-time check uses, not a separate
+  notion.
+- **Trust forwarded request metadata only from the proxy hop, never the client.**
+  For audit client-IP, take `X-Real-IP` or the rightmost/trusted `X-Forwarded-For`
+  entry (configurable proxy-hop count), and fall back to the direct peer when the
+  chain is shorter than expected — never the spoofable leftmost entry. Validate
+  the inbound `Host` against an allowlist (or a configured external URL) before
+  using it to build an OAuth `redirect_uri` or any external URL; fail closed to
+  the configured host on an unexpected `Host`.
 - **Bind the OAuth2/OIDC authorization-code flow to the specific login.** A valid
   signature is necessary but not sufficient — a correctly-signed id_token minted
   for a different login can be replayed/injected. Send a per-login `nonce` on the
@@ -268,6 +295,12 @@ the drift between copies is the hole.
   never print a minted secret (even a prefix) to stdout — write it to a 0600
   file and print the path. *(Applied in the cli-secret-hygiene change; candidate
   for a shared `write_secret_file()` helper.)*
+- **Never pass a secret as a subprocess command-line argument.** argv is
+  world-readable via `ps` / `/proc/<pid>/cmdline` to any local user for the life
+  of the child. Hand it to the child via `env=` (a name-only reference like
+  `MCP_SCANNER_LLM_API_KEY`) or stdin. When an unavoidable third-party tool only
+  accepts the secret on argv, keep it off every hop you control and record the
+  external constraint as a scoped residual (see FOLLOWUPS F-19/F-20).
 
 When you add a NEW canonical helper, list it here so the next agent reaches for
 it instead of rebuilding it.
