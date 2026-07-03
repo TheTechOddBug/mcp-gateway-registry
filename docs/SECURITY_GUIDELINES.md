@@ -46,7 +46,23 @@ sanitizer that isn't called) is equivalent to no check.
   `EXAMPLE_*`). Do not alter functional lookup keys that merely resemble IDs.
 - **Never log secrets, tokens, PII, or full credential/claim payloads.** Redact
   before logging; log identifiers/counts, not values. Watch: request-header
-  dumps, `updates`/body dicts that contain tokens, decoded id_token claims.
+  dumps, `updates`/body dicts that contain tokens, decoded id_token claims. This
+  includes setup/debug scripts in `VERBOSE`/`DEBUG` modes — never echo a password
+  or bearer token (not even a prefix); those logs land in CI/CloudWatch/shell
+  history.
+- **A hardcoded/shipped hashing or HMAC key is equivalent to an unsalted hash.**
+  If a stored-credential hash (e.g. an API-key `key_hash`) is HMAC'd with a
+  compile-time constant, anyone with the DB or a hash can brute-force it offline,
+  and it's identical across deployments. Read the pepper from a REQUIRED
+  per-deployment secret, validated fail-closed (missing/weak/short/placeholder).
+  A deployment-wide pepper keeps hashes deterministic for a `UNIQUE`-column lookup
+  while defeating cross-deployment/offline attack. Changing it invalidates old
+  hashes — document key re-issue.
+- **Write-only credentials need a separate token-free response schema.** A
+  bidirectional secret stored on a config object (e.g. a `federation_token`) must
+  never serialize on a GET/list response. Use a dedicated response model (or
+  `SecretStr`) that omits it and exposes only `has_<secret>: bool` — not `exclude`
+  bolted onto the shared read/write model, which is easy to regress.
 
 ## SSRF & outbound requests from user/registry-controlled input
 
@@ -64,6 +80,16 @@ sanitizer that isn't called) is equivalent to no check.
 - **Every fetch path uses the guarded client** — grep for raw `httpx`/SDK clients
   and third-party SDKs that own their own client. Internal targets are opt-in via
   an explicit allowlist (`SSRF_ALLOWED_HOSTS`/`SSRF_ALLOWED_CIDRS`), default deny.
+- **A stricter security context must not inherit a looser guard's allowlist
+  bypass.** A URL guard shared with a lower-risk path may have a trusted-domain
+  allowlist that skips the IP check; on a credentialed egress path (e.g.
+  federation sync attaching a bearer token) that bypass is a hole. Layer a strict
+  "resolves only to public IPs" check on top for the sensitive path.
+- **Keep TLS verification ON by default for privileged outbound calls.** Never
+  ship `verify=False` on an admin-API client. Trust a private/self-signed cert
+  via an explicit CA bundle env var (fail closed if the configured bundle is
+  missing); any insecure escape hatch must be explicit opt-in, logged, default
+  off.
 
 ## Injection (nginx config generation, NoSQL/regex)
 
@@ -96,6 +122,66 @@ sanitizer that isn't called) is equivalent to no check.
 - **Verify externally-supplied JWTs** (signature/issuer/audience/expiry) against
   the IdP JWKS before trusting any claim. Never `verify_signature=False` on a
   token whose claims drive identity or authorization.
+- **Bind the OAuth2/OIDC authorization-code flow to the specific login.** A valid
+  signature is necessary but not sufficient — a correctly-signed id_token minted
+  for a different login can be replayed/injected. Send a per-login `nonce` on the
+  authorization request, persist it with the flow's transient state (server-side
+  store or a signed integrity-protected cookie), and after signature verification
+  assert `claims["nonce"] == stored_nonce`. Add PKCE (`code_challenge=S256`;
+  `code_verifier` on token exchange) and fail closed if the verifier is missing on
+  callback. Route every provider branch through one verification chokepoint —
+  never a userInfo fallback that skips nonce binding.
+- **Authorize the exact bytes you act on — never a separately-captured copy.** If
+  one component captures a request body for the authz decision and another
+  forwards a different copy to the sink, they can diverge (size-triggered
+  spill-to-file where the capture is empty, whitespace/newline normalization,
+  content-length games) and the sink executes what the authorizer never saw.
+  Re-run the scope/tool check inline on the forwarded bytes immediately before the
+  outbound call; when the scope-relevant body can't be captured/parsed, FAIL
+  CLOSED — do not default to an unprivileged method.
+- **Redaction and access checks on reads must be uniform across the whole entity
+  family.** The same internal fields (backend URLs, authz config) leak through the
+  read sibling that forgot the guard — `/versions`, bulk `/all`, discovery
+  projections that re-project the field under a new name, search-result shaping,
+  admin-config reads. Use one shared redaction-decision helper + field-stripper;
+  gate authz-model reads behind the same admin check as their writes; for an
+  unauthenticated public surface fail closed to the derived URL and never emit a
+  stored internal override.
+
+## Frontend (React) URL / href handling
+
+- **One shared URL-scheme guard, applied to every dynamic href / `window.open` /
+  markdown link.** React does not block `javascript:` (or `data:`/`vbscript:`) in
+  `href`. Any dynamic URL rendered from server-registration or federation data is
+  a stored-XSS vector that runs in the viewer's authenticated session on click.
+  Allowlist `http`/`https`/`mailto`; strip control chars + whitespace before
+  scheme extraction and lowercase it (defeats `Java\tScript:`, leading-space, NUL,
+  mixed case); render unsafe schemes as inert text. Enforce with the
+  `react/jsx-no-script-url` lint rule so regressions are caught. (Server-side
+  template `innerHTML`/inline-`onclick` is a separate sink — guard it too.)
+
+## Deployment surface & insecure-by-default config
+
+- **Publish sensitive ports on loopback, not `0.0.0.0`.** In compose/dev stacks,
+  bind datastores, vaults, IdP admin ports, and backend services to `127.0.0.1:`;
+  only the intended front door (nginx 80/443) listens on all interfaces.
+- **Never ship a working default for a required secret.** Use `${VAR:?message}`
+  so the stack fails fast, and reject known-weak literals in a preflight
+  validator. An active `PASSWORD=admin` in `.env.example` (vs a commented
+  placeholder) seeds real deployments with the weak value.
+- **No secrets as Docker build `ARG`s** — they persist in image history. Inject at
+  runtime.
+- **Don't bind-mount broad credential dirs** (e.g. `~/.aws`) into a
+  network-facing container by default; mount the single needed file or use a
+  scoped role.
+- **Pin image tags; never `:latest`.** And raise dependency floors above known
+  CVEs even when a lockfile currently mitigates — off-lock installs are exposed;
+  prefer consolidating on one library over carrying a redundant vulnerable one.
+- **A dangerous operational toggle** (disabling TLS, wiping data) must require an
+  explicit acknowledgement flag AND a fail-closed environment guard (e.g.
+  localhost-only). Setup scripts must force credential rotation (`temporary:
+  true`) and never grant privileged scopes to anonymous dynamic client
+  registration.
 
 ## Cross-cutting habit
 

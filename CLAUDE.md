@@ -752,7 +752,23 @@ working in those areas.
   family; `dict.get("k")` not `getattr(dict, "k")`; no substring matching for
   privilege decisions; verify externally-supplied JWTs (sig/iss/aud/exp) before
   trusting claims; attach shared/global credentials only on explicit admin opt-in.
-- **Never log** secrets, tokens, PII, or full credential/claim payloads — redact.
+- **Never log** secrets, tokens, PII, or full credential/claim payloads — redact
+  (including setup/debug scripts in verbose mode).
+- **OAuth/OIDC:** bind the code flow to the login — per-login `nonce` (checked
+  after signature verification) + PKCE (`S256`), fail closed if the verifier is
+  missing. Authorize the EXACT bytes you forward, never a separately-captured
+  copy; fail closed when the body isn't inspectable.
+- **Read endpoints:** redaction + access checks must be uniform across the whole
+  entity family (versions, bulk, discovery projections, search, admin-config
+  reads) via one shared helper — not just the reported endpoint.
+- **Frontend:** one shared URL-scheme guard on every dynamic href/`window.open`/
+  markdown link (allowlist http/https/mailto, render unsafe as text); enforce
+  `react/jsx-no-script-url`.
+- **Deployment/config:** sensitive ports on loopback not `0.0.0.0`; no working
+  default for a required secret (`${VAR:?}` + reject weak literals); no secrets in
+  Docker build ARGs; pin image tags; TLS verify on by default (private certs via
+  a CA bundle, never `verify=False`); dangerous toggles require an explicit flag +
+  localhost guard.
 - **After fixing a finding, grep the pattern repo-wide** — findings usually have
   siblings the report didn't list.
 
