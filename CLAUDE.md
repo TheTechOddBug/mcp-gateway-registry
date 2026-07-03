@@ -736,8 +736,10 @@ working in those areas.
   bare `httpx` client); CSRF → `registry/auth/csrf.py`; internal service auth →
   `registry/auth/internal.py`; signing-secret validation →
   `registry/common/secret_key.py`; read redaction → `registry/services/visibility.py`;
-  frontend hrefs → `frontend/src/utils/safeUrl.ts`. A copied snippet is how these
-  findings get reopened.
+  frontend hrefs → `frontend/src/utils/safeUrl.ts`; log redaction (never log raw
+  headers/body/user_context/claims) → `registry/common/log_redaction.py`; writing a
+  credential to disk → `os.open(..., 0o600)` atomically, never print it. A copied
+  snippet is how these findings get reopened.
 - **Fail closed.** On error, missing config, or ambiguity, DENY. A check that can
   be silently skipped (optional param, truthiness on an emptyable value, a
   sanitizer that isn't called) is equivalent to no check.

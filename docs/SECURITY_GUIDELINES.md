@@ -119,6 +119,29 @@ sanitizer that isn't called) is equivalent to no check.
 - **Attach a shared/global credential only on explicit opt-in.** Make the
   privileged code path default to not attaching it and gate its use behind an
   admin check.
+- **Never forward the caller's inbound credential to a proxied/untrusted
+  destination.** When the gateway proxies to a registrant-controlled upstream (or
+  an agent calls a discovered remote agent), strip `Authorization`/`Cookie` from
+  the forwarded request — the upstream is authenticated by the gateway's own
+  mechanism, not by relaying the caller's registry token. nginx subrequests
+  inherit the parent request's headers, so `Cookie`/`Authorization` must be
+  explicitly cleared (`proxy_set_header ... "";`) on any location that proxies
+  directly to a registrant-controlled backend. For outbound service-to-service
+  calls, mint an audience-restricted, short-lived delegation token rather than
+  re-sending the inbound one.
+- **Never accept a credential as a URL query parameter.** Query strings land in
+  access logs, the audit trail, and browser history. Take secrets via a request
+  header or POST body; a credential that arrives in the query string should be
+  ignored, not honored. Keep audit masking as defense-in-depth (substring match
+  on token/secret/credential/auth/key/password, not an exact-name allowlist).
+- **LLM-emitted tool calls need a fail-closed enforcement boundary, not prompt
+  guidance.** Any autonomous agent loop that can run shell commands or mutating
+  actions must gate them at the execution point: a mandatory human-confirmation
+  step for destructive/mutating calls plus a deny-by-default executable
+  allowlist, with a scrubbed environment. System-prompt "be careful" text is not
+  enforcement — the LLM can be steered past it. Agent/A2A endpoints that drive
+  such a loop must require authentication (validate the bearer JWT against the
+  IdP JWKS) and must not bind `0.0.0.0` by default.
 - **Verify externally-supplied JWTs** (signature/issuer/audience/expiry) against
   the IdP JWKS before trusting any claim. Never `verify_signature=False` on a
   token whose claims drive identity or authorization.
@@ -230,6 +253,21 @@ the drift between copies is the hole.
 - **Privileged outbound TLS →** trust private certs via an explicit CA-bundle env
   var, never `verify=False`. `guarded_client`/`guarded_async_client` take
   `verify=` and default it to `True`.
+- **Log redaction → `registry/common/log_redaction.py`** (`redact_headers`,
+  `redact_mapping`) and, for OIDC identity, `safe_identity_summary()` in
+  `auth_server/server.py`. NEVER log a raw header dict, a request/response body
+  dict, a `user_context`, `updates`, or decoded id_token claims — route it
+  through the redactor (masks any `*token*`/`*secret*`/`*credential*`/auth/cookie
+  key) or log identifiers/counts only. This is the exact pattern that gets
+  re-introduced by a casual `logger.info(request.headers)` — reuse the helper.
+  *(Arrives with the sensitive-logging change; the header redactor also has a
+  sibling in `registry/utils/request_utils.py::redact_sensitive_headers`.)*
+- **Writing a credential to a file → create it owner-only and atomically:**
+  `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` then `fdopen`.
+  Never `open()`-then-`chmod` (a readable window), never the process umask,
+  never print a minted secret (even a prefix) to stdout — write it to a 0600
+  file and print the path. *(Applied in the cli-secret-hygiene change; candidate
+  for a shared `write_secret_file()` helper.)*
 
 When you add a NEW canonical helper, list it here so the next agent reaches for
 it instead of rebuilding it.
