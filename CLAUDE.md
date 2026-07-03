@@ -779,6 +779,16 @@ working in those areas.
 - **Never put a secret on subprocess argv** (world-readable via `ps`) — pass via
   `env=`/stdin. **Trust forwarded metadata only from the proxy hop:** rightmost/
   trusted XFF (not leftmost), allowlist `Host` before building a redirect_uri.
+- **One entity type's access grant must never gate a different entity type** (a
+  skill filter keyed on agent access = bypass); filter each resource by its own
+  access check, admin-only universal bypass.
+- **Internal tokens:** short TTL isn't enough — add `jti` + single-use via a
+  shared store (unless the token is legitimately verified twice per flow).
+- **DoS:** rate-limit at the inbound edge (nginx `limit_req`), never the shared
+  `/validate` subrequest; cover all deploy modes. **Audit:** durable-by-default
+  (fail closed), attributable to a specific actor.
+- **OAuth CSRF `state`:** validate at the token-exchange point, not a post-hoc
+  check that may be dead code; OAuth discovery metadata → `Cache-Control: no-store`.
 - **Frontend:** one shared URL-scheme guard on every dynamic href/`window.open`/
   markdown link (allowlist http/https/mailto, render unsafe as text); enforce
   `react/jsx-no-script-url`.

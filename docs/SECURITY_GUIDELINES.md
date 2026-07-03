@@ -63,6 +63,13 @@ sanitizer that isn't called) is equivalent to no check.
   never serialize on a GET/list response. Use a dedicated response model (or
   `SecretStr`) that omits it and exposes only `has_<secret>: bool` — not `exclude`
   bolted onto the shared read/write model, which is easy to regress.
+- **A short TTL limits but does not eliminate replay of internal tokens.** Mint
+  every internal service token with a unique `jti` and enforce single-use via an
+  atomic insert into a shared, replica-visible store (unique index + TTL index),
+  fail closed on missing-jti / replay / store-error. BEFORE making a token
+  single-use, confirm it isn't legitimately verified more than once per flow —
+  e.g. a forwarded proxy token checked at two hops; that class must NOT be
+  single-use (bind a nonce to the known hops or use mTLS instead).
 
 ## SSRF & outbound requests from user/registry-controlled input
 
@@ -180,7 +187,17 @@ sanitizer that isn't called) is equivalent to no check.
   assert `claims["nonce"] == stored_nonce`. Add PKCE (`code_challenge=S256`;
   `code_verifier` on token exchange) and fail closed if the verifier is missing on
   callback. Route every provider branch through one verification chokepoint —
-  never a userInfo fallback that skips nonce binding.
+  never a userInfo fallback that skips nonce binding. **Validate the CSRF `state`
+  at the actual token-exchange point, not a post-hoc check** — if the callback
+  handler exchanges the code inline, a `state` comparison that runs later in the
+  calling flow is dead code; gate the exchange itself and fail closed when
+  `state` is missing/absent/mismatched or no authorization request is in flight.
+- **Cross-resource permission confusion: one entity type's access grant must
+  never gate a different entity type.** A skill-listing fast-path keyed on
+  `accessible_agents` (an agent grant) let a broad agent grant expose private
+  skills. Filter each resource by ITS OWN access check (skill access for skills,
+  server access for servers); the only universal bypass is real admin. Fail
+  closed (omit) when access is unclear.
 - **Authorize the exact bytes you act on — never a separately-captured copy.** If
   one component captures a request body for the authz decision and another
   forwards a different copy to the sink, they can diverge (size-triggered
@@ -232,6 +249,26 @@ sanitizer that isn't called) is equivalent to no check.
   localhost-only). Setup scripts must force credential rotation (`temporary:
   true`) and never grant privileged scopes to anonymous dynamic client
   registration.
+
+## Availability (DoS) & audit
+
+- **Rate-limit at the inbound edge, not the shared internal dependency.** When
+  many authenticated locations fan out to one internal subrequest (e.g. nginx
+  `auth_request /validate`), bound the request rate on the inbound edge locations
+  — never on the internal target (that throttles legitimate auth). Cover exact-
+  match locations that don't fall through to a prefix, and any dynamically-
+  generated location blocks. Apply it at the layer common to ALL deployment modes
+  (nginx `limit_req`/`limit_conn`), since infra WAFs are topology-specific and
+  often default-off. Rate-limit-classifier maps key off the normalized `$uri`
+  with a fail-safe empty default (a miss only broadens coverage). Choose generous
+  defaults + burst so normal bursty clients aren't broken.
+- **Audit must be durable by default and attributable.** If audit is enabled but
+  no durable sink is available, fail closed at startup (loud opt-out for dev), and
+  emit a distinct CRITICAL log if a record is dropped at runtime (don't fail the
+  request — that's a self-DoS). Internal-service actions must be attributable to a
+  specific actor (per-instance/per-purpose `sub`), not a shared service identity.
+  Tamper-evidence (append-only / HMAC chain) is best served by an immutable
+  external store — infra, deferrable.
 
 ## Canonical helpers — use these, never reinvent or copy-paste
 
