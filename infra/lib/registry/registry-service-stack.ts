@@ -258,24 +258,59 @@ export class RegistryServiceStack extends cdk.Stack {
     };
     const authSecrets = sharedSecrets;
 
-    // Optional Bedrock AgentCore policy for federation
+    // Optional Bedrock AgentCore policy for federation.
+    //
+    // Least-privilege: the registry federation client is READ-ONLY against the
+    // bedrock-agentcore-control plane (list registries, list records, get record
+    // -- see registry/services/federation/agentcore_client.py). It never
+    // creates/updates/deletes AgentCore resources, so the action set is limited
+    // to those three operations and scoped to the deploying account.
+    //
+    // Cross-account federation assumes caller-supplied role ARNs. That grant is
+    // only emitted when specific ARNs are configured; an empty list -> no
+    // sts:AssumeRole statement (fail closed, no wildcard cross-account trust).
+    const federationRoleArns = config.federation.awsRegistryFederationAssumeRoleArns ?? [];
+    const agentCoreStatements: iam.PolicyStatement[] = [
+      new iam.PolicyStatement({
+        sid: 'BedrockAgentCoreReadRegistries',
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'bedrock-agentcore:ListRegistries',
+          'bedrock-agentcore:ListRegistryRecords',
+          'bedrock-agentcore:GetRegistryRecord',
+        ],
+        // Scope to AgentCore resources in the deploying account; region is
+        // wildcarded so per-registry region overrides keep working.
+        resources: [`arn:${this.partition}:bedrock-agentcore:*:${this.account}:*`],
+      }),
+    ];
+    if (federationRoleArns.length > 0) {
+      // Fail closed on a malformed ARN rather than silently synthesizing a
+      // policy whose resource is rejected at deploy time (parity with the
+      // Terraform variable's validation block).
+      const roleArnPattern = /^arn:aws[a-z-]*:iam::[0-9]{12}:role\/.+$/;
+      const invalidArns = federationRoleArns.filter((arn) => !roleArnPattern.test(arn));
+      if (invalidArns.length > 0) {
+        throw new Error(
+          `federation.awsRegistryFederationAssumeRoleArns contains invalid IAM role ARNs: ${invalidArns.join(', ')}. ` +
+            'Each entry must match arn:aws:iam::<account-id>:role/<name>.',
+        );
+      }
+      agentCoreStatements.push(
+        new iam.PolicyStatement({
+          sid: 'StsAssumeRoleForCrossAccount',
+          effect: iam.Effect.ALLOW,
+          actions: ['sts:AssumeRole'],
+          // Only the explicitly configured cross-account federation roles.
+          resources: federationRoleArns,
+          // Defense-in-depth: the target role must also carry the federation tag.
+          conditions: { StringLike: { 'iam:ResourceTag/Purpose': 'agentcore-federation' } },
+        }),
+      );
+    }
     const registryTaskRolePolicies: iam.IManagedPolicy[] = config.federation.awsRegistryFederationEnabled
       ? [new iam.ManagedPolicy(this, 'BedrockAgentCorePolicy', {
-          statements: [
-            new iam.PolicyStatement({
-              sid: 'BedrockAgentCoreFullAccess',
-              effect: iam.Effect.ALLOW,
-              actions: ['bedrock-agentcore:*'],
-              resources: ['*'],
-            }),
-            new iam.PolicyStatement({
-              sid: 'StsAssumeRoleForCrossAccount',
-              effect: iam.Effect.ALLOW,
-              actions: ['sts:AssumeRole'],
-              resources: ['*'],
-              conditions: { StringLike: { 'iam:ResourceTag/Purpose': 'agentcore-federation' } },
-            }),
-          ],
+          statements: agentCoreStatements,
         })]
       : [];
 

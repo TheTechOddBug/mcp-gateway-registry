@@ -141,35 +141,58 @@ resource "aws_iam_policy" "ecs_exec_task_execution" {
 }
 
 # IAM policy for Amazon Bedrock AgentCore access (registry federation)
+#
+# Least-privilege: the registry federation client is READ-ONLY against the
+# bedrock-agentcore-control plane -- it only lists registries, lists records,
+# and fetches record details (see registry/services/federation/agentcore_client.py).
+# It never creates/updates/deletes AgentCore resources, so the action set is
+# restricted to those three operations and the resource is scoped to the
+# deploying account (same-account, default-client federation).
+#
+# Cross-account federation uses sts:AssumeRole into caller-supplied role ARNs.
+# That grant is only emitted when specific role ARNs are configured
+# (var.aws_registry_federation_assume_role_arns); an empty list -> no
+# sts:AssumeRole statement at all (fail closed, no wildcard cross-account trust).
 resource "aws_iam_policy" "bedrock_agentcore_access" {
   count       = var.aws_registry_federation_enabled ? 1 : 0
   name_prefix = "${local.name_prefix}-bedrock-agentcore-"
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "BedrockAgentCoreFullAccess"
-        Effect = "Allow"
-        Action = [
-          "bedrock-agentcore:*"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "StsAssumeRoleForCrossAccount"
-        Effect = "Allow"
-        Action = [
-          "sts:AssumeRole"
-        ]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "iam:ResourceTag/Purpose" = "agentcore-federation"
+    Statement = concat(
+      [
+        {
+          Sid    = "BedrockAgentCoreReadRegistries"
+          Effect = "Allow"
+          Action = [
+            "bedrock-agentcore:ListRegistries",
+            "bedrock-agentcore:ListRegistryRecords",
+            "bedrock-agentcore:GetRegistryRecord"
+          ]
+          # Scope to AgentCore resources in the deploying account. Registry and
+          # record ARNs live under this account/partition; region is wildcarded
+          # so per-registry region overrides keep working.
+          Resource = "arn:${data.aws_partition.current.partition}:bedrock-agentcore:*:${data.aws_caller_identity.current.account_id}:*"
+        }
+      ],
+      length(var.aws_registry_federation_assume_role_arns) > 0 ? [
+        {
+          Sid    = "StsAssumeRoleForCrossAccount"
+          Effect = "Allow"
+          Action = [
+            "sts:AssumeRole"
+          ]
+          # Only the explicitly configured cross-account federation roles.
+          Resource = var.aws_registry_federation_assume_role_arns
+          # Defense-in-depth: the target role must also carry the federation tag.
+          Condition = {
+            StringLike = {
+              "iam:ResourceTag/Purpose" = "agentcore-federation"
+            }
           }
         }
-      }
-    ]
+      ] : []
+    )
   })
 
   tags = local.common_tags

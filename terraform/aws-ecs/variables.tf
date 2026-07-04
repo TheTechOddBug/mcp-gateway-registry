@@ -1112,6 +1112,17 @@ variable "aws_registry_federation_enabled" {
   default     = false
 }
 
+variable "aws_registry_federation_assume_role_arns" {
+  description = <<-EOT
+    IAM role ARNs the registry task may assume for cross-account AWS Agent
+    Registry federation. Leave empty (the default) to disable cross-account
+    access: the sts:AssumeRole grant is omitted entirely and only same-account
+    federation works. Fail-closed: an unset list grants no cross-account trust.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 # =============================================================================
 # ANS (AGENT NAMING SERVICE) CONFIGURATION
 # =============================================================================
