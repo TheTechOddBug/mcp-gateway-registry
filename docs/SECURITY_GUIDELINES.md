@@ -236,6 +236,16 @@ sanitizer that isn't called) is equivalent to no check.
   gate authz-model reads behind the same admin check as their writes; for an
   unauthenticated public surface fail closed to the derived URL and never emit a
   stored internal override.
+- **Redact the DERIVED field, not just the raw source field.** Nulling
+  `proxy_pass_url`/`mcp_endpoint` on a response is not enough if a *computed*
+  field (a "connect URL", `endpoint_url`, `transport.url`) is built from that
+  same internal value and returned alongside — the URL-builder often echoes an
+  explicit endpoint override verbatim as its top-priority branch. Make the
+  builder itself redaction-aware (pass the redaction decision in; when set,
+  return only the public/gateway form or None), and assert in tests that the
+  internal host is absent from the derived field, not only from the raw one.
+  (This is exactly the leak that survived the first pass on semantic search's
+  `endpoint_url` while the raw fields were already nulled.)
 
 ## Frontend (React) URL / href handling
 
