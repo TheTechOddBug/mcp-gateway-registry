@@ -17,6 +17,11 @@ from ._identity_url_sidecar import (
     find_by_normalized_identity_url,
     populate_normalized_identity_url,
 )
+from ._unique_id_index import (
+    backfill_missing_id,
+    ensure_unique_id_index,
+    find_doc_by_id,
+)
 from .client import get_collection_name, get_documentdb_client
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,10 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
                 self._collection_name,
                 ENTITY_TYPE_AGENT,
             )
+            # Unique id index (#1276): backfill BEFORE building the unique
+            # partial index so the build never fails on legacy rows.
+            await backfill_missing_id(collection, self._collection_name)
+            await ensure_unique_id_index(collection, self._collection_name)
             self._collection = collection
             return self._collection
 
@@ -164,6 +173,16 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
         except Exception as e:
             logger.error(f"Failed to create agent in DocumentDB: {e}", exc_info=True)
             raise ValueError(f"Failed to create agent: {e}")
+
+    async def find_by_id(
+        self,
+        asset_id: str,
+    ) -> dict[str, Any] | None:
+        """Indexed lookup by ``id`` (#1276). Overrides the scanning default."""
+        if not asset_id:
+            return None
+        collection = await self._get_collection()
+        return await find_doc_by_id(collection, asset_id)
 
     async def update(
         self,

@@ -347,3 +347,29 @@ class TestFindWithFilter:
         mock_collection.find.return_value = cursor
         await repo.find_with_filter({"x": 1}, limit=10)
         cursor.limit.assert_called_with(10)
+
+
+class TestFindById:
+    async def test_returns_none_on_miss(self, repo, mock_collection):
+        mock_collection.find_one.return_value = None
+        result = await repo.find_by_id("arn:aws:nope")
+        assert result is None
+        mock_collection.find_one.assert_awaited_with({"id": "arn:aws:nope"})
+
+    async def test_remaps_id_to_path_on_hit(self, repo, mock_collection):
+        mock_collection.find_one.return_value = {
+            "_id": "/my-server",
+            "id": "arn:aws:x",
+            "server_name": "srv",
+        }
+        result = await repo.find_by_id("arn:aws:x")
+        assert result is not None
+        assert result["path"] == "/my-server"
+        assert "_id" not in result
+        assert result["id"] == "arn:aws:x"
+
+    async def test_empty_id_returns_none_without_query(self, repo, mock_collection):
+        mock_collection.find_one.reset_mock()
+        result = await repo.find_by_id("")
+        assert result is None
+        mock_collection.find_one.assert_not_awaited()
