@@ -110,6 +110,21 @@ class ServerService:
                 "is_new_version": False,
             }
 
+        # Id uniqueness pre-check (#1276): a caller-supplied id must not
+        # collide with an existing asset. Return a failure dict (mirrors the
+        # path-conflict contract above) so the routes surface a 409.
+        asset_id = server_info.get("id")
+        if asset_id and await self._repo.find_by_id(asset_id):
+            logger.warning(
+                f"Server registration rejected: id '{asset_id}' already exists"
+            )
+            return {
+                "success": False,
+                "message": f"Server with id '{asset_id}' already exists",
+                "is_new_version": False,
+                "error_type": "id_conflict",
+            }
+
         # New server - create it
         # Initialize version metadata for new servers
         if not server_info.get("version"):

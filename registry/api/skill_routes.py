@@ -33,6 +33,7 @@ from ..audit.context import set_audit_action
 from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
 from ..exceptions import (
+    AssetIdConflictError,
     SkillAlreadyExistsError,
     SkillContentFetchError,
     SkillContentSSRFError,
@@ -1010,6 +1011,11 @@ async def register_skill(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except SkillValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except AssetIdConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Skill with id '{e.asset_id}' already exists",
+        )
     except SkillServiceError as e:
         logger.error(f"Failed to register skill: {e}")
         raise HTTPException(

@@ -76,6 +76,7 @@ def mock_skill_repository():
     mock_repo.ensure_indexes = AsyncMock()
     mock_repo.create = AsyncMock()
     mock_repo.get = AsyncMock(return_value=None)
+    mock_repo.find_by_id = AsyncMock(return_value=None)
     mock_repo.list_all = AsyncMock(return_value=[])
     mock_repo.list_filtered = AsyncMock(return_value=[])
     mock_repo.update = AsyncMock()
@@ -214,6 +215,34 @@ class TestSkillService:
         assert created_card.id == supplied_id
         # ...and so does what the service returns
         assert result.id == supplied_id
+
+    @pytest.mark.asyncio
+    async def test_register_skill_rejects_duplicate_id(
+        self,
+        skill_data,
+        mock_url_validation,
+        mock_skill_repository,
+        mock_search_repository,
+    ):
+        """A caller-supplied id colliding with an existing skill raises (#1276)."""
+        from registry.exceptions import AssetIdConflictError
+        from registry.schemas.skill_models import SkillRegistrationRequest
+        from registry.services.skill_service import SkillService
+
+        mock_skill_repository.find_by_id.return_value = {
+            "path": "/other",
+            "id": "arn:aws:x",
+        }
+
+        service = SkillService()
+        service._repo = mock_skill_repository
+        service._search_repo = mock_search_repository
+
+        request = SkillRegistrationRequest(**{**skill_data, "id": "arn:aws:x"})
+        with pytest.raises(AssetIdConflictError):
+            await service.register_skill(request, owner="testuser")
+
+        mock_skill_repository.create.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_get_skill(self, mock_skill_repository, mock_search_repository):

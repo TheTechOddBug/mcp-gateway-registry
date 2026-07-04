@@ -50,6 +50,7 @@ from ..schemas.duplicate_check_models import (
     AgentDuplicateCheckRequest,
     DuplicateCheckResult,
 )
+from ..exceptions import AssetIdConflictError
 from ..services._asset_id import resolve_asset_id
 from ..services.agent_batch_service import (
     ConcurrentJobLimitError,
@@ -915,7 +916,17 @@ async def register_agent(
             detail=f"Registration denied by policy gate: {gate_result.error_message}",
         )
 
-    success = await agent_service.register_agent(agent_card)
+    try:
+        success = await agent_service.register_agent(agent_card)
+    except AssetIdConflictError as e:
+        logger.warning(f"Agent registration id conflict: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": f"Agent with id '{e.asset_id}' already exists",
+                "suggestion": "Use a different id or omit it to auto-generate one",
+            },
+        )
 
     if not success:
         return JSONResponse(
