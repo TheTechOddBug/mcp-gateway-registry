@@ -87,6 +87,21 @@ sanitizer that isn't called) is equivalent to no check.
 - **Every fetch path uses the guarded client** — grep for raw `httpx`/SDK clients
   and third-party SDKs that own their own client. Internal targets are opt-in via
   an explicit allowlist (`SSRF_ALLOWED_HOSTS`/`SSRF_ALLOWED_CIDRS`), default deny.
+- **A feature merged in parallel with a hardening PR is the classic gap.** When a
+  hardening PR routes "every outbound URL" through the guard, its diff only covers
+  files that existed on its branch. A feature developed concurrently (its own new
+  handlers/clients) is invisible to that PR and ships an unguarded sink. After a
+  hardening wave, re-audit any feature that landed alongside it: grep the
+  feature's own files for raw clients/URL fields, don't trust "the SSRF PR handled
+  it." (This is exactly how the egress OAuth `custom_token_url` — carrying the
+  client_secret and user refresh_token — reached a bare `httpx` POST after the
+  SSRF PR shipped.)
+- **An OAuth token endpoint IS an outbound sink carrying secrets.** A per-provider
+  `token_url` (especially a registrant-supplied "custom" one) receives the client
+  secret and, on refresh, the user's refresh_token — treat it exactly like a
+  proxy_pass/agent URL: validate at registration (`require_https=True`) and pin at
+  fetch time. The authorize URL is a browser redirect — bound it too, but the
+  token URL is where credential exfiltration happens.
 - **A stricter security context must not inherit a looser guard's allowlist
   bypass.** A URL guard shared with a lower-risk path may have a trusted-domain
   allowlist that skips the IP check; on a credentialed egress path (e.g.
