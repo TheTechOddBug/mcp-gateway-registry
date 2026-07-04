@@ -71,11 +71,28 @@ def integration_client(mock_settings, mock_peer_federation):
 class TestDeploymentModeIntegration:
     """Integration tests for deployment mode endpoints."""
 
-    def test_config_endpoint_returns_mode(self, integration_client):
-        """Config endpoint should return deployment mode fields."""
+    def test_config_endpoint_requires_auth(self, integration_client):
+        """Anonymous GET /api/config must be rejected (fail closed)."""
         response = integration_client.get("/api/config")
-        assert response.status_code == 200
-        data = response.json()
+        assert response.status_code == 401
+
+    def test_config_endpoint_returns_mode(self, integration_client):
+        """Config endpoint should return deployment mode fields for an authed user."""
+        from registry.auth.dependencies import enhanced_auth
+        from registry.main import app
+
+        app.dependency_overrides[enhanced_auth] = lambda: {
+            "username": "regular-user",
+            "groups": ["engineering"],
+            "is_admin": False,
+        }
+        try:
+            response = integration_client.get("/api/config")
+            assert response.status_code == 200
+            data = response.json()
+        finally:
+            app.dependency_overrides.clear()
+
         assert "deployment_mode" in data
         assert "registry_mode" in data
         assert "nginx_updates_enabled" in data
