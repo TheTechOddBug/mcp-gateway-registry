@@ -8,6 +8,7 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
+from ...exceptions import AssetIdConflictError
 from ...utils.url_normalize import ENTITY_TYPE_SERVER, NORMALIZED_IDENTITY_URL_FIELD
 from ..interfaces import ServerRepositoryBase
 from ._identity_url_sidecar import (
@@ -303,7 +304,18 @@ class DocumentDBServerRepository(ServerRepositoryBase):
                 f"DocumentDB WRITE: Created server '{server_info['server_name']}' at '{path}'"
             )
             return True
-        except DuplicateKeyError:
+        except DuplicateKeyError as exc:
+            # Disambiguate id-collision from path-collision via the structured
+            # key spec (#1276). An id collision here means two registrations
+            # raced past the service-layer pre-check; surface it precisely.
+            key_pattern = (exc.details or {}).get("keyPattern", {})
+            if "id" in key_pattern:
+                logger.warning(
+                    f"Server id '{server_info.get('id')}' already exists (race)"
+                )
+                raise AssetIdConflictError(
+                    asset_type="server", asset_id=server_info.get("id", "")
+                ) from exc
             logger.error(f"Server path '{path}' already exists in DocumentDB")
             return False
         except Exception as e:

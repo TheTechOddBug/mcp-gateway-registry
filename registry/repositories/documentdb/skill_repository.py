@@ -19,6 +19,7 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
 from ...exceptions import (
+    AssetIdConflictError,
     SkillAlreadyExistsError,
     SkillServiceError,
 )
@@ -295,7 +296,14 @@ class DocumentDBSkillRepository(SkillRepositoryBase):
             await collection.insert_one(doc)
             logger.info(f"Created skill: {skill.path}")
             return skill
-        except DuplicateKeyError:
+        except DuplicateKeyError as exc:
+            # Disambiguate id-collision from path/name-collision (#1276). An id
+            # collision here means two registrations raced past the pre-check.
+            key_pattern = (exc.details or {}).get("keyPattern", {})
+            if "id" in key_pattern:
+                raise AssetIdConflictError(
+                    asset_type="skill", asset_id=getattr(skill, "id", "")
+                ) from exc
             logger.error(f"Skill already exists: {skill.path}")
             raise SkillAlreadyExistsError(skill.name)
         except Exception as e:

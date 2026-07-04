@@ -9,6 +9,8 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
 from ...schemas.agent_models import AgentCard
+from ...exceptions import AssetIdConflictError
+from ...exceptions import AssetIdConflictError
 from ...utils.url_normalize import ENTITY_TYPE_AGENT, NORMALIZED_IDENTITY_URL_FIELD
 from ..interfaces import AgentRepositoryBase
 from ._identity_url_sidecar import (
@@ -167,7 +169,14 @@ class DocumentDBAgentRepository(AgentRepositoryBase):
             await collection.insert_one(doc)
             logger.info(f"Created agent '{agent.name}' at '{path}'")
             return agent
-        except DuplicateKeyError:
+        except DuplicateKeyError as exc:
+            # Disambiguate id-collision from path-collision (#1276). An id
+            # collision here means two registrations raced past the pre-check.
+            key_pattern = (exc.details or {}).get("keyPattern", {})
+            if "id" in key_pattern:
+                raise AssetIdConflictError(
+                    asset_type="agent", asset_id=getattr(agent, "id", "")
+                ) from exc
             logger.error(f"Agent path '{path}' already exists")
             raise ValueError(f"Agent path '{path}' already exists")
         except Exception as e:

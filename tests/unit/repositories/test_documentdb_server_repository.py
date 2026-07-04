@@ -178,6 +178,23 @@ class TestCreate:
         mock_collection.insert_one.side_effect = Exception("db error")
         assert await repo.create({"path": "/a", "server_name": "A"}) is False
 
+    async def test_duplicate_id_raises_asset_id_conflict(self, repo, mock_collection):
+        """A DuplicateKeyError on the id index -> AssetIdConflictError (#1276)."""
+        from registry.exceptions import AssetIdConflictError
+
+        mock_collection.insert_one.side_effect = DuplicateKeyError(
+            "E11000 duplicate key", 11000, {"keyPattern": {"id": 1}}
+        )
+        with pytest.raises(AssetIdConflictError):
+            await repo.create({"path": "/a", "server_name": "A", "id": "arn:aws:x"})
+
+    async def test_duplicate_path_still_returns_false(self, repo, mock_collection):
+        """A DuplicateKeyError on the path (_id) index keeps old behavior."""
+        mock_collection.insert_one.side_effect = DuplicateKeyError(
+            "E11000 duplicate key", 11000, {"keyPattern": {"_id": 1}}
+        )
+        assert await repo.create({"path": "/a", "server_name": "A"}) is False
+
 
 class TestUpdate:
     async def test_updates_existing(self, repo, mock_collection):

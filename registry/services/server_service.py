@@ -2,6 +2,7 @@ import asyncio
 import logging
 from typing import Any
 
+from ..exceptions import AssetIdConflictError
 from ..repositories.factory import get_server_repository
 from ..repositories.interfaces import ServerRepositoryBase
 from ..utils.credential_encryption import (
@@ -131,7 +132,17 @@ class ServerService:
             server_info["version"] = "v1.0.0"
         server_info["is_active"] = True
 
-        result = await self._repo.create(server_info)
+        try:
+            result = await self._repo.create(server_info)
+        except AssetIdConflictError as e:
+            # Lost the insert race after the pre-check (#1276).
+            logger.warning(f"Server registration id conflict (race): {e}")
+            return {
+                "success": False,
+                "message": f"Server with id '{e.asset_id}' already exists",
+                "is_new_version": False,
+                "error_type": "id_conflict",
+            }
 
         if result:
             # Index in search backend
