@@ -782,6 +782,12 @@ working in those areas.
 - **One entity type's access grant must never gate a different entity type** (a
   skill filter keyed on agent access = bypass); filter each resource by its own
   access check, admin-only universal bypass.
+- **Honor the disabled/inactive flag** on every request where access is derived
+  (group→scope enrichment / validate), not just login; filter it in the query AND
+  re-check the doc; fail closed.
+- **IAM least privilege:** no wildcard `Action`/`Resource` — scope to the exact
+  operations the code calls + specific ARNs; cross-account AssumeRole behind an
+  explicit-list default-empty (fail closed); keep Terraform+CDK in parity.
 - **Internal tokens:** short TTL isn't enough — add `jti` + single-use via a
   shared store (unless the token is legitimately verified twice per flow).
 - **DoS:** rate-limit at the inbound edge (nginx `limit_req`), never the shared

@@ -172,6 +172,13 @@ sanitizer that isn't called) is equivalent to no check.
   emit a distinct audit event on any admin-tier grant. Derive "who is admin" from
   the SAME privileged-scope rule the request-time check uses, not a separate
   notion.
+- **Honor the disabled/inactive flag everywhere access is derived, on EVERY
+  request.** A user/group/client marked disabled must contribute no
+  groups/scopes and be denied — enforce it at the group→scope enrichment / session
+  resolve / validate point (which runs per request), not only at login, and add
+  it to the DB query filter AND re-check the returned doc (defense in depth).
+  Fail closed if the flag can't be read. Grep every group-source sibling (user
+  groups, M2M-client groups) — the sync path may actively write `enabled: false`.
 - **Trust forwarded request metadata only from the proxy hop, never the client.**
   For audit client-IP, take `X-Real-IP` or the rightmost/trusted `X-Forwarded-For`
   entry (configurable proxy-hop count), and fall back to the direct peer when the
@@ -249,6 +256,12 @@ sanitizer that isn't called) is equivalent to no check.
   localhost-only). Setup scripts must force credential rotation (`temporary:
   true`) and never grant privileged scopes to anonymous dynamic client
   registration.
+- **IAM policies: least privilege, no wildcard Action or Resource.** Scope
+  `Action` to the exact operations the code actually calls (grep the client) and
+  `Resource` to specific ARNs (or an account/region-pinned pattern), never `*`.
+  Gate cross-account `sts:AssumeRole` behind an explicit configured role-ARN list
+  that defaults empty (fail closed — no trust when unset). Keep IaC surfaces
+  (Terraform + CDK) in parity.
 
 ## Availability (DoS) & audit
 
