@@ -17,6 +17,7 @@ from threading import Lock as ThreadingLock
 from typing import Any, Literal, Optional
 
 from ..constants import DeploymentType
+from ..exceptions import AssetIdConflictError
 from ..core.metrics import PEER_SYNC_DURATION_SECONDS, PEER_SYNC_FAILURES
 from ..repositories.factory import (
     get_peer_federation_repository,
@@ -1384,6 +1385,14 @@ class PeerFederationService:
                             stored_count += 1
                             # Explicitly index for search (embeddings)
                             await self._index_server_for_search(prefixed_path, server_data)
+                        elif result.get("error_type") == "id_conflict":
+                            # Federation id collision (#1276): a peer asset's id
+                            # already exists locally. Log + skip this one asset;
+                            # the rest of the batch continues.
+                            logger.warning(
+                                f"Federation: skipping server from peer '{peer_id}' "
+                                f"- id '{server_data.get('id')}' already exists locally"
+                            )
                         else:
                             logger.error(f"Failed to register server: {prefixed_path}")
 
@@ -1485,6 +1494,13 @@ class PeerFederationService:
                         else:
                             logger.error(f"Failed to register agent: {prefixed_path}")
 
+                except AssetIdConflictError:
+                    # Federation id collision (#1276): a peer agent's id already
+                    # exists locally. Log + skip this one asset; the batch continues.
+                    logger.warning(
+                        f"Federation: skipping agent from peer '{peer_id}' "
+                        f"- id '{agent_data.get('id')}' already exists locally"
+                    )
                 except ValueError as e:
                     # Validation errors
                     logger.error(f"Validation error storing agent '{prefixed_path}': {e}")
