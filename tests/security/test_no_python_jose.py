@@ -33,6 +33,9 @@ _LOCKFILES = (
     "uv.lock",
     "agents/a2a/uv.lock",
     "metrics-service/uv.lock",
+    "servers/currenttime/uv.lock",
+    "servers/mcpgw/uv.lock",
+    "servers/realserverfaketools/uv.lock",
 )
 
 
