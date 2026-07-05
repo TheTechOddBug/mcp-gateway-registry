@@ -401,6 +401,12 @@ variable "session_cookie_domain" {
   default     = ""
 }
 
+variable "cors_allowed_origins" {
+  description = "Comma-separated exact browser origins allowed to make credentialed cross-origin requests to the registry API (e.g. 'https://app.example.com,https://admin.example.com'). The registry's own origin is always trusted. Empty means same-origin only; there is no wildcard fallback."
+  type        = string
+  default     = ""
+}
+
 variable "bind_host" {
   description = "Network bind address for registry and gateway services. Default '0.0.0.0' (IPv4) works on all hosts. Set to '::' only for IPv6-only deployments (requires net.ipv6.bindv6only=0 on the host)."
   type        = string
@@ -837,10 +843,15 @@ variable "pf_admin_user" {
 }
 
 variable "pf_admin_pass" {
-  description = "PingFederate admin API password (sensitive). Wired through AWS Secrets Manager in production."
+  description = "PingFederate admin API password (sensitive). Wired through AWS Secrets Manager in production. No default: supply a strong value when pingfederate_enabled is true."
   type        = string
-  default     = "2FederateM0re"
+  default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.pf_admin_pass != "2FederateM0re"
+    error_message = "pf_admin_pass must not be the well-known development default. Set a strong, unique PingFederate admin password."
+  }
 }
 
 variable "registry_static_token_auth_enabled" {

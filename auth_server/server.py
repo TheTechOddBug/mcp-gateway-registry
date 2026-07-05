@@ -4,6 +4,7 @@ Configuration is passed via headers instead of environment variables.
 """
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -66,6 +67,7 @@ from registry.audit.models import Identity, MCPServer, TokenMintAuditRecord
 from registry.audit.service import AuditLogger
 from registry.audit.sink import emit_audit_event
 from registry.common.scopes_loader import reload_scopes_config
+from registry.common.secret_key import validate_secret_key
 from registry.core.config import settings
 from registry.repositories.factory import get_scope_repository
 
@@ -100,6 +102,12 @@ _USER_JWT_AUDIENCE: str = "mcp-registry"
 
 MAX_TOKEN_LIFETIME_HOURS = 24
 DEFAULT_TOKEN_LIFETIME_HOURS = 8
+
+# Trailing path segments that are MCP transport endpoints, not part of the
+# registered server name. Used when deriving the scope key from a proxied path
+# so that /validate and the mcp-proxy hop authorize against the SAME server
+# name (see _registered_server_from_proxy_path).
+MCP_TRANSPORT_ENDPOINTS: frozenset[str] = frozenset({"mcp", "sse", "messages"})
 
 # Rate limiting for token generation (simple in-memory counter)
 user_token_generation_counts = {}
@@ -1079,6 +1087,39 @@ def _server_names_match(name1: str, name2: str) -> bool:
     return normalized_name1 == _normalize_server_name(name2)
 
 
+def _registered_server_from_proxy_path(
+    server_path: str,
+) -> str:
+    """Derive the registered server name (the scope key) from a proxy path.
+
+    The ``/mcp-proxy/{server_name:path}`` capture and the ``X-Original-URL``
+    /validate parses both contain the registered server name plus any MCP
+    transport endpoint the client appended (``mcp``/``sse``/``messages``). The
+    scope allowlist is keyed on the registered server name WITHOUT that trailing
+    transport segment. Both the /validate hop and the mcp-proxy hop must strip
+    it identically, otherwise they authorize against different keys and a body
+    authorized by one is not re-checked by the other.
+
+    For local servers the path is ``server-name[/transport]``; for federated
+    servers it is ``peer-name/server-name[/transport]``. Only a trailing
+    transport segment is stripped -- the rest of the path is preserved so
+    federated ``peer/server`` keys stay intact.
+
+    Args:
+        server_path: The proxied path segment (e.g. ``currenttime/mcp`` or
+            ``peer-registry-lob-1/cloudflare-docs``).
+
+    Returns:
+        The registered server name used for the scope lookup.
+    """
+    parts = [p for p in server_path.strip("/").split("/") if p]
+    if not parts:
+        return server_path.strip("/")
+    if len(parts) >= 2 and parts[-1] in MCP_TRANSPORT_ENDPOINTS:
+        return "/".join(parts[:-1])
+    return "/".join(parts)
+
+
 async def validate_server_tool_access(
     server_name: str, method: str, tool_name: str, user_scopes: list[str]
 ) -> bool:
@@ -2018,6 +2059,11 @@ async def validate_request(request: Request):
         region = request.headers.get("X-Region", "us-east-1")
         original_url = request.headers.get("X-Original-URL")
         body = request.headers.get("X-Body")
+        # capture_body.lua sets this when the request body was too large to buffer
+        # in memory and spilled to a temp file, so no X-Body could be captured.
+        # Without the body we cannot determine the scope-relevant method/tool, so
+        # any server-scoped request in this state must fail closed (see below).
+        body_uninspectable = request.headers.get("X-Body-Uninspectable") == "1"
 
         # Extract server_name and endpoint from original_url early for logging
         server_name_from_url = None
@@ -2035,8 +2081,11 @@ async def validate_request(request: Request):
 
                 path_parts = path.split("/") if path else []
 
-                # MCP endpoints that should be treated as endpoints, not server names
-                mcp_endpoints = {"mcp", "sse", "messages"}
+                # MCP transport endpoints that should be treated as endpoints,
+                # not server names. Shared with the mcp-proxy hop via
+                # MCP_TRANSPORT_ENDPOINTS / _registered_server_from_proxy_path so
+                # both authorize against the identical scope key.
+                mcp_endpoints = MCP_TRANSPORT_ENDPOINTS
 
                 # For peer/federated registries, path is: peer-name/server-name/endpoint
                 # For local servers, path is: server-name/endpoint
@@ -2066,6 +2115,11 @@ async def validate_request(request: Request):
 
         # Read request body
         request_payload = None
+        # True when a non-empty X-Body was present but could not be parsed into
+        # a scope-relevant payload. We must not silently default such a request
+        # to the unprivileged "initialize" method (that would authorize a body
+        # whose real method we could not read) -- fail closed below instead.
+        body_parse_failed = False
         try:
             if body:
                 payload_text = body  # .decode('utf-8')
@@ -2081,10 +2135,13 @@ async def validate_request(request: Request):
                 logger.debug("No request body provided, skipping payload parsing")
         except UnicodeDecodeError as e:
             logger.warning(f"Could not decode body as UTF-8: {e}")
+            body_parse_failed = True
         except json.JSONDecodeError as e:
             logger.warning(f"Could not parse JSON RPC payload: {e}")
+            body_parse_failed = True
         except Exception as e:
             logger.error(f"Error reading request payload: {type(e).__name__}: {e}")
+            body_parse_failed = True
 
         # Log request for debugging with anonymized IP
         client_ip = get_client_ip(request)
@@ -2566,6 +2623,48 @@ async def validate_request(request: Request):
         if server_name:
             # For ANY server access, enforce scope validation (fail closed principle)
             # This includes MCP initialization methods that may not have a specific tool
+
+            # Fail closed when the scope-relevant body could not be captured.
+            # capture_body.lua sets X-Body-Uninspectable when the request body
+            # spilled to a temp file (larger than client_body_buffer_size) and
+            # get_body_data() returned nil. In that state we would otherwise see
+            # no X-Body and default the method to the unprivileged "initialize"
+            # while the full (potentially privileged) body is forwarded upstream
+            # -- a scope-check bypass. Refuse rather than authorize an
+            # uninspectable body.
+            if body_uninspectable:
+                logger.warning(
+                    "Access denied for user %s to %s - request body was not "
+                    "captured for scope validation (spilled to temp file); "
+                    "failing closed",
+                    hash_username(validation_result.get("username", "")),
+                    server_name,
+                )
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "Request body too large to authorize; scope validation "
+                        "requires an in-memory body"
+                    ),
+                    headers={"Connection": "close"},
+                )
+
+            # Fail closed when a non-empty body was present but could not be
+            # parsed into a scope-relevant payload. Defaulting to "initialize"
+            # here would authorize a request whose real method we could not
+            # determine; the forwarded body could still be a privileged call.
+            if body_parse_failed:
+                logger.warning(
+                    "Access denied for user %s to %s - request body could not "
+                    "be parsed for scope validation; failing closed",
+                    hash_username(validation_result.get("username", "")),
+                    server_name,
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Request body could not be parsed for authorization",
+                    headers={"Connection": "close"},
+                )
 
             # Determine the method to validate:
             # 1. If we have a tool_name from JSON-RPC payload, use that
@@ -3598,13 +3697,9 @@ OAUTH2_CONFIG = load_oauth2_config()
 # Initialize SECRET_KEY and signer for session management.
 # Fail loud: a per-replica random key would silently break sessions across replicas
 # (auth_server signs with key A, registry verifies with key B → BadSignature on every request).
-SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY:
-    raise RuntimeError(
-        "SECRET_KEY environment variable is required. "
-        "Set it to a value at least 32 bytes long, identical across all auth_server "
-        "and registry replicas (see chart values.yaml: global.secretKey)."
-    )
+# A missing, short, or well-known key would let an attacker forge tokens, so the
+# shared validator rejects all three before the signer is constructed.
+SECRET_KEY = validate_secret_key(os.environ.get("SECRET_KEY"))
 
 signer = URLSafeTimedSerializer(SECRET_KEY)
 
@@ -3765,6 +3860,16 @@ async def oauth2_login(provider: str, request: Request, redirect_uri: str = None
         # Generate state parameter for security
         state = secrets.token_urlsafe(32)
 
+        # Generate a per-login nonce (OIDC replay protection) and a PKCE
+        # code_verifier / code_challenge pair (RFC 7636). The nonce binds the
+        # returned id_token to THIS authorization request; PKCE binds the
+        # authorization code to the client that started the flow. Both the
+        # nonce and the code_verifier are persisted in the signed OAuth2 flow
+        # cookie (server-issued, integrity-protected) and checked on callback.
+        nonce = secrets.token_urlsafe(32)
+        code_verifier = secrets.token_urlsafe(64)
+        code_challenge = _pkce_code_challenge(code_verifier)
+
         # Determine the OAuth2 callback URI based on the request origin
         # This is critical for dual-mode (CloudFront + custom domain) deployments
         # The callback_uri MUST match exactly between authorization and token exchange
@@ -3807,6 +3912,8 @@ async def oauth2_login(provider: str, request: Request, redirect_uri: str = None
             "redirect_uri": redirect_uri
             or OAUTH2_CONFIG.get("registry", {}).get("success_redirect", "/"),
             "callback_uri": callback_uri,  # Store for token exchange
+            "nonce": nonce,  # Bind the returned id_token to this login
+            "code_verifier": code_verifier,  # PKCE: sent on token exchange
         }
 
         # Create temporary session for OAuth2 flow
@@ -3818,6 +3925,9 @@ async def oauth2_login(provider: str, request: Request, redirect_uri: str = None
             "scope": " ".join(provider_config["scopes"]),
             "state": state,
             "redirect_uri": callback_uri,
+            "nonce": nonce,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
 
         auth_url = f"{provider_config['auth_url']}?{urllib.parse.urlencode(auth_params)}"
@@ -3856,6 +3966,64 @@ async def oauth2_login(provider: str, request: Request, redirect_uri: str = None
         if not _is_safe_redirect_url(error_url):
             error_url = "/login"
         return RedirectResponse(url=f"{error_url}?error=oauth2_init_failed", status_code=302)
+
+
+def _pkce_code_challenge(code_verifier: str) -> str:
+    """Derive a PKCE ``S256`` code_challenge from a code_verifier (RFC 7636).
+
+    Computes ``BASE64URL-ENCODE(SHA256(ASCII(code_verifier)))`` with the base64
+    padding stripped, as required by RFC 7636 §4.2.
+
+    Args:
+        code_verifier: The high-entropy PKCE verifier generated at login.
+
+    Returns:
+        The S256 code_challenge string to send on the authorization request.
+    """
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _verify_id_token_or_deny(
+    provider: str,
+    id_token: str,
+    expected_nonce: str | None = None,
+) -> dict:
+    """Verify a provider id_token against its JWKS, or deny the login.
+
+    Resolves the provider and calls its ``validate_id_token`` (which verifies
+    signature, issuer, audience, and expiry against the IdP JWKS, and — when
+    ``expected_nonce`` is supplied — the ``nonce`` claim). This is a
+    fail-closed chokepoint: ANY failure — a verification error, a nonce
+    mismatch, a misconfiguration, or an unexpected exception — results in an
+    ``HTTPException(401)`` so that unverified claims can never reach the
+    session. Callers must not wrap this in a fallback-to-userInfo path.
+
+    Args:
+        provider: The OAuth2 provider key (e.g. "keycloak", "entra").
+        id_token: The raw id_token from the token endpoint.
+        expected_nonce: The nonce bound to this login (from the signed OAuth2
+            flow cookie). When not ``None`` the verified token's ``nonce`` claim
+            must match it exactly; otherwise the login is denied.
+
+    Returns:
+        The verified id_token claim set.
+
+    Raises:
+        HTTPException: 401 if the id_token cannot be cryptographically verified
+            or its nonce does not match this login.
+    """
+    try:
+        auth_provider = get_auth_provider(provider)
+        return auth_provider.validate_id_token(id_token, expected_nonce=expected_nonce)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Fail closed on any verification/config/unexpected error. We do not
+        # distinguish exception classes here so that a present-but-unverifiable
+        # id_token can never silently fall through to an unverified source.
+        logger.warning(f"ID token verification failed for {provider}: {e}")
+        raise HTTPException(status_code=401, detail="ID token verification failed") from e
 
 
 @app.get("/oauth2/callback/{provider}")
@@ -3897,6 +4065,18 @@ async def oauth2_callback(
         if provider != temp_session_data.get("provider"):
             raise HTTPException(status_code=400, detail="Provider mismatch")
 
+        # Recover the nonce and PKCE verifier bound to this login. The PKCE
+        # code_verifier is REQUIRED: every login is initiated with one, so its
+        # absence here means the flow did not originate from this server's
+        # /oauth2/login (or the signed cookie was stripped). Fail closed — do
+        # not complete a token exchange without proving possession of the
+        # verifier. The nonce is enforced after id_token signature verification.
+        expected_nonce = temp_session_data.get("nonce")
+        code_verifier = temp_session_data.get("code_verifier")
+        if not code_verifier:
+            logger.warning(f"OAuth2 callback for {provider} missing PKCE code_verifier; denying")
+            raise HTTPException(status_code=400, detail="Missing PKCE verifier for this login")
+
         provider_config = OAUTH2_CONFIG["providers"][provider]
 
         # Exchange authorization code for access token
@@ -3929,7 +4109,9 @@ async def oauth2_callback(
                     auth_server_url = f"{scheme}://{host}{ROOT_PATH}"
                 logger.warning(f"Fallback: Using dynamic URL for token exchange: {auth_server_url}")
 
-        token_data = await exchange_code_for_token(provider, code, provider_config, auth_server_url)
+        token_data = await exchange_code_for_token(
+            provider, code, provider_config, auth_server_url, code_verifier=code_verifier
+        )
         logger.info(f"Token data keys: {list(token_data.keys())}")
 
         # For Cognito and Keycloak, try to extract user info from JWT tokens
@@ -3966,13 +4148,14 @@ async def oauth2_callback(
                         )
                         raise ValueError("Missing Cognito config")
                 elif provider == "keycloak":
-                    # For Keycloak, decode the ID token to get user information
+                    # For Keycloak, verify the ID token and extract user info.
                     if "id_token" in token_data:
-                        import jwt
-
-                        # Decode without verification for now (we trust the token since we just got it)
-                        id_token_claims = jwt.decode(
-                            token_data["id_token"], options={"verify_signature": False}
+                        # Verify signature/issuer/audience/expiry against the
+                        # realm JWKS before trusting any claim. A present but
+                        # unverifiable id_token denies the login (fail closed);
+                        # we never fall back to unverified claims.
+                        id_token_claims = _verify_id_token_or_deny(
+                            "keycloak", token_data["id_token"], expected_nonce=expected_nonce
                         )
                         logger.info(f"ID token claims: {id_token_claims}")
 
@@ -3992,11 +4175,16 @@ async def oauth2_callback(
                         )
                         raise ValueError("Missing ID token")
 
+            except HTTPException:
+                # A denied login (e.g. id_token verification failure) must not
+                # be swallowed by the userInfo fallback below. Fail closed.
+                raise
             except Exception as e:
                 logger.warning(
                     f"JWT token validation failed: {e}, falling back to userInfo endpoint"
                 )
-                # Fallback to userInfo endpoint
+                # Fallback to userInfo endpoint (only reached when there is no
+                # id_token to verify, or for non-verification config errors).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
                 logger.info(f"Raw user info from {provider}: {user_info}")
                 mapped_user = map_user_info(user_info, provider_config)
@@ -4005,11 +4193,13 @@ async def oauth2_callback(
             # For Entra ID, prioritize ID token claims over userinfo endpoint
             try:
                 if "id_token" in token_data:
-                    import jwt
+                    from providers.entra import EntraIdProvider
 
-                    # Decode without verification (we trust the token since we just got it from Microsoft)
-                    id_token_claims = jwt.decode(
-                        token_data["id_token"], options={"verify_signature": False}
+                    # Verify signature/issuer/audience/expiry against the tenant
+                    # JWKS before trusting any claim. A present but unverifiable
+                    # id_token denies the login (fail closed).
+                    id_token_claims = _verify_id_token_or_deny(
+                        "entra", token_data["id_token"], expected_nonce=expected_nonce
                     )
                     logger.info(f"Entra ID token claims: {id_token_claims}")
 
@@ -4025,8 +4215,6 @@ async def oauth2_callback(
                     # `hasgroups` or `_claim_names.groups`. Fall back to
                     # Microsoft Graph /me/memberOf so the user gets their
                     # real group set instead of an empty session (#929).
-                    from providers.entra import EntraIdProvider
-
                     if EntraIdProvider.has_group_overage(id_token_claims):
                         logger.info("Entra ID token signals group overage; resolving via Graph")
                         graph_groups = await EntraIdProvider.fetch_groups_via_graph(
@@ -4050,23 +4238,26 @@ async def oauth2_callback(
                     logger.warning("No ID token found in Entra response, falling back to userInfo")
                     raise ValueError("Missing ID token")
 
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(
                     f"Entra ID token parsing failed: {e}, falling back to userInfo endpoint"
                 )
-                # Fallback to userInfo endpoint
+                # Fallback to userInfo endpoint (only when no id_token present).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
                 logger.info(f"Raw user info from {provider}: {user_info}")
                 mapped_user = map_user_info(user_info, provider_config)
                 logger.info(f"Mapped user info from userInfo: {mapped_user}")
         elif provider == "okta":
-            # For Okta, decode the ID token to get groups (userinfo doesn't include groups)
+            # For Okta, verify the ID token to get groups (userinfo doesn't include groups)
             try:
                 if "id_token" in token_data:
-                    import jwt
-
-                    id_token_claims = jwt.decode(
-                        token_data["id_token"], options={"verify_signature": False}
+                    # Verify signature/issuer/audience/expiry against the Okta
+                    # JWKS before trusting any claim. A present but unverifiable
+                    # id_token denies the login (fail closed).
+                    id_token_claims = _verify_id_token_or_deny(
+                        "okta", token_data["id_token"], expected_nonce=expected_nonce
                     )
                     logger.info(f"Okta ID token claims: {id_token_claims}")
 
@@ -4083,6 +4274,8 @@ async def oauth2_callback(
                     logger.warning("No ID token found in Okta response, falling back to userInfo")
                     raise ValueError("Missing ID token")
 
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(
                     f"Okta ID token parsing failed: {e}, falling back to userInfo endpoint"
@@ -4093,30 +4286,52 @@ async def oauth2_callback(
                 logger.info(f"Mapped user info from userInfo: {mapped_user}")
         elif provider == "auth0":
             # For Auth0, delegate ID token parsing to the Auth0Provider
-            # which validates issuer/audience claims and extracts groups
-            # from a custom namespaced claim configured via Auth0 Actions/Rules
+            # which verifies signature/issuer/audience against the Auth0 JWKS
+            # and extracts groups from a custom namespaced claim configured via
+            # Auth0 Actions/Rules.
             try:
-                auth0_provider = get_auth_provider("auth0")
-                mapped_user = auth0_provider.extract_user_from_tokens(token_data)
-                logger.info(f"User extracted from Auth0 ID token: {mapped_user}")
+                if "id_token" in token_data:
+                    # A present id_token must verify; extraction internally calls
+                    # the JWKS-backed verifier and denies on failure (fail closed).
+                    auth0_provider = get_auth_provider("auth0")
+                    try:
+                        mapped_user = auth0_provider.extract_user_from_tokens(
+                            token_data, expected_nonce=expected_nonce
+                        )
+                    except HTTPException:
+                        raise
+                    except Exception as e:
+                        # Any failure extracting/verifying a present id_token is a
+                        # tampering/config signal: deny, never fall back.
+                        logger.warning(f"ID token verification failed for {provider}: {e}")
+                        raise HTTPException(
+                            status_code=401, detail="ID token verification failed"
+                        ) from e
+                    logger.info(f"User extracted from Auth0 ID token: {mapped_user}")
+                else:
+                    logger.warning("No ID token found in Auth0 response, falling back to userInfo")
+                    raise ValueError("Missing ID token")
 
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(
                     f"Auth0 ID token parsing failed: {e}, falling back to userInfo endpoint"
                 )
-                # Fallback to userInfo endpoint
+                # Fallback to userInfo endpoint (only when no id_token present).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
                 logger.info(f"Raw user info from {provider}: {user_info}")
                 mapped_user = map_user_info(user_info, provider_config)
                 logger.info(f"Mapped user info from userInfo: {mapped_user}")
         elif provider == "pingfederate":
-            # For PingFederate, decode the ID token to get groups
+            # For PingFederate, verify the ID token to get groups
             try:
                 if "id_token" in token_data:
-                    import jwt
-
-                    id_token_claims = jwt.decode(
-                        token_data["id_token"], options={"verify_signature": False}
+                    # Verify signature/issuer/audience/expiry against the
+                    # discovered JWKS before trusting any claim. A present but
+                    # unverifiable id_token denies the login (fail closed).
+                    id_token_claims = _verify_id_token_or_deny(
+                        "pingfederate", token_data["id_token"], expected_nonce=expected_nonce
                     )
                     logger.info(f"PingFederate ID token claims: {id_token_claims}")
 
@@ -4136,6 +4351,8 @@ async def oauth2_callback(
                     )
                     raise ValueError("Missing ID token")
 
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(
                     f"PingFederate ID token parsing failed: {e}, falling back to userInfo endpoint"
@@ -4145,7 +4362,17 @@ async def oauth2_callback(
                 mapped_user = map_user_info(user_info, provider_config)
                 logger.info(f"Mapped user info from userInfo: {mapped_user}")
         else:
-            # For other providers, use userInfo endpoint
+            # For other providers (e.g. GitHub, which is OAuth2, not OIDC, and
+            # never returns an id_token), use the userInfo endpoint: the
+            # access_token is authenticated by the IdP at its userInfo endpoint
+            # over TLS, and identity comes from that authenticated response.
+            #
+            # NOTE: any NEW OpenID Connect provider that returns an id_token
+            # MUST be given its own explicit branch above that routes through
+            # `_verify_id_token_or_deny(..., expected_nonce=expected_nonce)`.
+            # This userInfo path performs neither id_token signature
+            # verification nor nonce binding and must not be used to trust
+            # claims lifted from an unverified id_token.
             user_info = await get_user_info(token_data["access_token"], provider_config)
             logger.info(f"Raw user info from {provider}: {user_info}")
             mapped_user = map_user_info(user_info, provider_config)
@@ -4249,8 +4476,13 @@ async def oauth2_callback(
         # Check if HTTPS is terminated at load balancer/CloudFront
         is_https = is_request_https(request)
 
-        # Only set secure=True if the original request was HTTPS
-        cookie_secure_config = OAUTH2_CONFIG.get("session", {}).get("secure", False)
+        # Secure-by-default: the Secure flag is enabled unless an operator has
+        # explicitly set session.secure to false for a plain-HTTP local dev
+        # stack. A missing config key must NOT silently drop the flag, so the
+        # code-level fallback is True (fail closed). The flag is only actually
+        # emitted when the inbound request is HTTPS, because a browser rejects a
+        # Secure Set-Cookie sent over plain HTTP.
+        cookie_secure_config = OAUTH2_CONFIG.get("session", {}).get("secure", True)
         cookie_secure = cookie_secure_config and is_https
         cookie_samesite = OAUTH2_CONFIG.get("session", {}).get("samesite", "lax")
         cookie_domain = OAUTH2_CONFIG.get("session", {}).get("domain", "")
@@ -4303,9 +4535,23 @@ async def oauth2_callback(
 
 
 async def exchange_code_for_token(
-    provider: str, code: str, provider_config: dict, auth_server_url: str = None
+    provider: str,
+    code: str,
+    provider_config: dict,
+    auth_server_url: str = None,
+    code_verifier: str | None = None,
 ) -> dict:
-    """Exchange authorization code for access token"""
+    """Exchange authorization code for access token.
+
+    Args:
+        provider: The OAuth2 provider key.
+        code: The authorization code returned to the callback.
+        provider_config: The provider's OAuth2 configuration.
+        auth_server_url: Base URL used to reconstruct the redirect_uri.
+        code_verifier: The PKCE code_verifier bound to this login (RFC 7636).
+            Sent so the authorization server can confirm the code was issued to
+            the client that started the flow.
+    """
     if auth_server_url is None:
         auth_server_url = (
             os.environ.get("AUTH_SERVER_URL", "http://localhost:8888").rstrip("/") + ROOT_PATH
@@ -4319,6 +4565,8 @@ async def exchange_code_for_token(
             "code": code,
             "redirect_uri": f"{auth_server_url}/oauth2/callback/{provider}",
         }
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
 
         headers = {"Accept": "application/json"}
         if provider == "github":
@@ -4597,19 +4845,54 @@ async def _read_bounded(
     return b"".join(chunks)
 
 
+# Client-sent auth headers are INGRESS credentials (issue #1266): they
+# authenticate the caller to the GATEWAY and are stripped on the egress hop --
+# they are never forwarded to an upstream MCP server. Upstream credentials are
+# supplied exclusively by the egress vault (oauth_user / PAT / custom-header),
+# never relayed from the client. The single exception is the built-in,
+# same-trust-domain registry-tools server (see _INTERNAL_INGRESS_RELAY_SERVERS).
+
+# The ONLY servers whose backend receives the relayed ingress Authorization.
+# Hardcoded (not configurable) and internal by design: airegistry-tools is the
+# gateway's own bundled registry-tools MCP server (proxied to mcpgw), a
+# same-trust-domain component. Keyed on the verified, path-validated `server`
+# claim (first path segment). This is NOT a general relay feature -- external
+# servers that need an upstream credential use the egress vault.
+_INTERNAL_INGRESS_RELAY_SERVERS: frozenset[str] = frozenset({"airegistry-tools"})
+
+
 def _forward_headers(
     incoming: dict[str, str],
+    relay_authorization: bool = False,
 ) -> dict[str, str]:
-    """Copy incoming request headers, stripping hop-by-hop and proxy-hint
-    headers so httpx can set them correctly for the upstream connection.
+    """Copy incoming request headers to the upstream, stripping hop-by-hop and
+    proxy-hint headers so httpx can set them correctly for the connection.
+
+    Ingress-auth policy (issue #1266): X-Authorization and Cookie are ALWAYS
+    stripped (never forwarded to any upstream). Authorization is also stripped
+    UNLESS ``relay_authorization`` is True -- set only for the built-in internal
+    registry-tools server (_INTERNAL_INGRESS_RELAY_SERVERS). Every other server
+    gets no client auth header on egress; upstream creds come from the vault.
     """
     forwarded: dict[str, str] = {}
     for key, value in incoming.items():
         lower = key.lower()
         if lower in _HOP_BY_HOP_HEADERS:
             continue
-        if lower in ("x-upstream-url",):
+        if lower == "x-upstream-url":
             # Never leak this internal routing header to the upstream.
+            continue
+        if lower in ("x-body", "x-body-uninspectable"):
+            # Gateway-internal body-capture headers set by capture_body.lua for
+            # the /validate hop. Their value is the raw request body, which is
+            # not a legal HTTP header value (braces/spaces) and must never be
+            # forwarded to the upstream.
+            continue
+        if lower in ("x-authorization", "cookie"):
+            # Ingress-only credentials; never forwarded to any upstream.
+            continue
+        if lower == "authorization" and not relay_authorization:
+            # Ingress token; forwarded only for the internal relay server.
             continue
         forwarded[key] = value
     return forwarded
@@ -4919,6 +5202,130 @@ def _select_forwarded_response_headers(
     return selected
 
 
+async def _authorize_forwarded_mcp_body(
+    server_name: str,
+    request_body: bytes,
+    user_scopes: list[str],
+) -> None:
+    """Re-authorize the caller's scopes against the EXACT body being forwarded.
+
+    The nginx /validate hop authorizes on a separately-captured copy of the
+    request body (the ``X-Body`` header built by ``capture_body.lua``). That
+    copy can diverge from the body this handler actually forwards upstream --
+    e.g. when the body spills to an on-disk temp file, nginx captures no
+    ``X-Body`` and /validate falls back to treating the request as the
+    unprivileged ``initialize`` method while a privileged ``tools/call`` body
+    is forwarded. To close that gap, we authorize the forwarded bytes here,
+    independently of whatever /validate saw.
+
+    Fail-closed rules:
+      * A non-empty body that cannot be parsed as a JSON-RPC object is
+        rejected -- we cannot determine the scope-relevant method, so we must
+        not forward it.
+      * A body with no ``method`` (or an empty body) is treated as the
+        ``initialize`` method, mirroring the /validate default so an
+        unauthenticated-for-this-server caller is still denied.
+      * ``tools/call`` requires the specific tool named in ``params.name`` to
+        be allowed; a missing/blank tool name is rejected.
+
+    Args:
+        server_name: The full ``/mcp-proxy/{server_name:path}`` value. The
+            registered server name (scope key) is derived from it the same way
+            /validate derives it from X-Original-URL, so both hops authorize
+            against the identical key.
+        request_body: The exact bytes being forwarded to the upstream.
+        user_scopes: The scopes from the verified X-Internal-Token claims.
+
+    Raises:
+        HTTPException: 403 when the forwarded body is not authorized by the
+            caller's scopes, or when the body is present but cannot be parsed
+            to determine the scope-relevant method/tool.
+    """
+    # Strip only a trailing MCP transport segment (mcp/sse/messages) so the
+    # scope key matches what /validate authorized against -- including federated
+    # "peer/server" keys, which the naive first-segment split would truncate.
+    registered_server = _registered_server_from_proxy_path(server_name)
+
+    method: str | None = None
+    actual_tool_name: str | None = None
+
+    if request_body:
+        try:
+            payload = json.loads(request_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "mcp_proxy: rejecting forwarded body for server=%s that is not "
+                "parseable JSON-RPC (cannot authorize): %s",
+                registered_server,
+                exc,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Request body could not be authorized",
+                headers={"Connection": "close"},
+            ) from exc
+
+        if isinstance(payload, dict):
+            method = payload.get("method")
+            if method == "tools/call":
+                params = payload.get("params")
+                if isinstance(params, dict):
+                    actual_tool_name = params.get("name")
+        else:
+            # A well-formed JSON value that is not a JSON-RPC object (e.g. a
+            # bare array/string/number) has no method we can authorize.
+            logger.warning(
+                "mcp_proxy: rejecting forwarded body for server=%s that is not "
+                "a JSON-RPC object (type=%s)",
+                registered_server,
+                type(payload).__name__,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Request body could not be authorized",
+                headers={"Connection": "close"},
+            )
+
+    # Mirror /validate: absent method defaults to the unprivileged
+    # "initialize" so a caller with no scope on this server is still denied.
+    effective_method = method or "initialize"
+
+    if not user_scopes:
+        logger.warning(
+            "mcp_proxy: access denied to %s.%s (tool=%s) -- no scopes in token",
+            registered_server,
+            effective_method,
+            actual_tool_name,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: no scopes configured",
+            headers={"Connection": "close"},
+        )
+
+    if not await validate_server_tool_access(
+        registered_server, effective_method, actual_tool_name, user_scopes
+    ):
+        logger.warning(
+            "mcp_proxy: access denied to %s.%s (tool=%s) on forwarded body",
+            registered_server,
+            effective_method,
+            actual_tool_name,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied to {registered_server}.{effective_method}",
+            headers={"Connection": "close"},
+        )
+
+    logger.debug(
+        "mcp_proxy: forwarded-body authorization passed for %s.%s (tool=%s)",
+        registered_server,
+        effective_method,
+        actual_tool_name,
+    )
+
+
 @app.post("/mcp-proxy/{server_name:path}", dependencies=[Depends(verify_mcp_proxy_token)])
 async def mcp_proxy(
     server_name: str,
@@ -4989,7 +5396,18 @@ async def mcp_proxy(
     filter_enabled = _read_mcp_filter_enabled()
     max_body_bytes = _read_mcp_proxy_max_body_bytes()
     proxy_timeout = _read_mcp_proxy_timeout()
-    forward_headers = _forward_headers(dict(request.headers))
+
+    # Ingress-auth policy (issue #1266): client auth headers authenticate the
+    # caller to the gateway and are stripped on egress. The ONLY exception is
+    # the built-in internal registry-tools server, which receives the relayed
+    # Authorization (it is a same-trust-domain component). The decision keys on
+    # the verified, path-validated `server` claim, never a forgeable header.
+    registered_server = (claims.get("server") or "").lower()
+    relay_ingress_auth = registered_server in _INTERNAL_INGRESS_RELAY_SERVERS
+    forward_headers = _forward_headers(
+        dict(request.headers),
+        relay_authorization=relay_ingress_auth,
+    )
 
     # True once we inject a vaulted egress token below. An egress upstream is
     # itself an OAuth resource server: if it rejects our injected token it 401s
@@ -5087,6 +5505,18 @@ async def mcp_proxy(
                     req_id=req_id,
                     vend=vend,
                 )
+
+    # Re-authorize the caller's scopes against the EXACT body we are about to
+    # forward upstream. /validate authorizes on a separately-captured copy
+    # (X-Body) that can diverge from this body (e.g. a large body that spilled to
+    # disk, which /validate then treats as an unprivileged "initialize"), so we
+    # authorize the forwarded bytes here and fail closed on any body we cannot
+    # parse (TM-15). This runs AFTER the egress-consent block above so methods the
+    # gateway answers LOCALLY for a tokenless egress server (initialize,
+    # notifications/*, tools/list, tools/call consent) are never gated here --
+    # they are not forwarded upstream. Only the request we actually forward is
+    # re-authorized. Raises 403 before the outbound call.
+    await _authorize_forwarded_mcp_body(server_name, request_body, user_scopes)
 
     logger.info(
         f"mcp_proxy: server={server_name} method={incoming_method} filter_enabled={filter_enabled} timeout={proxy_timeout}"

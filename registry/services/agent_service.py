@@ -16,6 +16,7 @@ from ..repositories.interfaces import AgentRepositoryBase, SearchRepositoryBase
 from ..core.metrics import ASSET_ID_CONFLICT_TOTAL
 from ..exceptions import AssetIdConflictError
 from ..schemas.agent_models import AgentCard
+from ..utils.url_guard import validate_agent_url
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,16 @@ class AgentService:
 
         Raises:
             ValueError: If agent path already exists
+            UrlValidationError: If the agent url fails SSRF/scheme validation
         """
         path = agent_card.path
+
+        # Fail-closed URL validation on every agent registration path
+        # (dashboard/API, internal register, federation import) before the
+        # agent card is persisted. Rejects non-http(s) schemes and
+        # private/metadata targets unless the operator allowlisted them.
+        if getattr(agent_card, "url", None):
+            validate_agent_url(str(agent_card.url))
 
         if await self._repo.get(path) is not None:
             logger.error(f"Agent registration failed: path '{path}' already exists")
@@ -189,7 +198,14 @@ class AgentService:
 
         Raises:
             ValueError: If agent not found
+            UrlValidationError: If the update sets a url that fails validation
         """
+        # Fail-closed URL validation on edit paths that change the agent url.
+        # Only runs when the update actually carries a url, so health-status
+        # updates are unaffected.
+        if updates.get("url"):
+            validate_agent_url(str(updates["url"]))
+
         existing_agent = await self._repo.get(path)
         if existing_agent is None:
             logger.error(f"Cannot update agent at path '{path}': not found")
