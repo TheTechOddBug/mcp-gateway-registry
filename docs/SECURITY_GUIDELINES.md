@@ -36,6 +36,14 @@ sanitizer that isn't called) is equivalent to no check.
   right error. Normalize (strip) and reuse the same value everywhere so all
   services derive an identical key (avoids cross-replica signature mismatches).
   Wire the validator into EVERY signing entrypoint — grep for all of them.
+- **Match placeholder markers as substrings ANYWHERE, not just as a prefix.** An
+  operator rarely leaves the `.env.example` value verbatim — they prepend a
+  prefix or edit the middle (`internal-CHANGE-ME-...`, `prod-generate-with-openssl-...`).
+  A `startswith`-only check lets those through. Also test `marker in normalized`
+  for a small set of narrow markers (`change-me`, `replace-me`,
+  `generate-with-openssl`, …). Keep the markers hyphen/underscore-bearing or
+  otherwise outside `[0-9a-f]`/base64 so a genuine `openssl rand -hex 32` secret
+  can never collide with one (no false-positive on real high-entropy keys).
 - **Never ship a vendor/default credential fallback in code.**
   `os.environ.get("PASS", "<default>")` is a silent foot-gun. Use one chokepoint
   that raises when unset, and denylist the known-weak value so an env var
