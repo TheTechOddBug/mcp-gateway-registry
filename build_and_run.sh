@@ -503,58 +503,69 @@ else
     log "WARNING: scripts/prepare-log-dirs.sh not found or not executable; skipping log-directory prep"
 fi
 
+# Return the lowercased value of the named variable (indirect expansion) so the
+# weak-value comparisons below are case-insensitive -- a placeholder mutated only
+# by case (e.g. "Change-Password-...") must not slip past the denylist.
+_lc_var() {
+    local name="$1"
+    printf '%s' "${!name:-}" | tr '[:upper:]' '[:lower:]'
+}
+
 # Reject known-weak default values for secrets that could reach a deployment.
 # Compose fails fast on unset required secrets via ${VAR:?...}, but a value
 # explicitly set to a historical default (e.g. DOCUMENTDB_PASSWORD=admin,
-# OPENBAO_TOKEN=dev-root-token) would pass that presence check while still
-# being a guessable credential. Fail closed here before starting anything.
+# OPENBAO_TOKEN=dev-root-token) or to a shipped .env.example placeholder would
+# pass that presence check while still being a guessable credential. Fail closed
+# here before starting anything. Comparisons are case-insensitive.
 _validate_secret_defaults() {
     local failed=0
 
-    # Format: VAR_NAME=weak_value pairs. A match (case-sensitive on the value)
-    # is rejected. Add new known-weak literals here as they are discovered.
-    if [ "${DOCUMENTDB_PASSWORD:-}" = "admin" ]; then
+    if [ "$(_lc_var DOCUMENTDB_PASSWORD)" = "admin" ]; then
         log "ERROR: DOCUMENTDB_PASSWORD is set to the known-weak default 'admin'."
         log "       Set a strong random value in .env (e.g. openssl rand -hex 24)."
         failed=1
     fi
 
-    if [ "${OPENBAO_TOKEN:-}" = "dev-root-token" ]; then
+    if [ "$(_lc_var OPENBAO_TOKEN)" = "dev-root-token" ]; then
         log "ERROR: OPENBAO_TOKEN is set to the known-weak default 'dev-root-token'."
         log "       Reaching the vault with this token grants root over every stored"
         log "       egress credential. Set a strong random value in .env (openssl rand -hex 32)."
         failed=1
     fi
 
-    if [ "${KEYCLOAK_DB_PASSWORD:-}" = "keycloak" ] || \
-       [ "${KEYCLOAK_DB_PASSWORD:-}" = "your-secure-db-password" ]; then
-        log "ERROR: KEYCLOAK_DB_PASSWORD is set to a known-weak/placeholder value."
-        log "       Set a strong random value in .env (it backs the Keycloak realm DB)."
-        failed=1
-    fi
+    case "$(_lc_var KEYCLOAK_DB_PASSWORD)" in
+        keycloak|your-secure-db-password)
+            log "ERROR: KEYCLOAK_DB_PASSWORD is set to a known-weak/placeholder value."
+            log "       Set a strong random value in .env (it backs the Keycloak realm DB)."
+            failed=1
+            ;;
+    esac
 
-    if [ "${KEYCLOAK_ADMIN_PASSWORD:-}" = "your-secure-keycloak-admin-password" ] || \
-       [ "${KEYCLOAK_ADMIN_PASSWORD:-}" = "admin" ]; then
-        log "ERROR: KEYCLOAK_ADMIN_PASSWORD is set to a known-weak/placeholder value."
-        log "       This bootstraps the Keycloak master-realm admin (full IdP takeover"
-        log "       if guessed); set a strong value in .env."
-        failed=1
-    fi
+    case "$(_lc_var KEYCLOAK_ADMIN_PASSWORD)" in
+        your-secure-keycloak-admin-password|admin)
+            log "ERROR: KEYCLOAK_ADMIN_PASSWORD is set to a known-weak/placeholder value."
+            log "       This bootstraps the Keycloak master-realm admin (full IdP takeover"
+            log "       if guessed); set a strong value in .env."
+            failed=1
+            ;;
+    esac
 
-    if [ "${GRAFANA_ADMIN_PASSWORD:-}" = "CHANGE-ME-SET-STRONG-PASSWORD" ] || \
-       [ "${GRAFANA_ADMIN_PASSWORD:-}" = "admin" ]; then
-        log "ERROR: GRAFANA_ADMIN_PASSWORD is set to a known-weak/placeholder value."
-        log "       Set a strong value in .env (Grafana admin console credential)."
-        failed=1
-    fi
+    case "$(_lc_var GRAFANA_ADMIN_PASSWORD)" in
+        change-me-set-strong-password|admin)
+            log "ERROR: GRAFANA_ADMIN_PASSWORD is set to a known-weak/placeholder value."
+            log "       Set a strong value in .env (Grafana admin console credential)."
+            failed=1
+            ;;
+    esac
 
-    if [ "${PF_ADMIN_PASS:-}" = "2FederateM0re" ] || \
-       [ "${PF_ADMIN_PASS:-}" = "change-password-to-some-secret-password" ]; then
-        log "ERROR: PF_ADMIN_PASS is set to the PingFederate vendor default or placeholder."
-        log "       The registry drives the PF admin API with this credential; set a"
-        log "       strong value in .env when the pingfederate profile is enabled."
-        failed=1
-    fi
+    case "$(_lc_var PF_ADMIN_PASS)" in
+        2federatem0re|change-password-to-some-secret-password)
+            log "ERROR: PF_ADMIN_PASS is set to the PingFederate vendor default or placeholder."
+            log "       The registry drives the PF admin API with this credential; set a"
+            log "       strong value in .env when the pingfederate profile is enabled."
+            failed=1
+            ;;
+    esac
 
     return $failed
 }
