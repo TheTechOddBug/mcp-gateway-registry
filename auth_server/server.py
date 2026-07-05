@@ -913,6 +913,40 @@ def mask_headers(headers: dict) -> dict:
     return masked
 
 
+def safe_identity_summary(claims: dict) -> dict:
+    """Return a non-sensitive summary of an id_token claim set / user-info dict.
+
+    id_token claims and userInfo responses carry PII (email, name, full group
+    membership) and must never be logged verbatim. This produces a compact,
+    log-safe view: the stable ``sub`` identifier (masked), a masked
+    ``preferred_username`` when present, the count of groups/roles, and the set
+    of claim NAMES only (never their values).
+
+    Args:
+        claims: Decoded id_token claims or a userInfo response dict.
+
+    Returns:
+        A dict safe to log at any level, containing only identifiers and counts.
+    """
+    if not isinstance(claims, dict):
+        return {"claims": "unavailable"}
+
+    groups = claims.get("groups")
+    if not isinstance(groups, list):
+        groups = claims.get("roles")
+    group_count = len(groups) if isinstance(groups, list) else 0
+
+    summary: dict = {
+        "sub": mask_sensitive_id(str(claims["sub"])) if claims.get("sub") else None,
+        "group_count": group_count,
+        "claim_names": sorted(str(k) for k in claims),
+    }
+    preferred = claims.get("preferred_username")
+    if preferred:
+        summary["preferred_username"] = mask_sensitive_id(str(preferred))
+    return summary
+
+
 async def map_groups_to_scopes(groups: list[str]) -> list[str]:
     """
     Map identity provider groups to MCP scopes by querying DocumentDB directly.
@@ -2123,14 +2157,18 @@ async def validate_request(request: Request):
         try:
             if body:
                 payload_text = body  # .decode('utf-8')
-                logger.debug(
-                    "Raw Request Payload (%d chars): %s...",
-                    len(payload_text),
-                    payload_text[:1000],
-                )
+                # Do NOT log the raw or parsed payload: a JSON-RPC tools/call
+                # carries user-supplied tool arguments that may contain
+                # credentials, API keys, or PII. Log only the size and, once
+                # parsed, the non-sensitive method name + request id.
+                logger.debug("Request payload received (%d chars)", len(payload_text))
                 request_payload = json.loads(payload_text)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("JSON RPC Request Payload: %s", json.dumps(request_payload))
+                if logger.isEnabledFor(logging.DEBUG) and isinstance(request_payload, dict):
+                    logger.debug(
+                        "JSON-RPC request: method=%s id=%s",
+                        request_payload.get("method"),
+                        request_payload.get("id"),
+                    )
             else:
                 logger.debug("No request body provided, skipping payload parsing")
         except UnicodeDecodeError as e:
@@ -2371,10 +2409,16 @@ async def validate_request(request: Request):
             if cookie_value:
                 try:
                     validation_result = await validate_session_cookie(cookie_value)
-                    # Log validation result without exposing username or tokens
-                    safe_result = _mask_sensitive_dict(validation_result)
-                    safe_result["username"] = hash_username(validation_result.get("username", ""))
-                    logger.info(f"Session cookie validation result: {safe_result}")
+                    # Log only non-sensitive counts: the result nests a full
+                    # claims dict (email/name/groups) that must never be logged.
+                    logger.info(
+                        "Session cookie validation result: valid=%s, method=%s, "
+                        "group_count=%d, scope_count=%d",
+                        bool(validation_result.get("valid")),
+                        validation_result.get("method") or "unknown",
+                        len(validation_result.get("groups", []) or []),
+                        len(validation_result.get("scopes", []) or []),
+                    )
                     logger.info(
                         f"Session cookie validation successful for user: {hash_username(validation_result['username'])}"
                     )
@@ -2462,7 +2506,9 @@ async def validate_request(request: Request):
                 logger.warning(f"Token validation failed: {e}")
                 raise HTTPException(
                     status_code=401,
-                    detail=f"Token validation failed: {e}",
+                    # Generic detail: the exception can reveal issuer/audience/IdP
+                    # config internals. The specifics are logged above.
+                    detail="Token validation failed",
                     headers={"WWW-Authenticate": "Bearer", "Connection": "close"},
                 )
             except Exception as e:
@@ -2498,7 +2544,8 @@ async def validate_request(request: Request):
                 if enriched_groups != current_groups:
                     validation_result["groups"] = enriched_groups
                     logger.info(
-                        f"Groups enriched from MongoDB for client {client_id}: {enriched_groups}"
+                        f"Groups enriched from MongoDB for client {client_id}: "
+                        f"{len(current_groups)} -> {len(enriched_groups)} group(s)"
                     )
         except Exception as e:
             logger.warning(f"Failed to enrich groups from MongoDB: {e}")
@@ -2544,10 +2591,11 @@ async def validate_request(request: Request):
                 if enriched_user_groups != current_user_groups:
                     validation_result["groups"] = enriched_user_groups
                     logger.info(
-                        "Enriched user '%s' (provider=%s) from idp_user_groups: %s",
+                        "Enriched user '%s' (provider=%s) from idp_user_groups: %d -> %d group(s)",
                         username_for_lookup,
                         user_provider,
-                        enriched_user_groups,
+                        len(current_user_groups),
+                        len(enriched_user_groups),
                     )
         except Exception as e:
             logger.warning(f"Failed to enrich user groups from MongoDB: {e}")
@@ -2596,7 +2644,15 @@ async def validate_request(request: Request):
         if user_groups and auth_method in ["keycloak", "entra", "cognito", "okta", "auth0"]:
             # Map IdP groups to scopes using the group mappings (query DocumentDB)
             user_scopes = await map_groups_to_scopes(user_groups)
-            logger.debug("Mapped %s groups %s to scopes: %s", auth_method, user_groups, user_scopes)
+            # Log counts only: group names are organizational PII (Entra groups
+            # often encode org units / cost centers) and scope lists reveal the
+            # authz model.
+            logger.debug(
+                "Mapped %s: %d groups -> %d scopes",
+                auth_method,
+                len(user_groups),
+                len(user_scopes),
+            )
         elif (
             user_groups
             and not existing_scopes
@@ -2612,10 +2668,10 @@ async def validate_request(request: Request):
             # unchanged.
             user_scopes = await map_groups_to_scopes(user_groups)
             logger.debug(
-                "Re-mapped pingfederate groups %s to scopes: %s "
+                "Re-mapped pingfederate: %d groups -> %d scopes "
                 "after fallback enrichment (transport=%s)",
-                user_groups,
-                user_scopes,
+                len(user_groups),
+                len(user_scopes),
                 auth_method,
             )
         else:
@@ -2900,11 +2956,27 @@ async def validate_request(request: Request):
             "tool_name": tool_name,
         }
         if logger.isEnabledFor(logging.DEBUG):
+            # The validation result nests the full claims dict (email/name/groups
+            # under `data`); log only non-sensitive counts and claim NAMES.
+            _result_data = validation_result.get("data")
             logger.debug(
-                "Full validation result: %s",
-                json.dumps(_mask_sensitive_dict(validation_result)),
+                "Validation result summary: valid=%s, method=%s, group_count=%d, "
+                "scope_count=%d, data_claim_names=%s",
+                bool(validation_result.get("valid")),
+                validation_result.get("method") or "unknown",
+                len(validation_result.get("groups", []) or []),
+                len(validation_result.get("scopes", []) or []),
+                sorted(_result_data.keys()) if isinstance(_result_data, dict) else [],
             )
-            logger.debug("Response data being sent: %s", json.dumps(response_data))
+            logger.debug(
+                "Response data being sent: valid=%s, user=%s, group_count=%d, "
+                "scope_count=%d, server_name=%s",
+                response_data["valid"],
+                hash_username(response_data["username"]),
+                len(response_data["groups"] or []),
+                len(response_data["scopes"] or []),
+                server_name,
+            )
 
         # Log MCP server access event if this is an MCP request (has server_name)
         if server_name:
@@ -3034,7 +3106,9 @@ async def validate_request(request: Request):
                     logger.warning(f"Failed to log MCP access error: {log_err}")
         raise HTTPException(
             status_code=401,
-            detail=str(e),
+            # Generic detail: the ValueError can reveal token/IdP internals; it is
+            # logged above.
+            detail="Authentication failed",
             headers={"WWW-Authenticate": "Bearer", "Connection": "close"},
         )
     except HTTPException as e:
@@ -3504,7 +3578,8 @@ async def generate_user_token(
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to generate token: {e}",
+                # Generic detail: the internal error is logged above.
+                detail="Failed to generate token",
                 headers={"Connection": "close"},
             )
 
@@ -4130,7 +4205,10 @@ async def oauth2_callback(
                             token_data["access_token"], user_pool_id, client_id, region
                         )
 
-                        logger.info(f"Token validation result: {token_validation}")
+                        logger.debug(
+                            "Cognito token validation succeeded (groups=%d)",
+                            len(token_validation.get("groups", []) or []),
+                        )
 
                         # Extract user info from token validation
                         mapped_user = {
@@ -4141,7 +4219,10 @@ async def oauth2_callback(
                             "name": token_validation.get("username"),
                             "groups": token_validation.get("groups", []),
                         }
-                        logger.info(f"User extracted from JWT token: {mapped_user}")
+                        logger.info(
+                            "User extracted from Cognito JWT token: %s",
+                            safe_identity_summary(mapped_user),
+                        )
                     else:
                         logger.warning(
                             "Missing Cognito configuration for JWT validation, falling back to userInfo"
@@ -4157,7 +4238,10 @@ async def oauth2_callback(
                         id_token_claims = _verify_id_token_or_deny(
                             "keycloak", token_data["id_token"], expected_nonce=expected_nonce
                         )
-                        logger.info(f"ID token claims: {id_token_claims}")
+                        logger.info(
+                            "Keycloak ID token verified: %s",
+                            safe_identity_summary(id_token_claims),
+                        )
 
                         # Extract user info from ID token claims
                         mapped_user = {
@@ -4168,7 +4252,10 @@ async def oauth2_callback(
                             or id_token_claims.get("given_name"),
                             "groups": id_token_claims.get("groups", []),
                         }
-                        logger.info(f"User extracted from Keycloak ID token: {mapped_user}")
+                        logger.info(
+                            "User extracted from Keycloak ID token: %s",
+                            safe_identity_summary(mapped_user),
+                        )
                     else:
                         logger.warning(
                             "No ID token found in Keycloak response, falling back to userInfo"
@@ -4186,9 +4273,17 @@ async def oauth2_callback(
                 # Fallback to userInfo endpoint (only reached when there is no
                 # id_token to verify, or for non-verification config errors).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
-                logger.info(f"Raw user info from {provider}: {user_info}")
+                logger.info(
+                    "User info fetched from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(user_info),
+                )
                 mapped_user = map_user_info(user_info, provider_config)
-                logger.info(f"Mapped user info from userInfo: {mapped_user}")
+                logger.info(
+                    "User mapped from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(mapped_user),
+                )
         elif provider == "entra":
             # For Entra ID, prioritize ID token claims over userinfo endpoint
             try:
@@ -4201,7 +4296,10 @@ async def oauth2_callback(
                     id_token_claims = _verify_id_token_or_deny(
                         "entra", token_data["id_token"], expected_nonce=expected_nonce
                     )
-                    logger.info(f"Entra ID token claims: {id_token_claims}")
+                    logger.info(
+                        "Entra ID token verified: %s",
+                        safe_identity_summary(id_token_claims),
+                    )
 
                     # Extract user info from ID token claims
                     # Entra ID can return groups as either 'groups' or 'roles' depending on configuration
@@ -4233,7 +4331,10 @@ async def oauth2_callback(
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
                         "groups": groups,
                     }
-                    logger.info(f"User extracted from Entra ID token: {mapped_user}")
+                    logger.info(
+                        "User extracted from Entra ID token: %s",
+                        safe_identity_summary(mapped_user),
+                    )
                 else:
                     logger.warning("No ID token found in Entra response, falling back to userInfo")
                     raise ValueError("Missing ID token")
@@ -4246,9 +4347,17 @@ async def oauth2_callback(
                 )
                 # Fallback to userInfo endpoint (only when no id_token present).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
-                logger.info(f"Raw user info from {provider}: {user_info}")
+                logger.info(
+                    "User info fetched from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(user_info),
+                )
                 mapped_user = map_user_info(user_info, provider_config)
-                logger.info(f"Mapped user info from userInfo: {mapped_user}")
+                logger.info(
+                    "User mapped from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(mapped_user),
+                )
         elif provider == "okta":
             # For Okta, verify the ID token to get groups (userinfo doesn't include groups)
             try:
@@ -4259,7 +4368,10 @@ async def oauth2_callback(
                     id_token_claims = _verify_id_token_or_deny(
                         "okta", token_data["id_token"], expected_nonce=expected_nonce
                     )
-                    logger.info(f"Okta ID token claims: {id_token_claims}")
+                    logger.info(
+                        "Okta ID token verified: %s",
+                        safe_identity_summary(id_token_claims),
+                    )
 
                     mapped_user = {
                         "username": id_token_claims.get("preferred_username")
@@ -4269,7 +4381,10 @@ async def oauth2_callback(
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
                         "groups": id_token_claims.get("groups", []),
                     }
-                    logger.info(f"User extracted from Okta ID token: {mapped_user}")
+                    logger.info(
+                        "User extracted from Okta ID token: %s",
+                        safe_identity_summary(mapped_user),
+                    )
                 else:
                     logger.warning("No ID token found in Okta response, falling back to userInfo")
                     raise ValueError("Missing ID token")
@@ -4281,9 +4396,17 @@ async def oauth2_callback(
                     f"Okta ID token parsing failed: {e}, falling back to userInfo endpoint"
                 )
                 user_info = await get_user_info(token_data["access_token"], provider_config)
-                logger.info(f"Raw user info from {provider}: {user_info}")
+                logger.info(
+                    "User info fetched from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(user_info),
+                )
                 mapped_user = map_user_info(user_info, provider_config)
-                logger.info(f"Mapped user info from userInfo: {mapped_user}")
+                logger.info(
+                    "User mapped from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(mapped_user),
+                )
         elif provider == "auth0":
             # For Auth0, delegate ID token parsing to the Auth0Provider
             # which verifies signature/issuer/audience against the Auth0 JWKS
@@ -4307,7 +4430,10 @@ async def oauth2_callback(
                         raise HTTPException(
                             status_code=401, detail="ID token verification failed"
                         ) from e
-                    logger.info(f"User extracted from Auth0 ID token: {mapped_user}")
+                    logger.info(
+                        "User extracted from Auth0 ID token: %s",
+                        safe_identity_summary(mapped_user),
+                    )
                 else:
                     logger.warning("No ID token found in Auth0 response, falling back to userInfo")
                     raise ValueError("Missing ID token")
@@ -4320,9 +4446,17 @@ async def oauth2_callback(
                 )
                 # Fallback to userInfo endpoint (only when no id_token present).
                 user_info = await get_user_info(token_data["access_token"], provider_config)
-                logger.info(f"Raw user info from {provider}: {user_info}")
+                logger.info(
+                    "User info fetched from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(user_info),
+                )
                 mapped_user = map_user_info(user_info, provider_config)
-                logger.info(f"Mapped user info from userInfo: {mapped_user}")
+                logger.info(
+                    "User mapped from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(mapped_user),
+                )
         elif provider == "pingfederate":
             # For PingFederate, verify the ID token to get groups
             try:
@@ -4333,7 +4467,10 @@ async def oauth2_callback(
                     id_token_claims = _verify_id_token_or_deny(
                         "pingfederate", token_data["id_token"], expected_nonce=expected_nonce
                     )
-                    logger.info(f"PingFederate ID token claims: {id_token_claims}")
+                    logger.info(
+                        "PingFederate ID token verified: %s",
+                        safe_identity_summary(id_token_claims),
+                    )
 
                     groups_claim_name = os.getenv("PINGFEDERATE_GROUPS_CLAIM", "groups")
                     mapped_user = {
@@ -4344,7 +4481,10 @@ async def oauth2_callback(
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
                         "groups": id_token_claims.get(groups_claim_name, []),
                     }
-                    logger.info(f"User extracted from PingFederate ID token: {mapped_user}")
+                    logger.info(
+                        "User extracted from PingFederate ID token: %s",
+                        safe_identity_summary(mapped_user),
+                    )
                 else:
                     logger.warning(
                         "No ID token found in PingFederate response, falling back to userInfo"
@@ -4358,9 +4498,17 @@ async def oauth2_callback(
                     f"PingFederate ID token parsing failed: {e}, falling back to userInfo endpoint"
                 )
                 user_info = await get_user_info(token_data["access_token"], provider_config)
-                logger.info(f"Raw user info from {provider}: {user_info}")
+                logger.info(
+                    "User info fetched from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(user_info),
+                )
                 mapped_user = map_user_info(user_info, provider_config)
-                logger.info(f"Mapped user info from userInfo: {mapped_user}")
+                logger.info(
+                    "User mapped from %s userInfo: %s",
+                    provider,
+                    safe_identity_summary(mapped_user),
+                )
         else:
             # For other providers (e.g. GitHub, which is OAuth2, not OIDC, and
             # never returns an id_token), use the userInfo endpoint: the
@@ -4374,9 +4522,17 @@ async def oauth2_callback(
             # verification nor nonce binding and must not be used to trust
             # claims lifted from an unverified id_token.
             user_info = await get_user_info(token_data["access_token"], provider_config)
-            logger.info(f"Raw user info from {provider}: {user_info}")
+            logger.info(
+                "User info fetched from %s userInfo: %s",
+                provider,
+                safe_identity_summary(user_info),
+            )
             mapped_user = map_user_info(user_info, provider_config)
-            logger.info(f"Mapped user info: {mapped_user}")
+            logger.info(
+                "User mapped from %s userInfo: %s",
+                provider,
+                safe_identity_summary(mapped_user),
+            )
 
         # Issue #1127: PingFederate (and any IdP in the fallback allow-list)
         # may return an empty groups claim because group memberships are not
@@ -4407,11 +4563,11 @@ async def oauth2_callback(
                 if enriched != session_groups:
                     logger.info(
                         "Session groups enriched at OAuth2 callback for user "
-                        "'%s' (provider=%s): %s -> %s",
+                        "'%s' (provider=%s): %d -> %d group(s)",
                         mapped_user["username"],
                         provider,
-                        session_groups,
-                        enriched,
+                        len(session_groups),
+                        len(enriched),
                     )
                     session_groups = enriched
         except Exception as e:
@@ -4599,7 +4755,8 @@ def map_user_info(user_info: dict, provider_config: dict) -> dict:
     # Handle groups if provider supports them
     groups_claim = provider_config.get("groups_claim")
     logger.info(f"Looking for groups claim (configured={'yes' if groups_claim else 'no'})")
-    logger.info(f"Available claims in user_info: {list(user_info.keys())}")
+    # Log claim NAMES only, never their values (userInfo carries email/name/PII).
+    logger.debug(f"Available claim names in user_info: {sorted(user_info.keys())}")
 
     if groups_claim and groups_claim in user_info:
         groups = user_info[groups_claim]
@@ -4607,7 +4764,7 @@ def map_user_info(user_info: dict, provider_config: dict) -> dict:
             mapped["groups"] = groups
         elif isinstance(groups, str):
             mapped["groups"] = [groups]
-        logger.info(f"Found groups via {groups_claim}: {mapped['groups']}")
+        logger.info(f"Found {len(mapped['groups'])} group(s) via claim '{groups_claim}'")
     else:
         # Try alternative group claims for Cognito
         for possible_group_claim in ["cognito:groups", "groups", "custom:groups"]:
@@ -4618,13 +4775,14 @@ def map_user_info(user_info: dict, provider_config: dict) -> dict:
                 elif isinstance(groups, str):
                     mapped["groups"] = [groups]
                 logger.info(
-                    f"Found groups via alternative claim {possible_group_claim}: {mapped['groups']}"
+                    f"Found {len(mapped['groups'])} group(s) via "
+                    f"alternative claim '{possible_group_claim}'"
                 )
                 break
 
         if not mapped["groups"]:
             logger.warning(
-                f"No groups found in user_info. Available fields: {list(user_info.keys())}"
+                f"No groups found in user_info. Available claim names: {sorted(user_info.keys())}"
             )
 
     return mapped
