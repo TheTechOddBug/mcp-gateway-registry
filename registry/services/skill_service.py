@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..core.config import settings
+from ..core.metrics import ASSET_ID_CONFLICT_TOTAL
 from ..exceptions import (
     AssetIdConflictError,
     SkillUrlValidationError,
@@ -1354,6 +1355,7 @@ class SkillService:
             logger.warning(
                 f"Skill registration rejected: id '{skill.id}' already exists"
             )
+            ASSET_ID_CONFLICT_TOTAL.labels(asset_type="skill").inc()
             raise AssetIdConflictError(asset_type="skill", asset_id=skill.id)
 
         created_skill = await repo.create(skill)

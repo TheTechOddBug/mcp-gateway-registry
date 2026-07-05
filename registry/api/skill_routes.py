@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from ..audit.context import set_audit_action
 from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
+from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
 from ..exceptions import (
     AssetIdConflictError,
     SkillAlreadyExistsError,
@@ -985,6 +986,8 @@ async def register_skill(
     try:
         skill = await service.register_skill(request=request, owner=owner, validate_url=True)
         logger.info(f"Registered skill: {skill.name} by {owner}")
+        if request.id is not None:
+            ASSET_ID_SUPPLIED_TOTAL.labels(asset_type="skill").inc()
 
         # Security scanning if enabled (non-blocking — mirrors server registration pattern)
         scan_task = asyncio.create_task(

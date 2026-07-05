@@ -13,6 +13,7 @@ from typing import Any
 
 from ..repositories.factory import get_agent_repository, get_search_repository
 from ..repositories.interfaces import AgentRepositoryBase, SearchRepositoryBase
+from ..core.metrics import ASSET_ID_CONFLICT_TOTAL
 from ..exceptions import AssetIdConflictError
 from ..schemas.agent_models import AgentCard
 
@@ -62,6 +63,7 @@ class AgentService:
             logger.warning(
                 f"Agent registration rejected: id '{agent_card.id}' already exists"
             )
+            ASSET_ID_CONFLICT_TOTAL.labels(asset_type="agent").inc()
             raise AssetIdConflictError(asset_type="agent", asset_id=agent_card.id)
 
         agent_card = await self._repo.create(agent_card)

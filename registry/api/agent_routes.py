@@ -51,6 +51,7 @@ from ..schemas.duplicate_check_models import (
     DuplicateCheckResult,
 )
 from ..exceptions import AssetIdConflictError
+from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
 from ..services._asset_id import resolve_asset_id
 from ..services.agent_batch_service import (
     ConcurrentJobLimitError,
@@ -918,6 +919,8 @@ async def register_agent(
 
     try:
         success = await agent_service.register_agent(agent_card)
+        if success and request.id is not None:
+            ASSET_ID_SUPPLIED_TOTAL.labels(asset_type="agent").inc()
     except AssetIdConflictError as e:
         logger.warning(f"Agent registration id conflict: {e}")
         return JSONResponse(

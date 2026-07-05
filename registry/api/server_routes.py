@@ -41,6 +41,7 @@ from ..schemas.server_update_models import (
     ServerUpdateRequest,
 )
 from ..services.canonical_export import redact_backend_urls, to_canonical
+from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
 from ..services._asset_id import InvalidAssetIdError, resolve_asset_id
 from ..services.lifecycle_events import (
     EnforcedStatusError,
@@ -1340,6 +1341,7 @@ async def register_service(
         )
     if id is not None:
         logger.info(f"Honoring caller-supplied id for server '{name}'")
+        ASSET_ID_SUPPLIED_TOTAL.labels(asset_type="server").inc()
 
     server_entry: dict[str, Any] = {
         "id": resolved_id,
@@ -3928,6 +3930,7 @@ async def register_service_api(
         )
     if id is not None:
         logger.info(f"Honoring caller-supplied id for server '{name}'")
+        ASSET_ID_SUPPLIED_TOTAL.labels(asset_type="server").inc()
 
     server_entry: dict[str, Any] = {
         "id": resolved_id,
