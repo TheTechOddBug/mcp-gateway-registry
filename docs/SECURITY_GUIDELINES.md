@@ -57,7 +57,25 @@ sanitizer that isn't called) is equivalent to no check.
   dumps, `updates`/body dicts that contain tokens, decoded id_token claims. This
   includes setup/debug scripts in `VERBOSE`/`DEBUG` modes — never echo a password
   or bearer token (not even a prefix); those logs land in CI/CloudWatch/shell
-  history.
+  history. More sinks that recur: (a) a **JSON-RPC / request body dump** — a
+  `tools/call` carries user-supplied tool arguments that may be credentials/PII;
+  log the size + method/id, never the body. (b) **OAuth token-endpoint error
+  bodies** (`response.text` / the full error JSON, logged OR raised) — they echo
+  the `client_id` and partial credential context in `error_description`; log only
+  the standard `error` code + status. (c) **IdP group-name lists** — group names
+  are organizational PII (org units, teams, cost centers); log the count, not the
+  names. A "masked" token prefix is still a leak — a base64 JWT header/signature
+  fragment is reconstructable; log `<token len=N>`, not `token[:10]`.
+- **Never reflect an exception/stack trace into a response the caller sees**
+  (CWE-209, CodeQL `py/stack-trace-exposure`). `HTTPException(detail=str(e))`,
+  `return {"error": str(e)}` from a route, and `HTMLResponse(f"...{exc}...")` all
+  ship internal detail (issuer/audience/IdP config, decryption/`SECRET_KEY` hints,
+  resolved internal hostnames, DB/stack context) to any client — worst on PUBLIC
+  endpoints (`.well-known/*`). Log the specifics server-side (`logger.exception`)
+  and return a **generic** message/marker. Classify on the raw message if you must
+  (status-code mapping), but do not echo it. A user-supplied value already in the
+  request (e.g. the URL they asked you to fetch) is fine to reflect; the wrapped
+  exception is not.
 - **A hardcoded/shipped hashing or HMAC key is equivalent to an unsalted hash.**
   If a stored-credential hash (e.g. an API-key `key_hash`) is HMAC'd with a
   compile-time constant, anyone with the DB or a hash can brute-force it offline,
