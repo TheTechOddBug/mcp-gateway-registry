@@ -15,7 +15,9 @@ services:
   # requires for replica-set internal authentication when --auth is enabled.
   # Runs once before mongodb starts; idempotent (skips if the keyfile exists).
   mongodb-keyfile-init:
-    image: alpine:latest
+    # Pinned (not :latest) so rebuilds are reproducible and cannot silently
+    # drift to an untested image; matches the prebuilt/podman variants.
+    image: alpine:3.21
     container_name: mcp-mongodb-keyfile-init
     volumes:
       - mongodb-keyfile:/keyfile

@@ -526,14 +526,31 @@ _validate_secret_defaults() {
         failed=1
     fi
 
-    if [ "${KEYCLOAK_DB_PASSWORD:-}" = "keycloak" ]; then
-        log "ERROR: KEYCLOAK_DB_PASSWORD is set to the known-weak default 'keycloak'."
-        log "       Set a strong random value in .env."
+    if [ "${KEYCLOAK_DB_PASSWORD:-}" = "keycloak" ] || \
+       [ "${KEYCLOAK_DB_PASSWORD:-}" = "your-secure-db-password" ]; then
+        log "ERROR: KEYCLOAK_DB_PASSWORD is set to a known-weak/placeholder value."
+        log "       Set a strong random value in .env (it backs the Keycloak realm DB)."
         failed=1
     fi
 
-    if [ "${PF_ADMIN_PASS:-}" = "2FederateM0re" ]; then
-        log "ERROR: PF_ADMIN_PASS is set to the PingFederate vendor default '2FederateM0re'."
+    if [ "${KEYCLOAK_ADMIN_PASSWORD:-}" = "your-secure-keycloak-admin-password" ] || \
+       [ "${KEYCLOAK_ADMIN_PASSWORD:-}" = "admin" ]; then
+        log "ERROR: KEYCLOAK_ADMIN_PASSWORD is set to a known-weak/placeholder value."
+        log "       This bootstraps the Keycloak master-realm admin (full IdP takeover"
+        log "       if guessed); set a strong value in .env."
+        failed=1
+    fi
+
+    if [ "${GRAFANA_ADMIN_PASSWORD:-}" = "CHANGE-ME-SET-STRONG-PASSWORD" ] || \
+       [ "${GRAFANA_ADMIN_PASSWORD:-}" = "admin" ]; then
+        log "ERROR: GRAFANA_ADMIN_PASSWORD is set to a known-weak/placeholder value."
+        log "       Set a strong value in .env (Grafana admin console credential)."
+        failed=1
+    fi
+
+    if [ "${PF_ADMIN_PASS:-}" = "2FederateM0re" ] || \
+       [ "${PF_ADMIN_PASS:-}" = "change-password-to-some-secret-password" ]; then
+        log "ERROR: PF_ADMIN_PASS is set to the PingFederate vendor default or placeholder."
         log "       The registry drives the PF admin API with this credential; set a"
         log "       strong value in .env when the pingfederate profile is enabled."
         failed=1
