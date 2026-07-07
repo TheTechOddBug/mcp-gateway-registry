@@ -107,7 +107,9 @@ def _run_security_scan(
     if access_token:
         scan_env[BEARER_TOKEN_ENV] = access_token
 
-    # The full command is safe to log: it carries no secrets.
+    # The full command is safe to log: it carries no secrets. The LLM API key
+    # and target-server bearer token are passed through the child environment
+    # (scan_env) above, never on argv, so nothing here needs masking.
     logger.info(f"Running: {' '.join(cmd)}")
 
     try:
