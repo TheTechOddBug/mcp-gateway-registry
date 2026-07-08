@@ -301,6 +301,14 @@ module "ecs_service_auth" {
           value = var.session_cookie_domain
         },
         {
+          name  = "TRUSTED_PROXY_HOPS"
+          value = tostring(var.trusted_proxy_hops)
+        },
+        {
+          name  = "TRUSTED_EXTERNAL_HOSTS"
+          value = var.trusted_external_hosts
+        },
+        {
           name  = "REGISTRY_STATIC_TOKEN_AUTH_ENABLED"
           value = tostring(var.registry_static_token_auth_enabled)
         },
@@ -1048,6 +1056,14 @@ module "ecs_service_registry" {
         {
           name  = "SESSION_COOKIE_DOMAIN"
           value = var.session_cookie_domain
+        },
+        {
+          name  = "TRUSTED_PROXY_HOPS"
+          value = tostring(var.trusted_proxy_hops)
+        },
+        {
+          name  = "TRUSTED_EXTERNAL_HOSTS"
+          value = var.trusted_external_hosts
         },
         {
           name  = "CORS_ALLOWED_ORIGINS"

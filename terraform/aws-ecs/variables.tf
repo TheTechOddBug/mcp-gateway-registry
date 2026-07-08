@@ -366,6 +366,18 @@ variable "session_cookie_domain" {
   default     = ""
 }
 
+variable "trusted_proxy_hops" {
+  description = "Number of trusted reverse-proxy hops in front of the app. The audit client IP is taken from the Nth-from-the-right X-Forwarded-For entry, never the client-controlled left-most one. Default 1 (the bundled nginx). Raise it when additional trusted proxies (e.g. ALB + CloudFront) sit in front."
+  type        = number
+  default     = 1
+}
+
+variable "trusted_external_hosts" {
+  description = "Comma-separated hostnames (optionally host:port) trusted in the inbound Host header when building OAuth external URLs. Empty derives the allowlist from the registry URL; a Host not on the allowlist falls back to the configured host (prevents host-header injection / open redirect)."
+  type        = string
+  default     = ""
+}
+
 variable "bind_host" {
   description = "Network bind address for registry and gateway services. Default '0.0.0.0' (IPv4) works on all hosts. Set to '::' only for IPv6-only deployments (requires net.ipv6.bindv6only=0 on the host)."
   type        = string
