@@ -298,6 +298,44 @@ def _canonical_egress_user(validation_result: dict) -> str:
     )
 
 
+def _audit_identity_display(validation_result: dict) -> str:
+    """The human-readable identity to record in AUDIT logs, for ONE human.
+
+    This is the counterpart to ``_canonical_egress_user``: that function resolves
+    the STABLE, provider-agnostic ``sub`` used to key the egress vault and bind
+    the OBO principal; this one resolves the most human-READABLE identity so an
+    operator reading an audit record knows who to contact without a reverse
+    lookup against the IdP. The two are intentionally separate -- do NOT route
+    auth/vault/OBO decisions through this value.
+
+    Resolution (first hit wins), per the audit-identity policy
+    (email -> preferred_username -> sub):
+      1. ``data.email`` / top-level ``email`` -- the self-signed token bakes in
+         an ``email`` claim (see the /internal/tokens mint) and the validated
+         claims are surfaced under ``data``; the session path carries it too.
+      2. ``data.preferred_username`` -- present on browser id_tokens; a readable
+         login handle when the IdP omits ``email``.
+      3. ``username`` -- the resolved username from validation; on the session
+         path this is already the human handle, on the self-signed path it is
+         the ``sub`` (opaque) -- which is why email/preferred_username come first.
+      4. ``data.sub`` / top-level ``sub`` -- opaque last resort.
+      5. ``"anonymous"`` -- nothing identified the caller.
+
+    Forward-only: this changes what NEW audit records store. Historical
+    ``sub``-only rows are not backfilled (no durable sub->email map exists).
+    """
+    data = validation_result.get("data") or {}
+    return (
+        data.get("email")
+        or validation_result.get("email")
+        or data.get("preferred_username")
+        or validation_result.get("username")
+        or data.get("sub")
+        or validation_result.get("sub")
+        or "anonymous"
+    )
+
+
 def _attach_mcp_proxy_token(
     request: "Request",
     response: "JSONResponse",
@@ -3143,7 +3181,12 @@ async def validate_request(request: Request):
                 try:
                     # Build identity from validation result
                     identity = Identity(
-                        username=validation_result.get("username") or "anonymous",
+                        # Human-readable identity for the audit record
+                        # (email -> preferred_username -> sub). The resolved
+                        # claims are surfaced under validation_result["data"];
+                        # the auth/vault/OBO plumbing continues to key on `sub`
+                        # via `username`, which this does not change.
+                        username=_audit_identity_display(validation_result),
                         auth_method=validation_result.get("method") or "unknown",
                         provider=validation_result.get("provider"),
                         groups=validation_result.get("groups", []),
@@ -3413,8 +3456,15 @@ async def _emit_token_mint_audit(
     expires_in_seconds: int | None,
     outcome: str,
     failure_reason: str | None = None,
+    display_username: str | None = None,
 ) -> None:
     """Emit a token-mint audit record and increment the mint metric.
+
+    ``username`` is what the record's DEPRECATED ``username_hash`` is derived
+    from (kept identical to preserve existing hash values / back-compat).
+    ``display_username`` is the raw, human-readable identity stored in the new
+    ``username`` field (email -> preferred_username -> sub); when omitted it
+    falls back to ``username`` (already human-readable on most mint paths).
 
     Best-effort: any failure here is logged and swallowed so token minting is
     never broken by observability.
@@ -3436,6 +3486,7 @@ async def _emit_token_mint_audit(
         record = TokenMintAuditRecord(
             request_id=request_id,
             correlation_id=correlation_id,
+            username=display_username or username or "anonymous",
             username_hash=hash_username(username),
             auth_method=auth_method,
             provider=provider,
@@ -3504,12 +3555,25 @@ async def generate_user_token(
     username = "unknown"
     auth_method = "unknown"
     provider = None
+    # Human-readable identity for the audit record; initialized before the try
+    # so the unexpected-error handler can reference it even if the failure
+    # happens before user_context is parsed.
+    audit_display_username = "unknown"
 
     try:
         # Extract user context
         user_context = request.user_context
         username = user_context.get("username")
         user_scopes = user_context.get("scopes", [])
+        # Human-readable identity for the audit record (email ->
+        # preferred_username -> username). `username` still drives the
+        # deprecated username_hash and all auth/vault logic unchanged.
+        audit_display_username = (
+            user_context.get("email")
+            or user_context.get("preferred_username")
+            or username
+            or "anonymous"
+        )
 
         if not username:
             raise HTTPException(
@@ -3524,6 +3588,7 @@ async def generate_user_token(
                 request_id=mint_request_id,
                 correlation_id=correlation_id,
                 username=username,
+                display_username=audit_display_username,
                 auth_method=user_context.get("auth_method", "unknown"),
                 provider=user_context.get("provider"),
                 internal_caller=caller,
@@ -3635,6 +3700,7 @@ async def generate_user_token(
                 request_id=mint_request_id,
                 correlation_id=correlation_id,
                 username=username,
+                display_username=audit_display_username,
                 auth_method=auth_method,
                 provider=provider,
                 internal_caller=caller,
@@ -3700,6 +3766,7 @@ async def generate_user_token(
                 request_id=mint_request_id,
                 correlation_id=correlation_id,
                 username=username,
+                display_username=audit_display_username,
                 auth_method=auth_method or "m2m",
                 provider=provider,
                 internal_caller=caller,
@@ -3728,6 +3795,7 @@ async def generate_user_token(
                 request_id=mint_request_id,
                 correlation_id=correlation_id,
                 username=username,
+                display_username=audit_display_username,
                 auth_method=auth_method or "m2m",
                 provider=provider,
                 internal_caller=caller,
@@ -3755,6 +3823,7 @@ async def generate_user_token(
             request_id=mint_request_id,
             correlation_id=correlation_id,
             username=username,
+            display_username=audit_display_username,
             auth_method=auth_method,
             provider=provider,
             internal_caller=caller,
@@ -5903,6 +5972,23 @@ async def mcp_proxy(
                 obo_auth_method = str((claims or {}).get("auth_method") or "") or "unknown"
                 obo_target_audience = vend.get("obo_target_audience") or ""
                 obo_scopes = vend.get("obo_scopes") or []
+                # Human-readable identity for the audit record. The internal
+                # proxy claims carry only `sub`; the raw ingress JWT (already
+                # signature-verified at /validate) carries email/preferred_
+                # username, so decode it unverified here purely to surface a
+                # contactable identity. Falls back to the sub principal.
+                try:
+                    _obo_ingress_claims = jwt.decode(
+                        subject_token, options={"verify_signature": False}
+                    )
+                except jwt.InvalidTokenError:
+                    _obo_ingress_claims = {}
+                # `username=obo_principal` makes the sub the fallback (ahead of
+                # the resolver's "anonymous"), so a token missing email/
+                # preferred_username still records the sub, not "anonymous".
+                obo_display = _audit_identity_display(
+                    {"data": _obo_ingress_claims, "username": obo_principal}
+                )
                 try:
                     obo_token = await obo_exchange(
                         get_auth_provider(),
@@ -5918,6 +6004,7 @@ async def mcp_proxy(
                         request_id=str(uuid.uuid4()),
                         correlation_id=None,
                         username=obo_principal,
+                        display_username=obo_display,
                         auth_method=obo_auth_method,
                         provider=settings.auth_provider,
                         internal_caller="mcp-proxy",
@@ -5935,6 +6022,7 @@ async def mcp_proxy(
                     request_id=str(uuid.uuid4()),
                     correlation_id=None,
                     username=obo_principal,
+                    display_username=obo_display,
                     auth_method=obo_auth_method,
                     provider=settings.auth_provider,
                     internal_caller="mcp-proxy",

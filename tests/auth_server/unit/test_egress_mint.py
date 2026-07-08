@@ -119,6 +119,60 @@ class TestCanonicalEgressUser:
         assert server._canonical_egress_user({}) == ""
 
 
+@pytest.mark.unit
+class TestAuditIdentityDisplay:
+    """`_audit_identity_display` resolves the HUMAN-READABLE audit identity
+    (email -> preferred_username -> username/sub), the counterpart to
+    `_canonical_egress_user` (which resolves the stable sub for vault keying).
+    The two must NOT converge: audit prefers readability, vault prefers stability.
+    """
+
+    def test_prefers_email_from_data(self):
+        vr = {
+            "username": "00000000-sub-alice",
+            "data": {"email": "alice@example.com", "preferred_username": "alice", "sub": "00000000-sub-alice"},
+        }
+        assert server._audit_identity_display(vr) == "alice@example.com"
+
+    def test_prefers_top_level_email_when_no_data_email(self):
+        vr = {"username": "00000000-sub-alice", "email": "alice@example.com", "data": {}}
+        assert server._audit_identity_display(vr) == "alice@example.com"
+
+    def test_falls_back_to_preferred_username(self):
+        vr = {
+            "username": "00000000-sub-alice",
+            "data": {"preferred_username": "alice@contoso.com", "sub": "00000000-sub-alice"},
+        }
+        assert server._audit_identity_display(vr) == "alice@contoso.com"
+
+    def test_falls_back_to_username_when_no_email_or_pref(self):
+        # Session path: username is already the human handle.
+        vr = {"username": "alice@example.com", "data": {"sub": "00000000-sub-alice"}}
+        assert server._audit_identity_display(vr) == "alice@example.com"
+
+    def test_falls_back_to_sub_when_only_sub(self):
+        # Self-signed token whose readable claims are absent: sub, not anonymous.
+        vr = {"data": {"sub": "00000000-sub-alice"}}
+        assert server._audit_identity_display(vr) == "00000000-sub-alice"
+
+    def test_anonymous_when_nothing_present(self):
+        assert server._audit_identity_display({}) == "anonymous"
+
+    def test_diverges_from_canonical_egress_user(self):
+        # REGRESSION: the same Entra-shaped result must yield the READABLE email
+        # for audit but the STABLE sub for the vault key -- they must not collapse
+        # into one value (that divergence is the whole point of the split).
+        vr = {
+            "method": "session_cookie",
+            "username": "alice@contoso.com",
+            "email": "alice@contoso.com",
+            "data": {"subject": "entra-oid-sub-123", "auth_method": "oauth2"},
+        }
+        assert server._audit_identity_display(vr) == "alice@contoso.com"
+        assert server._canonical_egress_user(vr) == "entra-oid-sub-123"
+        assert server._audit_identity_display(vr) != server._canonical_egress_user(vr)
+
+
 def _decode(token: str) -> dict:
     return pyjwt.decode(
         token,
