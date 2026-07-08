@@ -51,6 +51,25 @@ try:
 except ImportError:
     from auth_server.observability.meters import token_mint_total
 
+try:
+    from egress_obo import (
+        OboConfigError,
+        OboConsentRequired,
+        OboExchangeError,
+        OboReauthRequired,
+        OboUnsupportedIdpError,
+        obo_exchange,
+    )
+except ImportError:
+    from auth_server.egress_obo import (
+        OboConfigError,
+        OboConsentRequired,
+        OboExchangeError,
+        OboReauthRequired,
+        OboUnsupportedIdpError,
+        obo_exchange,
+    )
+
 # Import provider factory
 from providers.factory import get_auth_provider
 from pydantic import (
@@ -248,6 +267,37 @@ def _canonical_auth_method(validation_result: dict) -> str:
     return method
 
 
+def _canonical_egress_user(validation_result: dict) -> str:
+    """The stable per-user id the egress vault keys on, for ONE human identity.
+
+    Must resolve to the SAME value on the consent-write path (browser cookie
+    session) and the vend path (bearer token), or the user's vaulted token is
+    written under one id and looked up under another -> permanent vend miss.
+
+    Uses the OIDC ``sub`` claim, which is present in BOTH id_tokens and access
+    tokens for every OIDC provider and is stable per (user, gateway app). This is
+    provider-agnostic: it avoids ``preferred_username``, which some IdPs (notably
+    Entra) omit from ACCESS tokens, so the browser id_token (has it) and a DCR
+    client's bearer access token (lacks it) would otherwise key differently.
+
+    Resolution (first hit wins):
+      1. ``data.sub`` -- the raw IdP subject. Bearer paths expose the verified
+         claims here; the cookie path carries the sub persisted into the session
+         at login (see create_session ``subject``).
+      2. top-level ``sub`` -- direct-token paths that surface it there.
+      3. ``username`` -- fallback for callers with no sub (keeps pre-existing
+         non-OIDC behavior unchanged; only OIDC callers change bucket).
+    """
+    data = validation_result.get("data") or {}
+    return (
+        data.get("sub")
+        or data.get("subject")
+        or validation_result.get("sub")
+        or validation_result.get("username")
+        or ""
+    )
+
+
 def _attach_mcp_proxy_token(
     request: "Request",
     response: "JSONResponse",
@@ -255,6 +305,7 @@ def _attach_mcp_proxy_token(
     scopes: list[str],
     server_name: str,
     auth_method: str = "",
+    egress_user: str = "",
 ) -> None:
     """Mint and attach the X-Internal-Token for the /mcp-proxy hop.
 
@@ -295,6 +346,7 @@ def _attach_mcp_proxy_token(
             server_name=server_name,
             upstream_url=resolved_upstream,
             auth_method=auth_method,
+            egress_user=egress_user,
         )
     except ValueError as exc:
         logger.error(f"/validate: could not mint mcp-proxy token: {exc}")
@@ -308,6 +360,7 @@ def _attach_registry_ui_token(
     groups: list[str],
     auth_method: str,
     client_id: str,
+    egress_user: str = "",
 ) -> None:
     """Mint and attach the X-Internal-Token-Registry for the registry /api/ hop.
 
@@ -330,6 +383,7 @@ def _attach_registry_ui_token(
             groups=groups,
             auth_method=auth_method,
             client_id=client_id,
+            egress_user=egress_user,
         )
     except ValueError as exc:
         logger.error(f"/validate: could not mint registry-ui token: {exc}")
@@ -775,11 +829,15 @@ def anonymize_ip(ip_address: str) -> str:
 
 
 def mask_token(token: str) -> str:
-    """Mask JWT token showing only first 4 characters followed by ellipsis."""
+    """Mask a token/credential for logging, emitting no part of the value.
+
+    Even a short prefix is credential material: for opaque tokens (API keys,
+    PATs, session ids) the leading characters are real key-space, so nothing
+    from the value is ever emitted -- only a fixed marker. Distinguishing an
+    empty value aids diagnostics without disclosing anything.
+    """
     if not token:
         return "***EMPTY***"
-    if len(token) > 8:
-        return f"{token[:4]}..."
     return "***MASKED***"
 
 
@@ -891,12 +949,50 @@ def _mask_sensitive_dict(
     return masked
 
 
+# Substrings that mark a header name (case-insensitive) as credential-bearing.
+# Matching is fail-closed: any header whose name contains one of these markers
+# has its value masked, so a new credential header (e.g. ``X-Auth-Credential``,
+# ``X-Api-Key``) forwarded on the auth subrequest is never logged in plaintext.
+#
+# KEEP IN SYNC with ``registry.common.log_redaction.SENSITIVE_HEADER_SUBSTRINGS``
+# -- this is a duplicate because the auth server is a separate deployable and
+# cannot import the registry package. ``test_header_substrings_match_shared_redactor``
+# (tests/auth_server/unit/test_server.py) fails if the two lists drift apart.
+_SENSITIVE_HEADER_SUBSTRINGS: tuple[str, ...] = (
+    "authorization",
+    "cookie",
+    "token",
+    "secret",
+    "credential",
+    "password",
+    "api-key",
+    "apikey",
+    "auth",
+    "jwt",
+    "bearer",
+    "session",
+    "key",
+)
+
+
+def _is_sensitive_header_name(name: str) -> bool:
+    """Return True when a header name should be masked before logging."""
+    lowered = name.lower()
+    return any(marker in lowered for marker in _SENSITIVE_HEADER_SUBSTRINGS)
+
+
 def mask_headers(headers: dict) -> dict:
-    """Mask sensitive headers for logging compliance."""
+    """Mask sensitive headers for logging compliance.
+
+    Uses fail-closed substring matching so any credential-bearing header is
+    masked, not just a fixed allowlist a new header name could slip past.
+    """
     masked = {}
     for key, value in headers.items():
         key_lower = key.lower()
-        if key_lower in ["x-authorization", "authorization", "cookie"]:
+        if key_lower in ["x-user-pool-id", "x-client-id"]:
+            masked[key] = mask_sensitive_id(value)
+        elif _is_sensitive_header_name(key):
             if "bearer" in str(value).lower():
                 # Extract token part and mask it
                 parts = str(value).split(" ", 1)
@@ -906,8 +1002,6 @@ def mask_headers(headers: dict) -> dict:
                     masked[key] = mask_token(value)
             else:
                 masked[key] = "***MASKED***"
-        elif key_lower in ["x-user-pool-id", "x-client-id"]:
-            masked[key] = mask_sensitive_id(value)
         else:
             masked[key] = value
     return masked
@@ -2139,6 +2233,56 @@ def _is_federation_api_request(
     return False
 
 
+def _obo_extra_audiences(server_name_from_url: str | None) -> list[str]:
+    """Per-server OBO resource audiences to accept for the server being accessed.
+
+    The OBO ingress token's ``aud`` is the per-server resource URL the gateway
+    advertised in its PRM (RFC 8707), e.g. ``https://gw/<server>/mcp``. We derive
+    it from the request's server path (already parsed from X-Original-URL) and the
+    gateway's public URL -- no static env list. Returns both the ``/mcp`` and
+    bare-path forms to be robust to the server's ``append_mcp_path``. Returns []
+    when there's no server context or no configured gateway URL.
+
+    Gated on the egress feature (not on a specific egress mode): the per-server
+    resource audience is a valid ingress ``aud`` for any server that logs the
+    client in at the gateway via a per-server PRM -- both obo_exchange and the
+    3LO vault's oauth_user ingress leg -- and none of that can function with
+    egress disabled. Returning [] when egress is off keeps the accepted-audience
+    surface at exactly the gateway-app audience for every non-egress deployment
+    rather than always widening it to the per-server resource form.
+    """
+    if not server_name_from_url:
+        return []
+    if not getattr(settings, "egress_auth_enabled", False):
+        return []
+    # The token's aud is the PUBLIC per-server resource the registry advertised
+    # in its PRM, built from the PUBLIC gateway URL. On auth-server, settings.
+    # registry_url is the INTERNAL cluster URL, so prefer the public external URL
+    # (AUTH_SERVER_EXTERNAL_URL) and only fall back to registry_url.
+    registry_url = (
+        os.environ.get("AUTH_SERVER_EXTERNAL_URL", "")
+        or getattr(settings, "registry_url", "")
+        or os.environ.get("REGISTRY_URL", "")
+    )
+    if not registry_url:
+        return []
+    try:
+        from registry.auth.oauth_metadata import build_per_server_resource_url
+    except Exception:
+        return []
+    # Normalize: strip a trailing /mcp transport segment to get the server path.
+    path = "/" + server_name_from_url.strip("/")
+    if path.endswith("/mcp"):
+        path = path[: -len("/mcp")]
+    auds = []
+    try:
+        auds.append(build_per_server_resource_url(registry_url, path, append_mcp=True))
+        auds.append(build_per_server_resource_url(registry_url, path, append_mcp=False))
+    except ValueError:
+        return []
+    return auds
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -2555,8 +2699,21 @@ async def validate_request(request: Request):
 
                     # Provider-specific validation
                     if hasattr(auth_provider, "validate_token"):
-                        # For Keycloak, no additional headers needed
-                        validation_result = auth_provider.validate_token(access_token)
+                        # For an OBO ingress token, the aud is the per-server
+                        # resource URL (RFC 8707, e.g. https://gw/<server>/mcp).
+                        # Pass the expected per-server audience for the server being
+                        # accessed so Entra validation accepts it without a static
+                        # env allowlist (registry-derived, still a closed set).
+                        # Pass defensively: providers/mocks whose validate_token
+                        # does not accept the kwarg still work (fall back to the
+                        # bare call).
+                        extra_audiences = _obo_extra_audiences(server_name_from_url)
+                        try:
+                            validation_result = auth_provider.validate_token(
+                                access_token, extra_audiences=extra_audiences
+                            )
+                        except TypeError:
+                            validation_result = auth_provider.validate_token(access_token)
                         logger.info(
                             f"Token validation successful using {auth_provider.__class__.__name__}"
                         )
@@ -3151,6 +3308,11 @@ async def validate_request(request: Request):
         # "oauth2" (the session record's value), not the literal "session_cookie".
         # Both internal tokens stamp THIS so consent-write and vend-read agree.
         _canon_auth_method = _canonical_auth_method(validation_result)
+        # Canonical egress vault user id (OIDC sub). Both internal tokens stamp
+        # THIS so the consent-write and vend paths key the vault on one value for
+        # one human -- avoids the preferred_username-vs-sub divergence that made
+        # the browser-consent and bearer-vend paths miss on Entra.
+        _egress_user = _canonical_egress_user(validation_result)
 
         _attach_mcp_proxy_token(
             request,
@@ -3159,6 +3321,7 @@ async def validate_request(request: Request):
             scopes=user_scopes,
             server_name=server_name or "",
             auth_method=_canon_auth_method,
+            egress_user=_egress_user,
         )
 
         # Registry /api/ hop token. Discriminate cookie vs JWT-bearer: the cookie
@@ -3179,6 +3342,7 @@ async def validate_request(request: Request):
             # disagreed. Stamp the canonical value so they match.
             auth_method=_canon_auth_method,
             client_id=validation_result.get("client_id") or "",
+            egress_user=_egress_user,
         )
 
         return response
@@ -4330,6 +4494,8 @@ async def oauth2_callback(
                                 "username"
                             ),  # Cognito username is usually email
                             "name": token_validation.get("username"),
+                            "subject": token_validation.get("sub")
+                            or token_validation.get("username"),
                             "groups": token_validation.get("groups", []),
                         }
                         logger.info(
@@ -4363,6 +4529,7 @@ async def oauth2_callback(
                             "email": id_token_claims.get("email"),
                             "name": id_token_claims.get("name")
                             or id_token_claims.get("given_name"),
+                            "subject": id_token_claims.get("sub"),
                             "groups": id_token_claims.get("groups", []),
                         }
                         logger.info(
@@ -4442,6 +4609,7 @@ async def oauth2_callback(
                         "email": id_token_claims.get("email")
                         or id_token_claims.get("preferred_username"),
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
+                        "subject": id_token_claims.get("sub"),
                         "groups": groups,
                     }
                     logger.info(
@@ -4492,6 +4660,7 @@ async def oauth2_callback(
                         or id_token_claims.get("sub"),
                         "email": id_token_claims.get("email"),
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
+                        "subject": id_token_claims.get("sub"),
                         "groups": id_token_claims.get("groups", []),
                     }
                     logger.info(
@@ -4592,6 +4761,7 @@ async def oauth2_callback(
                         or id_token_claims.get("sub"),
                         "email": id_token_claims.get("email"),
                         "name": id_token_claims.get("name") or id_token_claims.get("given_name"),
+                        "subject": id_token_claims.get("sub"),
                         "groups": id_token_claims.get(groups_claim_name, []),
                     }
                     logger.info(
@@ -4721,6 +4891,7 @@ async def oauth2_callback(
             auth_method="oauth2",
             max_age_seconds=session_max_age,
             id_token=token_data.get("id_token"),
+            subject=mapped_user.get("subject"),
         )
         registry_session = signer.dumps(session_id)
 
@@ -4862,6 +5033,11 @@ def map_user_info(user_info: dict, provider_config: dict) -> dict:
         "username": user_info.get(provider_config["username_claim"]),
         "email": user_info.get(provider_config["email_claim"]),
         "name": user_info.get(provider_config["name_claim"]),
+        # OIDC subject: stable across id_tokens and access_tokens for the same
+        # (user, app) on every provider. Persisted into the session so the egress
+        # vault can key on it consistently (see canonical_egress_user); "sub" is
+        # the standard claim name across IdPs.
+        "subject": user_info.get("sub"),
         "groups": [],
     }
 
@@ -5247,6 +5423,93 @@ async def _vend_egress_token(
 _ELICITATION_PERMITTED_METHODS: frozenset[str] = frozenset(
     {"tools/call", "prompts/get", "resources/read"}
 )
+
+
+def _ingress_subject_token(request: "Request") -> str:
+    """Extract the raw ingress JWT to use as the OBO exchange subject.
+
+    nginx forwards both ``X-Authorization`` and ``Authorization`` to this hop.
+    Precedence matches /validate (X-Authorization first), then Authorization.
+    Returns "" when neither carries a bearer token -- e.g. session-cookie or
+    M2M callers, for which OBO is impossible (the caller must use a JWT).
+    """
+    for header in ("X-Authorization", "Authorization"):
+        raw = request.headers.get(header, "")
+        if raw and raw.lower().startswith("bearer "):
+            return raw[len("bearer ") :].strip()
+    return ""
+
+
+def _obo_subject_matches_principal(subject_token: str, internal_claims: dict) -> bool:
+    """True if the OBO subject token belongs to the /validate-authorized principal.
+
+    The internal mcp-proxy token (``internal_claims``) is minted at /validate with
+    ``subject == validation_result["username"]``. For an Entra ingress JWT that
+    username is ``preferred_username`` (falling back to ``sub``); for other paths
+    it is ``sub``. So we accept a match against EITHER the subject token's
+    ``preferred_username`` or its ``sub`` -- whichever the provider used to derive
+    the authorized username. This re-checks that the raw subject token we are
+    about to exchange identifies the SAME principal the internal token authorized,
+    removing reliance on the implicit "nginx forwards the same header to both the
+    auth_request subrequest and this hop" invariant.
+
+    The subject token's signature was already verified by /validate; here we only
+    read identity claims (unverified decode) to compare. A missing internal
+    principal, no matching claim, or an undecodable token fails closed.
+    """
+    principal = (internal_claims or {}).get("sub") or ""
+    if not principal:
+        return False
+    try:
+        subject_claims = jwt.decode(subject_token, options={"verify_signature": False})
+    except jwt.InvalidTokenError:
+        return False
+    candidates = {
+        str(subject_claims.get("preferred_username") or ""),
+        str(subject_claims.get("sub") or ""),
+    }
+    candidates.discard("")
+    return principal in candidates
+
+
+def _obo_failure_reason(exc: OboExchangeError) -> str:
+    """Map a typed OBO exchange error to a short, stable audit failure_reason.
+
+    Mirrors the typed hierarchy in egress_obo so audit consumers can group by
+    failure class (re-auth vs consent vs config vs unsupported-idp) without
+    parsing the free-text detail.
+    """
+    if isinstance(exc, OboReauthRequired):
+        return "reauth_required"
+    if isinstance(exc, OboConsentRequired):
+        return "consent_required"
+    if isinstance(exc, OboConfigError):
+        return "config_error"
+    if isinstance(exc, OboUnsupportedIdpError):
+        return "unsupported_idp"
+    return "exchange_failed"
+
+
+def _obo_error_response(req_id: object, detail: str):
+    """Terminal JSON-RPC error for an obo_exchange failure.
+
+    Unlike the oauth_user consent path, obo_exchange is non-interactive: there is
+    no browser login an agent can perform mid-tool-call. A failure is terminal,
+    so we surface a plain JSON-RPC error (NOT a -32042 URL elicitation, which a
+    client would try to satisfy by opening a connect URL that does not exist).
+    """
+    return JSONResponse(
+        status_code=200,
+        content={
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {
+                "code": -32001,
+                "message": "obo_exchange_failed",
+                "data": {"detail": detail},
+            },
+        },
+    )
 
 
 # Protocol version the gateway advertises when it answers `initialize` locally
@@ -5704,7 +5967,112 @@ async def mcp_proxy(
         if internal_proxy_token:
             server_first_segment = (server_name or "").split("/", 1)[0]
             vend = await _vend_egress_token(internal_proxy_token, server_first_segment)
-            if vend and vend.get("access_token"):
+            if vend and vend.get("mode") == "obo_exchange":
+                # OBO exchange: re-audience the user's ingress JWT to the internal
+                # MCP server's app via the gateway's OWN IdP credentials. The
+                # registry returned only the DIRECTIVE (target_audience+scopes),
+                # never a token; the exchange runs HERE because this hop holds the
+                # raw ingress JWT and the gateway's IdP client creds. This branch
+                # is FIRST: the directive has no access_token, so it must not fall
+                # through to the vault-hit / consent checks below.
+                req_id = incoming_payload.get("id") if isinstance(incoming_payload, dict) else None
+                subject_token = _ingress_subject_token(request)
+                if not subject_token:
+                    # No raw JWT (session-cookie / M2M caller): OBO is impossible.
+                    # Terminal error, never a consent affordance.
+                    logger.warning(
+                        "mcp_proxy: obo_exchange server=%s but no bearer ingress JWT; "
+                        "rejecting (session-cookie/M2M caller cannot do OBO)",
+                        server_name,
+                    )
+                    return _obo_error_response(
+                        req_id, "OBO exchange requires a bearer JWT on the ingress request"
+                    )
+                # Bind the OBO assertion to the authorized principal. /validate
+                # authorized this request and minted the internal token over the
+                # ingress token's `sub`; the internal token is verified (claims,
+                # above) but does NOT carry the ingress token itself. Rather than
+                # rely solely on nginx forwarding the same header to both the
+                # auth_request subrequest and this hop, re-check that the raw
+                # subject token we are about to exchange belongs to the same
+                # principal the internal token authorized. Signature was already
+                # verified at /validate; here we only compare the `sub` claim.
+                if not _obo_subject_matches_principal(subject_token, claims):
+                    logger.warning(
+                        "mcp_proxy: obo_exchange server=%s subject-token principal does not "
+                        "match the /validate-authorized principal; refusing to exchange",
+                        server_name,
+                    )
+                    return _obo_error_response(
+                        req_id, "OBO subject token does not match the authorized principal"
+                    )
+                # Audit context for the OBO mint. This is a per-user delegated
+                # token mint (the exchanged token bakes in the caller's `sub`),
+                # so it is attributable in the same audit stream as the 3LO vault
+                # vend: actor principal, target server, scopes, outcome. The
+                # username is the /validate-authorized principal (the internal
+                # token's `sub`); _emit_token_mint_audit hashes it before storing.
+                obo_principal = str((claims or {}).get("sub") or "")
+                obo_auth_method = str((claims or {}).get("auth_method") or "") or "unknown"
+                obo_target_audience = vend.get("obo_target_audience") or ""
+                obo_scopes = vend.get("obo_scopes") or []
+                try:
+                    obo_token = await obo_exchange(
+                        get_auth_provider(),
+                        subject_token=subject_token,
+                        target_audience=obo_target_audience,
+                        scopes=obo_scopes,
+                    )
+                except OboExchangeError as exc:
+                    logger.warning(
+                        "mcp_proxy: obo_exchange failed for server=%s: %s", server_name, exc
+                    )
+                    await _emit_token_mint_audit(
+                        request_id=str(uuid.uuid4()),
+                        correlation_id=None,
+                        username=obo_principal,
+                        auth_method=obo_auth_method,
+                        provider=settings.auth_provider,
+                        internal_caller="mcp-proxy",
+                        token_kind=TokenKind.USER.value,
+                        resource_type="server",
+                        resource_id=server_first_segment,
+                        token_path="obo_exchange",
+                        requested_scopes=list(obo_scopes),
+                        expires_in_seconds=None,
+                        outcome="failure",
+                        failure_reason=_obo_failure_reason(exc),
+                    )
+                    return _obo_error_response(req_id, str(exc))
+                await _emit_token_mint_audit(
+                    request_id=str(uuid.uuid4()),
+                    correlation_id=None,
+                    username=obo_principal,
+                    auth_method=obo_auth_method,
+                    provider=settings.auth_provider,
+                    internal_caller="mcp-proxy",
+                    token_kind=TokenKind.USER.value,
+                    resource_type="server",
+                    resource_id=server_first_segment,
+                    token_path="obo_exchange",
+                    requested_scopes=list(obo_scopes),
+                    expires_in_seconds=None,
+                    outcome="success",
+                )
+                # Reuse the egress strip+inject: drop the user's gateway creds /
+                # internal identity headers before injecting the exchanged token.
+                forward_headers = {
+                    k: v
+                    for k, v in forward_headers.items()
+                    if k.lower() not in _EGRESS_STRIP_HEADERS
+                }
+                forward_headers["Authorization"] = f"Bearer {obo_token}"
+                # We injected an egress token (the exchanged OBO token). Mark it so
+                # that if the upstream still 401s, its foreign WWW-Authenticate /
+                # resource_metadata is dropped rather than relayed to the client
+                # (same cross-resource-PRM protection as the vaulted-token path).
+                egress_token_injected = True
+            elif vend and vend.get("access_token"):
                 # Token is vaulted (consent done): strip the user's gateway
                 # credentials/identity and inject the vaulted upstream token.
                 forward_headers = {

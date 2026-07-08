@@ -705,6 +705,18 @@ variable "okta_auth_server_id" {
   default     = ""
 }
 
+variable "okta_m2m_allowed_audiences" {
+  description = "Comma/space-separated allowlist of accepted Okta M2M token audiences (e.g. api://ai-registry). Empty accepts only the configured client ids (fail closed)."
+  type        = string
+  default     = ""
+}
+
+variable "okta_m2m_client_groups" {
+  description = "JSON object mapping Okta M2M client_id to a list of group names for RBAC sync, e.g. {\"0oaEXAMPLECLIENTID\":[\"public-mcp-users\"]}. Empty assigns no groups (fail closed)."
+  type        = string
+  default     = ""
+}
+
 # =============================================================================
 # AUTH0 CONFIGURATION
 # =============================================================================
@@ -757,6 +769,12 @@ variable "auth0_m2m_client_secret" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "auth0_m2m_client_groups" {
+  description = "JSON object mapping Auth0 M2M client_id to a list of group names for RBAC sync, e.g. {\"abc123clientid\":[\"public-mcp-users\"]}. Empty assigns no groups (fail closed)."
+  type        = string
+  default     = ""
 }
 
 variable "auth0_management_api_token" {
@@ -824,6 +842,12 @@ variable "pingfederate_groups_claim" {
   description = "JWT claim name carrying group memberships (default: groups)"
   type        = string
   default     = "groups"
+}
+
+variable "pingfederate_m2m_allowed_audiences" {
+  description = "Comma/space-separated allowlist of accepted PingFederate M2M token audiences. Empty accepts only the configured client ids / application id URI (fail closed)."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------
@@ -1603,6 +1627,18 @@ variable "egress_state_ttl_seconds" {
   description = "TTL for the AEAD-encrypted egress OAuth state blob."
   type        = number
   default     = 600
+}
+
+variable "egress_obo_allowed_audiences" {
+  description = <<-EOT
+    Optional allowlist (whitespace-separated) for obo_exchange target_audience
+    values. When set, an obo server may only use a listed audience (authoritative
+    positive control). When empty, a shape rule applies: the target must be an
+    internal app audience (api:// App ID URI or bare client-id/GUID), never an
+    https host URL, so shared first-party APIs (Graph/ARM/Key Vault) are rejected.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "egress_registry_internal_url" {

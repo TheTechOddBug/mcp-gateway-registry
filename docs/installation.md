@@ -606,7 +606,6 @@ sudo netstat -tlnp | grep -E ':(80|443|7860|8080)'
 curl -v http://localhost/health
 ```
 
-For more troubleshooting help, see [Troubleshooting Guide](troubleshooting.md).
 
 ## Next Steps
 
