@@ -697,6 +697,15 @@ class NginxConfigService:
 
                 unprotected_api_block = """    # API endpoints - FastAPI handles authentication (session cookie / bearer)
     location {{ROOT_PATH}}/api/ {
+        # Inbound rate limits still apply even though auth_request is bypassed:
+        # /api/ is the highest-volume surface and must stay bounded at the edge,
+        # and the registration endpoints keep their stricter per-source cap (the
+        # register zone key is empty for non-registration URIs, so it is a no-op
+        # for the rest of /api/).
+        limit_req zone=mcp_gateway_edge burst=100 nodelay;
+        limit_req zone=mcp_gateway_register burst=10 nodelay;
+        limit_conn mcp_gateway_conn 100;
+
         # Proxy to FastAPI service
         proxy_pass http://127.0.0.1:7860/api/;
         proxy_http_version 1.1;

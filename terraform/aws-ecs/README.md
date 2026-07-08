@@ -374,6 +374,13 @@ session_cookie_domain = ""     # Empty for CloudFront mode
 # browser origin must call the API. Empty = same-origin only (no wildcard).
 # cors_allowed_origins = "https://app.example.com,https://admin.example.com"
 
+# WAFv2 per-IP + global rate limiting on the ALBs. OFF by default (WAFv2 carries
+# a per-Web-ACL and per-request cost and needs wafv2:* IAM permissions). Turn it
+# on for internet-facing / production deployments: behind an ALB the container
+# nginx per-source rate-limit zones all see the ALB's IP and collapse into a
+# single bucket, so WAF is what provides real per-client-IP limiting.
+# enable_waf = true
+
 # Container images: NOTHING to set here for a standard deployment. Core services
 # default to pre-built PUBLIC ECR images (public.ecr.aws/p3v1o3c6/...), Keycloak to
 # quay.io/keycloak/keycloak, and Grafana to the stock public image. Only set the

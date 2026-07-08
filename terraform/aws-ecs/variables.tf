@@ -1702,9 +1702,9 @@ variable "github_api_base_url" {
 # =============================================================================
 
 variable "enable_waf" {
-  description = "Enable WAFv2 Web ACLs for ALBs (per-IP + global rate limiting, AWS managed rule sets). Requires wafv2:* IAM permissions. Defaults to true so ALB-fronted deployments get per-source rate limiting out of the box (nginx-layer limits collapse to a single bucket behind an ALB). Set to false only if wafv2:* IAM permissions are unavailable."
+  description = "Enable WAFv2 Web ACLs for ALBs (per-IP + global rate limiting, AWS managed rule sets). Recommended for ALB-fronted deployments: behind an ALB the nginx per-source (limit_req) zones collapse to a single bucket (every request carries the ALB's IP), so WAF is what provides true per-client-IP rate limiting. Defaults to false because WAFv2 has a per-Web-ACL and per-request cost and requires wafv2:* IAM permissions; set to true to turn it on (see terraform/aws-ecs/README.md)."
   type        = bool
-  default     = true
+  default     = false
 }
 
 # =============================================================================

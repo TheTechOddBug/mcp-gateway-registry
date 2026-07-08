@@ -5,6 +5,7 @@ Tests the NginxConfigService for configuration generation and reload.
 """
 
 import asyncio
+import re
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 from urllib.parse import urlparse
 
@@ -1338,6 +1339,27 @@ def test_generated_protected_api_block_carries_internal_token():
     assert "proxy_set_header X-Internal-Token-Registry $auth_internal_token_registry;" in src
 
 
+def test_unprotected_api_block_still_rate_limited():
+    """When auth_request is bypassed (NGINX_DISABLE_API_AUTH_REQUEST=true), the
+    replacement /api/ block must STILL carry the inbound rate limits — /api/ is
+    the highest-volume surface and dropping the edge/registration caps here would
+    reopen the flood path the limits exist to close.
+    """
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[3] / "registry" / "core" / "nginx_service.py"
+    ).read_text()
+    # Isolate the unprotected replacement block so we assert on IT, not the
+    # protected block elsewhere in the file.
+    marker = "unprotected_api_block = "
+    assert marker in src
+    unprotected = src[src.index(marker) : src.index('"""', src.index(marker) + len(marker) + 4) + 3]
+    assert "limit_req zone=mcp_gateway_edge burst=100 nodelay;" in unprotected
+    assert "limit_req zone=mcp_gateway_register burst=10 nodelay;" in unprotected
+    assert "limit_conn mcp_gateway_conn 100;" in unprotected
+
+
 @pytest.mark.unit
 class TestResolveMcpProxyReadTimeout:
     """Tests for the nginx MCP proxy_read_timeout derivation helper.
@@ -1712,7 +1734,15 @@ def test_conf_declares_rate_limit_zones(conf_path):
     assert "limit_conn_zone $binary_remote_addr zone=mcp_gateway_conn:10m;" in text
     # Registration classifier map + fail-safe empty default (skip when non-register).
     assert "map $uri $mcp_gateway_register_key {" in text
-    assert 'default                            "";' in text
+    assert re.search(r'default\s+"";', text)
+    # Registration patterns must allow an optional trailing slash so a request to
+    # /api/register/ cannot bypass the stricter registration cap (only the generous
+    # edge limit would apply). Match must be anchored to the register path suffix.
+    for register_path in ("register", "servers/register", "internal/register"):
+        assert f'"~*/api/{register_path}/?$"' in text, (
+            f"register classifier for /api/{register_path} must accept an optional "
+            "trailing slash to prevent a trailing-slash throttle bypass"
+        )
     # 429 status so clients back off.
     assert "limit_req_status 429;" in text
     assert "limit_conn_status 429;" in text

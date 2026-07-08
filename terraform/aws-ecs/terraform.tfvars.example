@@ -27,6 +27,14 @@ ingress_cidr_blocks = [
   "YOUR.EC2.INSTANCE.IP/32",   # Your EC2 instance or NAT Gateway IP
 ]
 
+# WAFv2 per-IP + global rate limiting on the ALBs. Behind an ALB the container
+# nginx per-source (limit_req) zones collapse to a single bucket — every request
+# arrives with the ALB's IP — so WAF is what gives you true per-client-IP rate
+# limiting. It is OFF by default because WAFv2 has a per-Web-ACL and per-request
+# cost and needs wafv2:* IAM permissions. Turn it on for internet-facing /
+# production deployments:
+# enable_waf = true
+
 # ============================================================================
 # DOMAIN CONFIGURATION
 # ============================================================================
