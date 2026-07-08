@@ -1763,14 +1763,15 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         proxy_http_version 1.1;
         proxy_ssl_server_name on;
         proxy_set_header Host {host_header};
-        # SECURITY: this location proxies directly to a registrant-controlled
-        # (not fully trusted) A2A agent backend. Never relay the caller's
-        # registry credential here -- clearing Authorization AND Cookie prevents
-        # a malicious registered agent from capturing and replaying the caller's
-        # gateway bearer token or registry session cookie against the registry
-        # API. The agent authenticates the gateway via its own mechanism, not by
-        # forwarding the caller's credential.
-        proxy_set_header Authorization "";
+        # SECURITY (A2A egress trust model): X-Authorization carries the caller's
+        # gateway credential -- it is validated at /validate and MUST NOT reach
+        # this registrant-controlled backend, or a malicious agent could replay
+        # it against the registry (the B1 / #1391 class of bug). Strip it and the
+        # session Cookie. The standard Authorization header is left intact: per
+        # the A2A spec, credentials are obtained out-of-band by the calling agent
+        # and passed end-to-end in Authorization for the target agent to
+        # authenticate -- the gateway is not a credential broker here.
+        proxy_set_header X-Authorization "";
         proxy_set_header Cookie "";
         # Rewrite the card's endpoint URLs from the backend to this gateway so
         # clients send JSON-RPC back through the proxy. Body size changes, so
@@ -1810,16 +1811,21 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Original-URL $scheme://$host$request_uri;
-        # SECURITY: this location proxies directly to a registrant-controlled
-        # (not fully trusted) A2A agent backend. Never relay the caller's
-        # registry credential here -- clearing Authorization AND Cookie prevents
-        # a malicious registered agent from capturing and replaying the caller's
-        # gateway bearer token or registry session cookie against the registry
-        # API. The agent authenticates the gateway via the validated identity
-        # context below (X-User / X-Scopes), not the caller's credential. Cookie
-        # must be cleared explicitly because nginx forwards client request
-        # headers (including the session cookie) to the backend by default.
-        proxy_set_header Authorization "";
+        # SECURITY (A2A egress trust model): X-Authorization carries the caller's
+        # gateway credential -- it is validated at /validate and MUST NOT reach
+        # this registrant-controlled backend, or a malicious agent could replay
+        # it against the registry (the B1 / #1391 class of bug). Strip it and the
+        # session Cookie (nginx forwards client request headers by default, so
+        # Cookie must be cleared explicitly). The standard Authorization header is
+        # left intact and forwarded end-to-end: per the A2A spec, the calling
+        # agent obtains the target agent's credential out-of-band and presents it
+        # in Authorization for the target to authenticate. The gateway is a policy
+        # gate, not a credential broker -- it never mints or vends the agent's
+        # credential. /validate authenticates the caller on X-Authorization only
+        # (no Authorization fallback for agent paths) and refuses to forward an
+        # Authorization equal to the validated X-Authorization, so a caller that
+        # duplicates its gateway token into both headers cannot leak it here.
+        proxy_set_header X-Authorization "";
         proxy_set_header Cookie "";
 
         # Forward validated auth context to the agent backend

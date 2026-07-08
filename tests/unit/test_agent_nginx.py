@@ -416,13 +416,17 @@ class TestCreateAgentLocationBlock:
 
         assert "{{ROOT_PATH}}/agent/lob1/travel/" in block
 
-    def test_does_not_relay_caller_credential_to_agent_backend(self):
-        """The agent backend is registrant-controlled and not fully trusted.
+    def test_strips_gateway_credential_but_forwards_target_authorization(self):
+        """A2A egress trust model (Design A, spec-native passthrough).
 
-        Both the card and JSON-RPC blocks must clear the caller's Authorization
-        and Cookie so a malicious registered agent cannot capture and replay the
-        caller's gateway bearer token or registry session cookie. This mirrors
-        the MCP-side fix in #1391 for the parallel A2A route.
+        The gateway credential travels in X-Authorization and must be stripped on
+        egress (with Cookie) so a registrant-controlled agent cannot capture and
+        replay it against the registry (the B1 / #1391 class of bug). The standard
+        Authorization header carries the *target agent's* credential, obtained
+        out-of-band by the calling agent per the A2A spec, and is forwarded
+        end-to-end untouched -- the gateway is a policy gate, not a credential
+        broker. So the blocks must clear X-Authorization/Cookie and must NOT clear
+        or override Authorization.
         """
         service = NginxConfigService()
 
@@ -432,8 +436,10 @@ class TestCreateAgentLocationBlock:
             "Flight Booking Agent",
         )
 
-        # The caller credential must never be forwarded to the agent backend.
-        assert "proxy_set_header Authorization $http_authorization;" not in block
-        # Both credential headers are explicitly cleared (card + JSON-RPC blocks).
-        assert block.count('proxy_set_header Authorization "";') == 2
+        # Gateway credential + session cookie stripped on both blocks (card + RPC).
+        assert block.count('proxy_set_header X-Authorization "";') == 2
         assert block.count('proxy_set_header Cookie "";') == 2
+        # The target-agent Authorization is forwarded end-to-end: the block must
+        # neither clear it nor rewrite it to the gateway's own credential.
+        assert 'proxy_set_header Authorization "";' not in block
+        assert "proxy_set_header Authorization $http_authorization;" not in block

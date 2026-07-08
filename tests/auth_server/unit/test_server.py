@@ -787,7 +787,11 @@ class TestValidateEndpoint:
         auth_env_vars,
         mock_scope_repository_with_data,
     ):
-        """An A2A agent proxy request with invoke access passes and skips MCP checks."""
+        """An A2A agent proxy request with invoke access passes and skips MCP checks.
+
+        The gateway credential is presented in X-Authorization (the A2A egress
+        trust model): Authorization is reserved for the target-agent credential.
+        """
         mock_get_provider.return_value = mock_cognito_provider
 
         import auth_server.server as server_module
@@ -806,7 +810,7 @@ class TestValidateEndpoint:
             response = client.get(
                 "/validate",
                 headers={
-                    "Authorization": "Bearer test-token",
+                    "X-Authorization": "Bearer test-token",
                     "X-Original-URL": "https://example.com/agent/travel/",
                 },
             )
@@ -841,12 +845,92 @@ class TestValidateEndpoint:
             response = client.get(
                 "/validate",
                 headers={
-                    "Authorization": "Bearer test-token",
+                    "X-Authorization": "Bearer test-token",
                     "X-Original-URL": "https://example.com/agent/travel/",
                 },
             )
 
         assert response.status_code == 403
+
+    @patch("auth_server.server.get_auth_provider")
+    def test_validate_a2a_no_authorization_fallback(
+        self,
+        mock_get_provider,
+        mock_cognito_provider,
+        auth_env_vars,
+        mock_scope_repository_with_data,
+    ):
+        """On an agent path, Authorization is NOT accepted as the gateway credential.
+
+        Authorization carries the target-agent credential (forwarded end-to-end),
+        so a request with only Authorization and no X-Authorization must fail
+        closed as unauthenticated rather than authenticate on -- and leak -- the
+        target-agent credential.
+        """
+        mock_get_provider.return_value = mock_cognito_provider
+
+        import auth_server.server as server_module
+
+        with (
+            patch(
+                "auth_server.server.get_scope_repository",
+                return_value=mock_scope_repository_with_data,
+            ),
+            patch(
+                "auth_server.server.validate_a2a_agent_access",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            client = TestClient(server_module.app)
+            response = client.get(
+                "/validate",
+                headers={
+                    "Authorization": "Bearer target-agent-token",
+                    "X-Original-URL": "https://example.com/agent/travel/",
+                },
+            )
+
+        assert response.status_code == 401
+
+    @patch("auth_server.server.get_auth_provider")
+    def test_validate_a2a_rejects_duplicate_gateway_credential(
+        self,
+        mock_get_provider,
+        mock_cognito_provider,
+        auth_env_vars,
+        mock_scope_repository_with_data,
+    ):
+        """Duplicating the gateway token into Authorization is refused (fail closed).
+
+        If Authorization equals the validated X-Authorization, the Authorization
+        copy would be forwarded to the registrant-controlled agent backend and
+        could be replayed against the registry. The request is rejected with 401.
+        """
+        mock_get_provider.return_value = mock_cognito_provider
+
+        import auth_server.server as server_module
+
+        with (
+            patch(
+                "auth_server.server.get_scope_repository",
+                return_value=mock_scope_repository_with_data,
+            ),
+            patch(
+                "auth_server.server.validate_a2a_agent_access",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            client = TestClient(server_module.app)
+            response = client.get(
+                "/validate",
+                headers={
+                    "X-Authorization": "Bearer test-token",
+                    "Authorization": "Bearer test-token",
+                    "X-Original-URL": "https://example.com/agent/travel/",
+                },
+            )
+
+        assert response.status_code == 401
 
     @patch("auth_server.server.get_auth_provider")
     def test_validate_uninspectable_body_fails_closed(

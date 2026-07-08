@@ -2317,16 +2317,52 @@ async def validate_request(request: Request):
 
     try:
         # Extract headers
-        # Check for X-Authorization first (custom header used by this gateway)
-        # Only if X-Authorization is not present, check standard Authorization header
-        authorization = request.headers.get("X-Authorization")
-        if not authorization:
-            authorization = request.headers.get("Authorization")
+        original_url = request.headers.get("X-Original-URL")
+        x_authorization = request.headers.get("X-Authorization")
+        raw_authorization = request.headers.get("Authorization")
+
+        # A2A agent-proxy trust model: on an /agent/... path the standard
+        # Authorization header carries the *target agent's* credential, which the
+        # calling agent obtained out-of-band (per the A2A spec) and which nginx
+        # forwards end-to-end to the agent backend. The gateway credential must
+        # travel in X-Authorization ONLY. So for agent paths we authenticate the
+        # caller on X-Authorization and never fall back to Authorization -- a
+        # fallback would authenticate on (and, since it is forwarded, leak) the
+        # target-agent credential. For every non-agent path the historic
+        # precedence (X-Authorization first, then Authorization) is preserved.
+        a2a_agent_path = _get_a2a_agent_path(original_url)
+        is_a2a_request = a2a_agent_path is not None
+        if x_authorization:
+            authorization = x_authorization
+        elif is_a2a_request:
+            # No gateway credential on an agent path: fail closed as
+            # unauthenticated rather than trusting the target-agent Authorization.
+            authorization = None
+        else:
+            authorization = raw_authorization
+
+        # Defense in depth: if a caller duplicates its gateway token into both
+        # X-Authorization and Authorization on an agent path, the Authorization
+        # copy would be forwarded to the registrant-controlled agent backend and
+        # could be replayed against the registry. Refuse the request (fail closed)
+        # rather than silently leaking the gateway credential.
+        if is_a2a_request and x_authorization and raw_authorization == x_authorization:
+            logger.warning(
+                "A2A request for %s presents identical X-Authorization and "
+                "Authorization; refusing so the gateway credential cannot leak to "
+                "the agent backend.",
+                a2a_agent_path,
+            )
+            return JSONResponse(
+                content={"detail": "Authorization must not duplicate the gateway credential"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer", "Connection": "close"},
+            )
+
         cookie_header = request.headers.get("Cookie", "")
         user_pool_id = request.headers.get("X-User-Pool-Id")
         client_id = request.headers.get("X-Client-Id")
         region = request.headers.get("X-Region", "us-east-1")
-        original_url = request.headers.get("X-Original-URL")
         body = request.headers.get("X-Body")
         # capture_body.lua sets this when the request body was too large to buffer
         # in memory and spilled to a temp file, so no X-Body could be captured.
@@ -2928,7 +2964,8 @@ async def validate_request(request: Request):
         # A2A agent proxy requests: enforce per-agent invoke FGAC here at the
         # auth subrequest, resolving the caller's scopes to an invoke_agent
         # action that covers this agent (see validate_a2a_agent_access).
-        a2a_agent_path = _get_a2a_agent_path(original_url)
+        # a2a_agent_path was resolved once at the top of the handler so the token
+        # precedence and this FGAC check agree on whether the request is A2A.
         if a2a_agent_path is not None:
             if not await validate_a2a_agent_access(a2a_agent_path, user_scopes):
                 logger.warning(
