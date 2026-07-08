@@ -109,6 +109,71 @@ def mock_health_service():
 # =============================================================================
 
 
+# =============================================================================
+# REAL-IP CONFIG RENDERING TESTS (_render_real_ip_config)
+# =============================================================================
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_empty_when_unset():
+    """Unset TRUSTED_REAL_IP_CIDRS emits nothing (edge deploy, no rewrite)."""
+    with patch.dict("os.environ", {}, clear=True):
+        assert nginx_module._render_real_ip_config() == ""
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_empty_when_blank():
+    """Whitespace-only value is treated as unset."""
+    with patch.dict("os.environ", {"TRUSTED_REAL_IP_CIDRS": "   "}):
+        assert nginx_module._render_real_ip_config() == ""
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_single_cidr():
+    """A single VPC CIDR renders set_real_ip_from + recursive directives."""
+    with patch.dict("os.environ", {"TRUSTED_REAL_IP_CIDRS": "10.0.0.0/16"}):
+        out = nginx_module._render_real_ip_config()
+
+    assert "set_real_ip_from 10.0.0.0/16;" in out
+    assert "real_ip_header X-Forwarded-For;" in out
+    assert "real_ip_recursive on;" in out
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_multiple_and_bare_ip():
+    """Multiple entries render in order; a bare IP normalizes to /32."""
+    with patch.dict(
+        "os.environ",
+        {"TRUSTED_REAL_IP_CIDRS": "10.0.0.0/16, 192.168.1.5 , 2001:db8::/32"},
+    ):
+        out = nginx_module._render_real_ip_config()
+
+    assert "set_real_ip_from 10.0.0.0/16;" in out
+    assert "set_real_ip_from 192.168.1.5/32;" in out
+    assert "set_real_ip_from 2001:db8::/32;" in out
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_drops_malformed_entries():
+    """Malformed entries are dropped (fail closed) but valid ones survive."""
+    with patch.dict(
+        "os.environ",
+        {"TRUSTED_REAL_IP_CIDRS": "10.0.0.0/16, not-an-ip, 999.999.999.999"},
+    ):
+        out = nginx_module._render_real_ip_config()
+
+    assert "set_real_ip_from 10.0.0.0/16;" in out
+    assert "not-an-ip" not in out
+    assert "999.999.999.999" not in out
+
+
+@pytest.mark.unit
+def test_render_real_ip_config_all_invalid_emits_nothing():
+    """When every entry is malformed, emit nothing rather than a broken directive."""
+    with patch.dict("os.environ", {"TRUSTED_REAL_IP_CIDRS": "garbage, also-bad"}):
+        assert nginx_module._render_real_ip_config() == ""
+
+
 @pytest.mark.unit
 def test_nginx_service_init_http_only():
     """Test NginxConfigService initialization with HTTP-only template."""

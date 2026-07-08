@@ -378,6 +378,12 @@ variable "trusted_external_hosts" {
   default     = ""
 }
 
+variable "trusted_real_ip_cidrs" {
+  description = "Comma-separated CIDRs (or bare IPs) of the trusted proxy hop(s) directly in front of the bundled nginx, used for nginx's set_real_ip_from so the audited client IP is the real end user rather than the load balancer's internal IP. Leave empty (default) for edge deployments where nginx is reached directly. Behind an ALB (EC2/ECS/EKS) set your VPC CIDR (e.g. 10.0.0.0/16); for CloudFront in front of an ALB list the VPC CIDR AND CloudFront's origin-facing ranges. Malformed entries are dropped (fail closed) and a spoofed left-most X-Forwarded-For is always ignored."
+  type        = string
+  default     = ""
+}
+
 variable "bind_host" {
   description = "Network bind address for registry and gateway services. Default '0.0.0.0' (IPv4) works on all hosts. Set to '::' only for IPv6-only deployments (requires net.ipv6.bindv6only=0 on the host)."
   type        = string

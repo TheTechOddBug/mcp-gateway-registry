@@ -3732,7 +3732,16 @@ def main():
     logger.info(f"Starting simplified auth server on {args.host}:{args.port}")
     logger.info(f"Default region: {args.region}")
 
-    uvicorn.run(app, host=args.host, port=args.port, proxy_headers=True, forwarded_allow_ips="*")
+    # Loopback-only: trust forwarded headers only from a local peer so
+    # request.client can never be set from a caller-supplied X-Forwarded-For.
+    # See docker/auth-entrypoint.sh for the full rationale.
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1,::1",
+    )
 
 
 if __name__ == "__main__":

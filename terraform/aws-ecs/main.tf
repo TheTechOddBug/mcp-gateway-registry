@@ -123,6 +123,7 @@ module "mcp_gateway" {
   cors_allowed_origins   = var.cors_allowed_origins
   trusted_proxy_hops     = var.trusted_proxy_hops
   trusted_external_hosts = var.trusted_external_hosts
+  trusted_real_ip_cidrs  = var.trusted_real_ip_cidrs
   bind_host              = var.bind_host
 
   # DocumentDB configuration

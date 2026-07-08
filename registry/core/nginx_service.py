@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import ipaddress
 import json
 import logging
 import math
@@ -57,11 +58,68 @@ def _resolve_mcp_proxy_read_timeout_seconds() -> int:
         if value is not None:
             upstream = max(float(value), minimum_upstream)
     except (TypeError, ValueError) as e:
-        logger.debug(
-            f"Invalid mcp_proxy_timeout, using default for nginx read timeout: {e}"
-        )
+        logger.debug(f"Invalid mcp_proxy_timeout, using default for nginx read timeout: {e}")
         upstream = default_upstream
     return int(math.ceil(upstream)) + MCP_PROXY_NGINX_READ_TIMEOUT_BUFFER_SECONDS
+
+
+def _render_real_ip_config() -> str:
+    """Render nginx realip directives from the ``TRUSTED_REAL_IP_CIDRS`` env var.
+
+    ``TRUSTED_REAL_IP_CIDRS`` is a comma-separated list of CIDRs (or bare IPs)
+    identifying the trusted proxy hop(s) directly in front of nginx — typically
+    the VPC/subnet CIDR an ALB's ENI lives in. When set, nginx recovers the real
+    client IP from ``X-Forwarded-For`` for connections whose immediate peer falls
+    in one of these ranges, so the audited client IP is the end user rather than
+    the load balancer's internal address.
+
+    Fails closed on bad input: each entry is validated as a well-formed network,
+    and any malformed entry is dropped with a warning rather than emitting an
+    invalid directive that would break nginx config generation. When the variable
+    is unset or yields no valid entries, an EMPTY string is returned — no realip
+    directives are emitted, which is the correct behaviour for edge deployments
+    (compose / single host) where nginx's peer already IS the client.
+
+    ``real_ip_recursive on`` walks the forwarded chain right-to-left skipping the
+    trusted CIDRs, stopping at the first untrusted address (the real client), so a
+    stacked-proxy topology (e.g. CloudFront in front of an ALB, once both ranges
+    are listed) resolves correctly. A spoofed left-most entry can never win
+    because it is not appended by a trusted hop.
+
+    Returns:
+        The nginx directive block (``set_real_ip_from`` lines + ``real_ip_header``
+        + ``real_ip_recursive on``), or an empty string when no valid CIDRs are
+        configured.
+    """
+    raw = os.environ.get("TRUSTED_REAL_IP_CIDRS", "").strip()
+    if not raw:
+        return ""
+
+    valid_cidrs: list[str] = []
+    for entry in raw.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            # strict=False so a host address (e.g. 10.1.3.39) is accepted as a
+            # /32 rather than rejected for having host bits set.
+            network = ipaddress.ip_network(candidate, strict=False)
+            valid_cidrs.append(str(network))
+        except ValueError:
+            logger.warning("Ignoring malformed entry in TRUSTED_REAL_IP_CIDRS: %r", candidate)
+
+    if not valid_cidrs:
+        logger.warning(
+            "TRUSTED_REAL_IP_CIDRS was set but contained no valid CIDRs; "
+            "not emitting realip directives"
+        )
+        return ""
+
+    logger.info("Configuring nginx realip trust for CIDRs: %s", ", ".join(valid_cidrs))
+    lines = [f"set_real_ip_from {cidr};" for cidr in valid_cidrs]
+    lines.append("real_ip_header X-Forwarded-For;")
+    lines.append("real_ip_recursive on;")
+    return "\n".join(lines)
 
 
 def _atomic_write_text(
@@ -934,6 +992,11 @@ class NginxConfigService:
                 auth_port = "8888"
             config_content = config_content.replace("{{AUTH_SERVER_HOST}}", auth_host)
             config_content = config_content.replace("{{AUTH_SERVER_PORT}}", auth_port)
+
+            # Real client-IP recovery (TRUSTED_REAL_IP_CIDRS). Empty by default so
+            # edge deployments emit nothing; when trusted proxy CIDRs are set, the
+            # audited client IP becomes the end user instead of the load balancer.
+            config_content = config_content.replace("{{REAL_IP_CONFIG}}", _render_real_ip_config())
 
             # Generate registry-only block (503 response for MCP proxy requests)
             registry_only_block = self._generate_registry_only_block()

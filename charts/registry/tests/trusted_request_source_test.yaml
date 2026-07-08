@@ -52,3 +52,26 @@ tests:
           path: data.TRUSTED_EXTERNAL_HOSTS
           value: "mcp.example.com,mcp.example.com:443"
           decodeBase64: true
+
+  - it: omits TRUSTED_REAL_IP_CIDRS when unset (edge deploy, no realip rewrite)
+    set:
+      app:
+        secretKey: "test-key-not-for-prod"  # pragma: allowlist secret
+      egressAuth:
+        markerSecret: "test-marker-not-for-prod"  # pragma: allowlist secret
+    asserts:
+      - notExists:
+          path: data.TRUSTED_REAL_IP_CIDRS
+
+  - it: renders TRUSTED_REAL_IP_CIDRS when configured
+    set:
+      app:
+        secretKey: "test-key-not-for-prod"  # pragma: allowlist secret
+        trustedRealIpCidrs: "10.0.0.0/16"
+      egressAuth:
+        markerSecret: "test-marker-not-for-prod"  # pragma: allowlist secret
+    asserts:
+      - equal:
+          path: data.TRUSTED_REAL_IP_CIDRS
+          value: "10.0.0.0/16"
+          decodeBase64: true

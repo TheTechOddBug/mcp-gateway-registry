@@ -1066,6 +1066,14 @@ module "ecs_service_registry" {
           value = var.trusted_external_hosts
         },
         {
+          # Trusted proxy CIDRs for nginx real-IP recovery (set_real_ip_from).
+          # nginx runs in the registry container, so this is registry-only. Empty
+          # by default; set to the VPC CIDR when behind an ALB to record the real
+          # client IP instead of the load balancer's internal address.
+          name  = "TRUSTED_REAL_IP_CIDRS"
+          value = var.trusted_real_ip_cidrs
+        },
+        {
           name  = "CORS_ALLOWED_ORIGINS"
           value = var.cors_allowed_origins
         },
