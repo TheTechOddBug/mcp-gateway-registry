@@ -682,7 +682,8 @@ async def get_full_config(
                 timestamp=datetime.now(UTC),
                 request_id=str(uuid.uuid4()),
                 identity=Identity(
-                    username=username,
+                    # Prefer human-readable email for the audit record.
+                    username=user_context.get("email") or username,
                     auth_method=user_context.get("auth_method", "unknown"),
                     is_admin=True,
                     credential_type="session_cookie",
@@ -1095,7 +1096,8 @@ async def export_config(
                 timestamp=datetime.now(UTC),
                 request_id=str(uuid.uuid4()),
                 identity=Identity(
-                    username=username,
+                    # Prefer human-readable email for the audit record.
+                    username=user_context.get("email") or username,
                     auth_method=user_context.get("auth_method", "unknown"),
                     is_admin=True,
                     credential_type="session_cookie",
