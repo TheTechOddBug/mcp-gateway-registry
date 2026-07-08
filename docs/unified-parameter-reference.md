@@ -142,7 +142,7 @@ Affects only `with-gateway` deployments (nginx reverse proxy).
 
 ## Group 5 — Registry API Auth (Static Tokens)
 
-Enterprise-perimeter auth for registry APIs without full IdP validation. See [`docs/registry-api-auth.md`](../docs/registry-api-auth.md).
+Enterprise-perimeter auth for registry APIs without full IdP validation. See [`docs/registry-api-auth.md`](registry-api-auth.md).
 
 | Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose |
 |-----------|-----------------|-----------------------|----------------------|---------|
