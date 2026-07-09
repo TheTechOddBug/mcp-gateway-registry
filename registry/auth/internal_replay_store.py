@@ -35,6 +35,8 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError
 
+from registry.observability.meters import internal_token_replay_check_total
+
 logger = logging.getLogger(__name__)
 
 # Base collection name; namespaced per-tenant via ``get_collection_name``.
@@ -118,6 +120,7 @@ async def consume_jti(
     """
     if not jti:
         # No jti means no replay protection is possible — deny.
+        internal_token_replay_check_total.labels(result="missing_jti").inc()
         logger.warning("Internal token rejected: missing jti claim")
         return False
 
@@ -133,13 +136,16 @@ async def consume_jti(
                 "expires_at": expires_at,
             }
         )
+        internal_token_replay_check_total.labels(result="accepted").inc()
         return True
     except DuplicateKeyError:
+        internal_token_replay_check_total.labels(result="replay").inc()
         logger.warning("Internal token replay rejected: jti already consumed")
         return False
     except Exception as exc:
         # Fail closed: if we cannot record the jti, we cannot guarantee
         # single-use, so we must deny rather than risk an undetected replay.
+        internal_token_replay_check_total.labels(result="store_error").inc()
         logger.error(f"Internal token replay check failed (denying): {exc}")
         return False
 

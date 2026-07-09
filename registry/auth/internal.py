@@ -93,7 +93,7 @@ def generate_internal_token(
         "sub": subject,
         "purpose": purpose,
         "token_kind": _INTERNAL_TOKEN_KIND,
-        "token_use": "access",
+        "token_use": "access",  # nosec B105 - OAuth2 token type validation per RFC 6749, not a password
         # Unique per-token id so the validator can enforce single-use and reject
         # replays within the TTL window (see validate_internal_auth / the shared
         # consumed-jti store). Every caller mints a fresh token per request, so

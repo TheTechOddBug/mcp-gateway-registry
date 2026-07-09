@@ -158,6 +158,59 @@ class TestConsumeJti:
             assert await consume_jti("abc123", 60) is False
 
 
+class TestReplayCheckMetric:
+    """consume_jti emits an outcome-labelled counter so operators can tell a
+    replay attack (result=replay) apart from a store outage (result=store_error).
+
+    The label is the whole point of the metric — a regression that drops it or
+    mislabels store_error as replay would defeat the SRE signal, so each branch
+    is pinned explicitly.
+    """
+
+    def teardown_method(self) -> None:
+        internal_replay_store._reset_state_for_tests()
+
+    @pytest.mark.asyncio
+    async def test_accepted_and_replay_emit_correct_labels(self) -> None:
+        fake = _FakeConsumedStore()
+        metric = MagicMock()
+        with (
+            patch.object(internal_replay_store, "_get_collection", AsyncMock(return_value=fake)),
+            patch.object(internal_replay_store, "internal_token_replay_check_total", metric),
+        ):
+            await consume_jti("abc123", 60)  # first use -> accepted
+            await consume_jti("abc123", 60)  # same jti -> replay
+
+        labels_used = [call.kwargs["result"] for call in metric.labels.call_args_list]
+        assert labels_used == ["accepted", "replay"]
+        # One inc() per outcome.
+        assert metric.labels.return_value.inc.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_missing_jti_emits_missing_jti_label(self) -> None:
+        metric = MagicMock()
+        with patch.object(internal_replay_store, "internal_token_replay_check_total", metric):
+            assert await consume_jti("", 60) is False
+        metric.labels.assert_called_once_with(result="missing_jti")
+        metric.labels.return_value.inc.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_store_error_emits_store_error_label(self) -> None:
+        metric = MagicMock()
+        with (
+            patch.object(
+                internal_replay_store,
+                "_get_collection",
+                AsyncMock(side_effect=RuntimeError("mongo down")),
+            ),
+            patch.object(internal_replay_store, "internal_token_replay_check_total", metric),
+        ):
+            assert await consume_jti("abc123", 60) is False
+        # store_error is the fail-closed signal, distinct from a replay reject.
+        metric.labels.assert_called_once_with(result="store_error")
+        metric.labels.return_value.inc.assert_called_once()
+
+
 class TestValidateInternalAuthSingleUse:
     """End-to-end single-use enforcement through validate_internal_auth."""
 
