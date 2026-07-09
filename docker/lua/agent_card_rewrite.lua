@@ -40,26 +40,45 @@ local base = ngx.var.uri:gsub("/%.well%-known/agent%-card%.json$", "")
 -- the prefix location {ROOT_PATH}/agent/<path>/ (a no-slash URL would not match).
 local gateway_url = ngx.var.scheme .. "://" .. ngx.var.http_host .. base .. "/"
 
-if card.url then
-    card.url = gateway_url
+-- Collect the exact backend URL strings to rewrite (top-level url + any
+-- advertised interface urls across A2A versions: additionalInterfaces (0.2.x)
+-- and supportedInterfaces (proto/1.0)). We use the decoded card ONLY to find
+-- these values, then rewrite them by literal string substitution on the raw
+-- body below. We do NOT re-encode the decoded card: cjson serializes an empty
+-- array (e.g. a skill's "tags": []) as "{}", which corrupts the card and makes
+-- strict A2A clients reject it. String substitution preserves the backend's
+-- exact serialization and only touches the URL values.
+local originals = {}
+local function collect(u)
+    if type(u) == "string" and u ~= "" and u ~= gateway_url then
+        originals[u] = true
+    end
 end
--- A2A advertises extra transports under different keys across versions:
--- "additionalInterfaces" (0.2.x) and "supportedInterfaces" (proto/1.0).
--- Point every advertised interface URL at the gateway.
-local function rewrite_interfaces(list)
+collect(card.url)
+local function collect_interfaces(list)
     if type(list) ~= "table" then return end
     for _, iface in ipairs(list) do
-        if type(iface) == "table" and iface.url then
-            iface.url = gateway_url
+        if type(iface) == "table" then
+            collect(iface.url)
         end
     end
 end
-rewrite_interfaces(card.additionalInterfaces)
-rewrite_interfaces(card.supportedInterfaces)
+collect_interfaces(card.additionalInterfaces)
+collect_interfaces(card.supportedInterfaces)
 
-local eok, encoded = pcall(cjson.encode, card)
-if eok then
-    ngx.arg[1] = encoded
-else
-    ngx.arg[1] = body
+-- Escape a string for use as a plain (non-pattern) gsub replacement: only "%"
+-- is special on the replacement side.
+local function escape_repl(s)
+    return (s:gsub("%%", "%%%%"))
 end
+-- Escape Lua pattern magic chars so the search string matches literally.
+local function escape_pat(s)
+    return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+local rewritten = body
+local gw_repl = escape_repl(gateway_url)
+for original in pairs(originals) do
+    rewritten = rewritten:gsub('"' .. escape_pat(original) .. '"', '"' .. gw_repl .. '"')
+end
+ngx.arg[1] = rewritten
