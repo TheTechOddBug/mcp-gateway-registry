@@ -217,11 +217,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 # email so an operator knows who to contact without an IdP
                 # reverse lookup. `username` may be the OIDC sub on some auth
                 # paths; email is threaded through user_context for this.
-                username=(
-                    user_context.get("email")
-                    or user_context.get("username")
-                    or "anonymous"
-                ),
+                username=(user_context.get("email") or user_context.get("username") or "anonymous"),
                 auth_method=user_context.get("auth_method", "anonymous"),
                 provider=user_context.get("provider"),
                 groups=user_context.get("groups", []),

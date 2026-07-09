@@ -196,7 +196,7 @@ def _read_mcp_filter_enabled() -> bool:
         value = getattr(settings, "mcp_tools_list_filter_enabled", None)
         if value is not None:
             return bool(value)
-    except Exception:
+    except Exception:  # nosec B110 - settings attr optional; falls back to env
         pass
     raw = os.getenv("MCP_TOOLS_LIST_FILTER_ENABLED", "true").lower()
     return raw in ("true", "1", "yes")
@@ -3595,7 +3595,7 @@ async def generate_user_token(
                 token_kind=(TokenKind.RESOURCE.value if request.resource else TokenKind.USER.value),
                 resource_type=(request.resource.type.value if request.resource else None),
                 resource_id=(request.resource.id if request.resource else None),
-                token_path="unknown",
+                token_path="unknown",  # nosec B106 - audit metadata label, not a credential
                 requested_scopes=request.requested_scopes,
                 expires_in_seconds=None,
                 outcome="failure",
@@ -3707,7 +3707,7 @@ async def generate_user_token(
                 token_kind=(TokenKind.RESOURCE.value if request.resource else TokenKind.USER.value),
                 resource_type=(request.resource.type.value if request.resource else None),
                 resource_id=(request.resource.id if request.resource else None),
-                token_path="self_signed",
+                token_path="self_signed",  # nosec B106 - audit metadata label, not a credential
                 requested_scopes=requested_scopes,
                 expires_in_seconds=expires_in,
                 outcome="success",
@@ -3770,7 +3770,7 @@ async def generate_user_token(
                 auth_method=auth_method or "m2m",
                 provider=provider,
                 internal_caller=caller,
-                token_kind="user",
+                token_kind="user",  # nosec B106 - audit metadata label, not a credential
                 resource_type=None,
                 resource_id=None,
                 token_path="m2m",
@@ -3799,7 +3799,7 @@ async def generate_user_token(
                 auth_method=auth_method or "m2m",
                 provider=provider,
                 internal_caller=caller,
-                token_kind="user",
+                token_kind="user",  # nosec B106 - audit metadata label, not a credential
                 resource_type=None,
                 resource_id=None,
                 token_path="m2m",
@@ -3827,10 +3827,10 @@ async def generate_user_token(
             auth_method=auth_method,
             provider=provider,
             internal_caller=caller,
-            token_kind="unknown",
+            token_kind="unknown",  # nosec B106 - audit metadata label, not a credential
             resource_type=None,
             resource_id=None,
-            token_path="unknown",
+            token_path="unknown",  # nosec B106 - audit metadata label, not a credential
             requested_scopes=[],
             expires_in_seconds=None,
             outcome="failure",
@@ -6020,7 +6020,7 @@ async def mcp_proxy(
                         token_kind=TokenKind.USER.value,
                         resource_type="server",
                         resource_id=server_first_segment,
-                        token_path="obo_exchange",
+                        token_path="obo_exchange",  # nosec B106 - audit metadata label, not a credential
                         requested_scopes=list(obo_scopes),
                         expires_in_seconds=None,
                         outcome="failure",
@@ -6038,7 +6038,7 @@ async def mcp_proxy(
                     token_kind=TokenKind.USER.value,
                     resource_type="server",
                     resource_id=server_first_segment,
-                    token_path="obo_exchange",
+                    token_path="obo_exchange",  # nosec B106 - audit metadata label, not a credential
                     requested_scopes=list(obo_scopes),
                     expires_in_seconds=None,
                     outcome="success",

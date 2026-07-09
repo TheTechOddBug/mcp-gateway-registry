@@ -106,9 +106,7 @@ def enforce_registration_status(
     enforced = enforced.lower().strip()
 
     if requested_status is None:
-        logger.info(
-            f"Enforced status '{enforced}' applied to new {registration_type} registration"
-        )
+        logger.info(f"Enforced status '{enforced}' applied to new {registration_type} registration")
         return enforced
 
     if requested_status.lower().strip() != enforced:

@@ -314,7 +314,7 @@ class PeerFederationService:
                 try:
                     existing_peer = await repo.get_peer(peer_id)
                     had_token_before = existing_peer and existing_peer.federation_token is not None
-                except Exception:
+                except Exception:  # nosec B110 - best-effort check of prior token state
                     pass  # Continue with update even if we can't check existing state
 
             # Update via repository (handles validation)

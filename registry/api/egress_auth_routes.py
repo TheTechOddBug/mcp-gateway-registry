@@ -668,7 +668,7 @@ async def egress_callback(
             # account-swap guard matches the id the consent state was built with.
             current_user = ctx.get("egress_user") or ctx.get("username")
             current_method = ctx.get("auth_method")
-        except Exception:
+        except Exception:  # nosec B110 - best-effort auth context for account-swap guard
             pass
 
     try:

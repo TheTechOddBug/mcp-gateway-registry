@@ -270,8 +270,7 @@ class AuditStatisticsResponse(BaseModel):
     activity_timeline_prior: list[TimeSeriesBucket] = Field(
         default_factory=list,
         description=(
-            "Daily event counts for the prior window of equal length, "
-            "for week-over-week overlay"
+            "Daily event counts for the prior window of equal length, for week-over-week overlay"
         ),
     )
     status_distribution: StatusDistribution = Field(
@@ -624,8 +623,10 @@ async def get_statistics(
     # Build all pipelines upfront
     user_field = "$username" if stream == "token_mint" else "$identity.username"
     op_field = (
-        "$token_kind" if stream == "token_mint"
-        else "$mcp_request.method" if stream == "mcp_access"
+        "$token_kind"
+        if stream == "token_mint"
+        else "$mcp_request.method"
+        if stream == "mcp_access"
         else "$action.operation"
     )
 

@@ -1985,9 +1985,9 @@ class TestRunSecurityScanOnRegistrationUpdatesViaUpdateAgent:
         assert search_repo_mock.index_agent.await_count == 1
         called_path, called_card = search_repo_mock.index_agent.await_args.args
         assert called_path == path
-        assert isinstance(
-            called_card, AgentCard
-        ), f"index_agent was called with {type(called_card).__name__}, expected AgentCard"
+        assert isinstance(called_card, AgentCard), (
+            f"index_agent was called with {type(called_card).__name__}, expected AgentCard"
+        )
 
     @pytest.mark.asyncio
     async def test_safe_scan_does_not_call_update_agent(

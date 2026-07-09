@@ -69,9 +69,7 @@ class OpenBaoStore(SecretStoreBase):
         except Exception as exc:
             if self._reauthenticate is None or not _is_auth_expiry_error(exc):
                 raise
-            logger.warning(
-                "OpenBao token rejected (%s); re-authenticating and retrying once", exc
-            )
+            logger.warning("OpenBao token rejected (%s); re-authenticating and retrying once", exc)
             await asyncio.to_thread(self._reauthenticate)
             return await asyncio.to_thread(fn)
 

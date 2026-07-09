@@ -161,7 +161,7 @@ class MongoDBLogHandler(logging.Handler):
 
             if should_flush:
                 self._flush()
-        except Exception:
+        except Exception:  # nosec B110 - log handler must never raise into the app
             pass
 
     def _flush(self) -> None:
@@ -183,7 +183,7 @@ class MongoDBLogHandler(logging.Handler):
                 from ..core.metrics import APP_LOG_FLUSH_FAILURES
 
                 APP_LOG_FLUSH_FAILURES.labels(service=self._service_name).inc()
-            except Exception:
+            except Exception:  # nosec B110 - metrics increment is best-effort
                 pass
 
     def _periodic_flush(self) -> None:
@@ -192,7 +192,7 @@ class MongoDBLogHandler(logging.Handler):
             time.sleep(self._flush_interval)
             try:
                 self._flush()
-            except Exception:
+            except Exception:  # nosec B110 - background flush must not crash the thread
                 pass
 
     def close(self) -> None:
@@ -203,6 +203,6 @@ class MongoDBLogHandler(logging.Handler):
         if self._client is not None:
             try:
                 self._client.close()
-            except Exception:
+            except Exception:  # nosec B110 - best-effort client close on shutdown
                 pass
         super().close()

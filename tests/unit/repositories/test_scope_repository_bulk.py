@@ -189,6 +189,3 @@ class TestGetGroupMappingsBulk:
     async def test_error_returns_empty(self, repo, mock_collection):
         mock_collection.find.side_effect = Exception("db error")
         assert await repo.get_group_mappings_bulk(["g-a"]) == []
-
-
-

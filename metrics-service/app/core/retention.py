@@ -282,7 +282,7 @@ class RetentionManager:
                 for policy in self.policies.values():
                     await db.execute(
                         """
-                        INSERT OR REPLACE INTO retention_policies 
+                        INSERT OR REPLACE INTO retention_policies
                         (table_name, retention_days, is_active, updated_at)
                         VALUES (?, ?, ?, datetime('now'))
                     """,

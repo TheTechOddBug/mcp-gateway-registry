@@ -838,7 +838,7 @@ async def lifespan(app: FastAPI):
         try:
             startup_config = settings.nginx_config_path.read_text()
             nginx_reload_scheduler.seed_hash(startup_config)
-        except Exception:
+        except Exception:  # nosec B110 - best-effort seed of nginx reload hash at startup
             pass
 
         await nginx_reload_scheduler.start()
