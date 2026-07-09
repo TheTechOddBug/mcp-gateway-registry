@@ -140,8 +140,8 @@ def _mongo_m2m_mock(docs):
 
 
 @pytest.mark.asyncio
-class TestListAdminUsernames:
-    """Tests for counting admin users."""
+class TestListAdminIdentities:
+    """Tests for enumerating admin accounts (one alias-set per admin)."""
 
     async def test_counts_only_admin_users(self):
         users = [
@@ -163,8 +163,8 @@ class TestListAdminUsernames:
                 new=_mongo_m2m_mock([]),
             ),
         ):
-            admins = await admin_safety.list_admin_usernames()
-        assert admins == {"admin1", "admin2"}
+            admins = await admin_safety.list_admin_identities()
+        assert set(admins) == {frozenset({"admin1"}), frozenset({"admin2"})}
 
     async def test_counts_m2m_only_admin_from_mongo(self):
         # The IdP listing has NO admin (M2M group membership lives only in
@@ -189,8 +189,41 @@ class TestListAdminUsernames:
                 new=_mongo_m2m_mock(m2m_docs),
             ),
         ):
-            admins = await admin_safety.list_admin_usernames()
-        assert admins == {"svc-admin"}
+            admins = await admin_safety.list_admin_identities()
+        assert admins == [frozenset({"svc-admin"})]
+
+    async def test_m2m_admin_aliases_are_ONE_admin_not_two(self):
+        # Okta/Auth0 case: client_id (opaque IdP id) != name (friendly label), and
+        # the M2M account is NOT in the IdP listing. Both aliases identify ONE
+        # admin, so the entry is a single frozenset carrying both keys. This is
+        # what lets the guard (a) recognise a delete by EITHER key AND (b) count it
+        # as one admin — a flat two-element identifier set would double-count and
+        # re-open the last-admin fail-open.
+        users = [{"username": "regular", "groups": ["readers"]}]
+        m2m_docs = [
+            {
+                "client_id": "0oa1b2c3d4e5",
+                "name": "break-glass-admin",
+                "groups": ["mcp-registry-admin"],
+            },
+        ]
+        with (
+            patch(
+                "registry.services.admin_safety.resolve_admin_group_names",
+                new=AsyncMock(return_value={"mcp-registry-admin"}),
+            ),
+            patch(
+                "registry.services.admin_safety.get_iam_manager",
+                return_value=_iam_mock(users),
+            ),
+            patch(
+                "registry.repositories.documentdb.client.get_documentdb_client",
+                new=_mongo_m2m_mock(m2m_docs),
+            ),
+        ):
+            admins = await admin_safety.list_admin_identities()
+        # ONE admin, addressable by either identifier.
+        assert admins == [frozenset({"0oa1b2c3d4e5", "break-glass-admin"})]
 
     async def test_m2m_store_error_does_not_raise_when_idp_admin_present(self):
         # A datastore error reading idp_m2m_clients is best-effort: it must not
@@ -211,8 +244,8 @@ class TestListAdminUsernames:
                 new=broken,
             ),
         ):
-            admins = await admin_safety.list_admin_usernames()
-        assert admins == {"admin1"}
+            admins = await admin_safety.list_admin_identities()
+        assert admins == [frozenset({"admin1"})]
 
     async def test_fails_closed_when_users_unavailable(self):
         mock = MagicMock()
@@ -228,7 +261,7 @@ class TestListAdminUsernames:
             ),
         ):
             with pytest.raises(AdminSafetyError) as exc:
-                await admin_safety.list_admin_usernames()
+                await admin_safety.list_admin_identities()
         assert exc.value.status_code == 503
 
     async def test_fails_closed_when_no_admins_found(self):
@@ -255,7 +288,7 @@ class TestListAdminUsernames:
             ),
         ):
             with pytest.raises(AdminSafetyError) as exc:
-                await admin_safety.list_admin_usernames()
+                await admin_safety.list_admin_identities()
         assert exc.value.status_code == 503
 
 
@@ -265,16 +298,16 @@ class TestAssertNotLastAdmin:
 
     async def test_allows_when_other_admins_remain(self):
         with patch(
-            "registry.services.admin_safety.list_admin_usernames",
-            new=AsyncMock(return_value={"admin1", "admin2"}),
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"admin1"}), frozenset({"admin2"})]),
         ):
             # Should not raise.
             await admin_safety.assert_not_last_admin("admin1")
 
     async def test_rejects_last_admin(self):
         with patch(
-            "registry.services.admin_safety.list_admin_usernames",
-            new=AsyncMock(return_value={"admin1"}),
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"admin1"})]),
         ):
             with pytest.raises(AdminSafetyError) as exc:
                 await admin_safety.assert_not_last_admin("admin1")
@@ -282,19 +315,50 @@ class TestAssertNotLastAdmin:
 
     async def test_noop_when_target_not_admin(self):
         with patch(
-            "registry.services.admin_safety.list_admin_usernames",
-            new=AsyncMock(return_value={"admin1"}),
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"admin1"})]),
         ):
             # Deleting a non-admin cannot empty the admin population.
             await admin_safety.assert_not_last_admin("regular-user")
 
     async def test_fails_closed_when_population_unknown(self):
         with patch(
-            "registry.services.admin_safety.list_admin_usernames",
+            "registry.services.admin_safety.list_admin_identities",
             new=AsyncMock(side_effect=AdminSafetyError(503, "unknown")),
         ):
             with pytest.raises(AdminSafetyError):
                 await admin_safety.assert_not_last_admin("admin1")
+
+    async def test_rejects_last_admin_deleted_by_either_m2m_key(self):
+        # The sole admin is ONE M2M client whose alias-set carries both client_id
+        # and name. Deleting by EITHER identifier must be refused. This is the case
+        # a flat identifier set got wrong: two aliases must count as one admin so
+        # removing either empties the population.
+        sole_admin = [frozenset({"0oa1b2c3d4e5", "break-glass-admin"})]
+        for target in ("0oa1b2c3d4e5", "break-glass-admin"):
+            with patch(
+                "registry.services.admin_safety.list_admin_identities",
+                new=AsyncMock(return_value=list(sole_admin)),
+            ):
+                with pytest.raises(AdminSafetyError) as exc:
+                    await admin_safety.assert_not_last_admin(target)
+            assert exc.value.status_code == 409
+
+    async def test_allows_when_another_distinct_admin_remains_alongside_m2m(self):
+        # Two DISTINCT admins: a two-alias M2M client and a regular user. Deleting
+        # the M2M admin (by either alias) is allowed because the regular admin
+        # remains. Guards against over-counting the aliases as "the only admin".
+        admins = [
+            frozenset({"0oa1b2c3d4e5", "break-glass-admin"}),
+            frozenset({"human-admin"}),
+        ]
+        for target in ("0oa1b2c3d4e5", "break-glass-admin"):
+            with patch(
+                "registry.services.admin_safety.list_admin_identities",
+                new=AsyncMock(return_value=list(admins)),
+            ):
+                # Must NOT raise — another distinct admin remains.
+                await admin_safety.assert_not_last_admin(target)
 
 
 @pytest.mark.asyncio
@@ -316,8 +380,8 @@ class TestWouldRemoveLastAdminViaGroups:
                 new=AsyncMock(return_value={"mcp-registry-admin"}),
             ),
             patch(
-                "registry.services.admin_safety.list_admin_usernames",
-                new=AsyncMock(return_value={"admin1"}),
+                "registry.services.admin_safety.list_admin_identities",
+                new=AsyncMock(return_value=[frozenset({"admin1"})]),
             ),
         ):
             with pytest.raises(AdminSafetyError) as exc:
@@ -331,8 +395,8 @@ class TestWouldRemoveLastAdminViaGroups:
                 new=AsyncMock(return_value={"mcp-registry-admin"}),
             ),
             patch(
-                "registry.services.admin_safety.list_admin_usernames",
-                new=AsyncMock(return_value={"admin1", "admin2"}),
+                "registry.services.admin_safety.list_admin_identities",
+                new=AsyncMock(return_value=[frozenset({"admin1"}), frozenset({"admin2"})]),
             ),
         ):
             await admin_safety.would_remove_last_admin_via_groups("admin1", ["readers"])

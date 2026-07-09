@@ -152,8 +152,8 @@ def groups_confer_admin(
     return False
 
 
-async def _m2m_admin_usernames(admin_group_names: set[str]) -> set[str]:
-    """Return admin M2M service-account usernames from the ``idp_m2m_clients`` store.
+async def _m2m_admin_identities(admin_group_names: set[str]) -> list[frozenset[str]]:
+    """Return one alias-set per admin M2M service account from ``idp_m2m_clients``.
 
     For non-Keycloak IdPs (Okta/Auth0/PingFederate) an M2M client's group
     membership lives ONLY in the MongoDB ``idp_m2m_clients`` collection, not in the
@@ -163,20 +163,28 @@ async def _m2m_admin_usernames(admin_group_names: set[str]) -> set[str]:
     wrongly refuse legitimate operations. Mirrors the merge in
     ``registry.api.management_routes.management_list_users``.
 
+    Each admin is returned as a frozenset of ALL its identifiers (normalized
+    ``name`` and ``client_id``). ``management_delete_user`` resolves an M2M client
+    by ``{"$or": [{"client_id": ...}, {"name": ...}]}`` and the guard is called
+    with the raw path param (either key), so the guard must recognise a delete by
+    EITHER — but the two aliases are ONE admin, so they must count as one (a flat
+    set of identifiers would double-count and re-open the last-admin fail-open).
+    For Keycloak ``name == client_id`` so the set collapses to one element.
+
     Best-effort: a datastore error is logged and treated as "no M2M admins found"
     rather than raised, because the IdP listing is the primary source and the
-    empty-set guard in :func:`list_admin_usernames` still fails closed if the
-    combined result is empty.
+    empty-population guard in :func:`list_admin_identities` still fails closed if
+    the combined result is empty.
 
     Args:
         admin_group_names: Case-folded admin-conferring group set.
 
     Returns:
-        Case-folded usernames of M2M clients whose groups confer admin.
+        One alias frozenset per M2M client whose groups confer admin.
     """
     from ..repositories.documentdb.client import get_documentdb_client
 
-    m2m_admins: set[str] = set()
+    m2m_admins: list[frozenset[str]] = []
     try:
         db = await get_documentdb_client()
         collection = db["idp_m2m_clients"]
@@ -193,26 +201,35 @@ async def _m2m_admin_usernames(admin_group_names: set[str]) -> set[str]:
     for doc in docs or []:
         if not isinstance(doc, dict):
             continue
-        name = doc.get("name") or doc.get("client_id")
-        if not name:
+        if not groups_confer_admin(doc.get("groups"), admin_group_names):
             continue
-        if groups_confer_admin(doc.get("groups"), admin_group_names):
-            m2m_admins.add(_normalize(name))
+        aliases = {_normalize(key) for key in (doc.get("name"), doc.get("client_id")) if key}
+        if aliases:
+            m2m_admins.append(frozenset(aliases))
 
-    logger.debug("admin_safety: %d M2M admin service-account(s) found", len(m2m_admins))
+    logger.debug("admin_safety: %d M2M admin account(s) found", len(m2m_admins))
     return m2m_admins
 
 
-async def list_admin_usernames() -> set[str]:
-    """Return the case-folded usernames of all current administrators.
+async def list_admin_identities() -> list[frozenset[str]]:
+    """Return one alias-set per current administrator.
+
+    Each element is the set of case-folded identifiers by which one admin can be
+    addressed: a single username for an IdP user, or ``{name, client_id}`` for an
+    M2M service account (which a delete may target by either). Returning one entry
+    PER ADMIN — rather than a flat set of identifiers — is what lets the guards
+    both (a) recognise the target by any of its aliases and (b) count distinct
+    admins correctly (a flat identifier set would count a two-alias M2M admin
+    twice and re-open the last-admin fail-open).
 
     Cross-references the IdP/DB user listing AND the MongoDB ``idp_m2m_clients``
-    store against the admin-conferring group set, so the admin population matches
-    what the user-management list handler shows (M2M-only admins included). Fails
-    closed on any error enumerating the primary IdP listing.
+    store against the admin-conferring group set, so the population matches what
+    the user-management list handler shows (M2M-only admins included). Fails closed
+    on any error enumerating the primary IdP listing, and on an empty population.
 
     Raises:
-        AdminSafetyError: If users or admin groups cannot be enumerated.
+        AdminSafetyError: If users/groups cannot be enumerated, or the resolved
+            population is empty (treated as unverifiable, not a genuine zero).
     """
     admin_group_names = await resolve_admin_group_names()
 
@@ -226,7 +243,7 @@ async def list_admin_usernames() -> set[str]:
             detail="Unable to verify administrator population; operation refused",
         ) from exc
 
-    admins: set[str] = set()
+    admins: list[frozenset[str]] = []
     for user in users or []:
         if not isinstance(user, dict):
             continue
@@ -234,20 +251,20 @@ async def list_admin_usernames() -> set[str]:
         if not username:
             continue
         if groups_confer_admin(user.get("groups"), admin_group_names):
-            admins.add(_normalize(username))
+            admins.append(frozenset({_normalize(username)}))
 
     # Merge M2M admins (stored only in idp_m2m_clients for non-Keycloak IdPs) so
     # the count matches management_list_users and an M2M-only admin is not
     # invisible to the last-admin guard.
-    admins |= await _m2m_admin_usernames(admin_group_names)
+    admins.extend(await _m2m_admin_identities(admin_group_names))
 
-    # Fail closed on an empty admin set. We already know at least one
+    # Fail closed on an empty admin population. We already know at least one
     # admin-conferring group exists (resolve_admin_group_names raises otherwise),
-    # so finding NO admin users means the user listing didn't surface group
-    # membership (e.g. an IdP adapter that returned groupless users, or a
-    # truncated/empty listing) rather than a genuine zero-admin deployment.
-    # Deriving "target is not an admin, nothing to guard" from that would silently
-    # bypass the last-admin guard, so refuse instead.
+    # so finding NO admin means the listing didn't surface group membership (e.g.
+    # an IdP adapter that returned groupless users, or a truncated/empty listing)
+    # rather than a genuine zero-admin deployment. Deriving "target is not an
+    # admin, nothing to guard" from that would silently bypass the guard, so
+    # refuse instead.
     if not admins:
         logger.error(
             "admin_safety: no administrator accounts found despite %d "
@@ -261,6 +278,24 @@ async def list_admin_usernames() -> set[str]:
 
     logger.debug("admin_safety: %d administrator account(s) currently present", len(admins))
     return admins
+
+
+def _would_empty_admins(
+    admins: list[frozenset[str]],
+    target: str,
+) -> bool:
+    """Return True if removing ``target`` leaves zero administrators.
+
+    ``target`` is a normalized identifier. An admin is "the target" if that
+    identifier is one of its aliases; the removal empties the population only if
+    NO OTHER admin (a different alias-set) remains. Counting distinct admins —
+    not identifiers — is what prevents a two-alias M2M admin from masking itself.
+    """
+    is_target_admin = any(target in aliases for aliases in admins)
+    if not is_target_admin:
+        return False
+    remaining = [aliases for aliases in admins if target not in aliases]
+    return not remaining
 
 
 async def assert_not_last_admin(target_username: str) -> None:
@@ -278,16 +313,10 @@ async def assert_not_last_admin(target_username: str) -> None:
         AdminSafetyError: If the target is the only remaining administrator, or
             the admin population cannot be determined (fail closed).
     """
-    admins = await list_admin_usernames()
+    admins = await list_admin_identities()
     target = _normalize(target_username)
 
-    if target not in admins:
-        # Target is not an admin (or an unverifiable edge) — removing it cannot
-        # empty the admin population. Nothing to guard.
-        return
-
-    remaining = admins - {target}
-    if not remaining:
+    if _would_empty_admins(admins, target):
         raise AdminSafetyError(
             status_code=409,
             detail=(
@@ -322,14 +351,10 @@ async def would_remove_last_admin_via_groups(
     if groups_confer_admin(desired_groups, admin_group_names):
         return
 
-    admins = await list_admin_usernames()
+    admins = await list_admin_identities()
     target = _normalize(target_username)
 
-    if target not in admins:
-        return
-
-    remaining = admins - {target}
-    if not remaining:
+    if _would_empty_admins(admins, target):
         raise AdminSafetyError(
             status_code=409,
             detail=(
