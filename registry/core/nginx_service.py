@@ -1362,7 +1362,15 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
     ) -> str:
         """Sanitize a string for safe use inside an nginx set directive's double quotes.
 
-        Escapes double quotes and backslashes, and strips newlines.
+        Escapes double quotes and backslashes, strips newlines, and neutralizes
+        the ``$`` sigil. nginx has no backslash escape for ``$`` inside a quoted
+        string -- it always begins a variable reference -- so a stray ``$`` cannot
+        be safely represented and is stripped (like newlines). None of this
+        helper's legitimate inputs (backend URLs, hosts, paths, ids) contain a
+        live nginx variable, and a ``$`` reaching here is already malformed; a
+        rendered ``$undefined`` would otherwise fail ``nginx -t`` and block the
+        reload. It cannot break out to a new directive (that needs ``"`` + ``;``,
+        both handled), so this is defense-in-depth, not the primary guard.
 
         Args:
             value: Raw string (e.g., server_id from URL path)
@@ -1373,6 +1381,7 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         sanitized = re.sub(r"[\r\n]+", " ", value)
         sanitized = sanitized.replace("\\", "\\\\")
         sanitized = sanitized.replace('"', '\\"')
+        sanitized = sanitized.replace("$", "")
         return sanitized
 
     async def _generate_virtual_server_blocks(self) -> str:
@@ -1747,6 +1756,41 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         # `set $backend_url "..."` context.
         safe_proxy_pass_url = self._sanitize_for_nginx_set(proxy_pass_url)
 
+        # For servers that need a per-server PRM (obo_exchange on any provider,
+        # oauth_user on Entra only -- see server_needs_per_server_prm), the 401
+        # WWW-Authenticate must point MCP clients at the PER-SERVER PRM (so the
+        # client discovers the per-server resource that matches its connection URL
+        # and the Entra App ID URI, not the bare-origin gateway PRM Entra rejects).
+        # Override the default global $mcp_resource_metadata in this location only.
+        # Keycloak/Cognito 3LO keeps the global PRM (unchanged working behavior).
+        # RFC 9728 clients follow the resource_metadata from the 401 header in
+        # preference to guessing.
+        from registry.api.wellknown_routes import server_needs_per_server_prm
+
+        obo_resource_metadata = ""
+        if server_info and server_needs_per_server_prm(server_info.get("egress_auth_mode")):
+            from registry.auth.oauth_metadata import build_per_server_prm_url
+
+            try:
+                append_mcp = server_info.get("append_mcp_path") is not False
+                per_server_prm = build_per_server_prm_url(
+                    settings.registry_url, path, append_mcp=append_mcp
+                )
+                # Defense-in-depth: the PRM URL embeds the registrant-supplied
+                # server path (build_per_server_prm_url does a raw concat, no
+                # escaping), so sanitize before it lands in the quoted
+                # `set $mcp_resource_metadata "..."` directive -- matching the
+                # escaping applied to every other interpolated value in this file
+                # (e.g. $backend_url above). Without it, a path containing a
+                # double-quote + semicolon could break out of the string and
+                # inject nginx directives into the obo location block.
+                safe_per_server_prm = self._sanitize_for_nginx_set(per_server_prm)
+                obo_resource_metadata = (
+                    f'\n        set $mcp_resource_metadata "{safe_per_server_prm}";'
+                )
+            except ValueError:
+                obo_resource_metadata = ""
+
         # Extract hostname from proxy_pass_url for external services
         parsed_url = urlparse(proxy_pass_url)
         upstream_host = parsed_url.netloc
@@ -1888,7 +1932,7 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
 
         # Handle auth errors
         error_page 401 = @auth_error;
-        error_page 403 = @forbidden_error;{version_headers}"""
+        error_page 403 = @forbidden_error;{obo_resource_metadata}{version_headers}"""
 
         # Transport-specific settings
         if transport_type == "sse":
