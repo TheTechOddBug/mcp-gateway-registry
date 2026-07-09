@@ -171,6 +171,11 @@ services:
       - GATEWAY_ADDITIONAL_SERVER_NAMES=${GATEWAY_ADDITIONAL_SERVER_NAMES:-}
       # Registry Card Configuration
       - REGISTRY_URL=${REGISTRY_URL:-http://localhost}
+      # Request-source trust (audit client IP + OAuth external-URL host allowlist)
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
+      - TRUSTED_EXTERNAL_HOSTS=${TRUSTED_EXTERNAL_HOSTS:-}
+      # Trusted proxy CIDRs for nginx real-IP recovery (empty = edge deploy, no rewrite)
+      - TRUSTED_REAL_IP_CIDRS=${TRUSTED_REAL_IP_CIDRS:-}
       # ARD Catalog Publisher (issue #1294)
       - ARD_CATALOG_ENABLED=${ARD_CATALOG_ENABLED:-true}
       - ARD_REGISTRY_ENABLED=${ARD_REGISTRY_ENABLED:-true}
@@ -555,6 +560,9 @@ services:
       # Registry Configuration
       - REGISTRY_URL=${REGISTRY_URL:-http://localhost}
       - REGISTRY_NAME=${REGISTRY_NAME:-AI Registry}
+      # Request-source trust (audit client IP + OAuth external-URL host allowlist)
+      - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
+      - TRUSTED_EXTERNAL_HOSTS=${TRUSTED_EXTERNAL_HOSTS:-}
       - REGISTRY_ORGANIZATION_NAME=${REGISTRY_ORGANIZATION_NAME:-ACME Inc.}
       - AUTH_SERVER_EXTERNAL_URL=${AUTH_SERVER_EXTERNAL_URL:-http://localhost:8888}
       - SECRET_KEY=${SECRET_KEY}
