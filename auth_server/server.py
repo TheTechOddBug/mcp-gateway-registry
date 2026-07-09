@@ -129,7 +129,7 @@ DEFAULT_TOKEN_LIFETIME_HOURS = 8
 MCP_TRANSPORT_ENDPOINTS: frozenset[str] = frozenset({"mcp", "sse", "messages"})
 
 # Rate limiting for token generation (simple in-memory counter)
-user_token_generation_counts = {}
+user_token_generation_counts: dict[str, int] = {}
 MAX_TOKENS_PER_USER_PER_HOUR = int(os.environ.get("MAX_TOKENS_PER_USER_PER_HOUR", "100"))
 
 
@@ -479,7 +479,7 @@ def _read_mcp_proxy_timeout() -> float:
 
 
 # Global scopes configuration (will be loaded during FastAPI startup)
-SCOPES_CONFIG = {}
+SCOPES_CONFIG: dict[str, Any] = {}
 
 
 def _log_scopes_loaded(scopes_config: dict) -> None:
@@ -540,7 +540,7 @@ if _registry_static_token_requested and not REGISTRY_API_TOKEN and not _REGISTRY
     )
     REGISTRY_STATIC_TOKEN_AUTH_ENABLED: bool = False
 else:
-    REGISTRY_STATIC_TOKEN_AUTH_ENABLED: bool = _registry_static_token_requested
+    REGISTRY_STATIC_TOKEN_AUTH_ENABLED = _registry_static_token_requested
 
 
 # ---------------------------------------------------------------------------
@@ -781,7 +781,7 @@ if _federation_static_token_requested and not FEDERATION_STATIC_TOKEN:
     )
     FEDERATION_STATIC_TOKEN_AUTH_ENABLED: bool = False
 else:
-    FEDERATION_STATIC_TOKEN_AUTH_ENABLED: bool = _federation_static_token_requested
+    FEDERATION_STATIC_TOKEN_AUTH_ENABLED = _federation_static_token_requested
 
 # Warn if token is too short (weak entropy)
 MIN_FEDERATION_TOKEN_LENGTH: int = 32
@@ -967,7 +967,7 @@ def _mask_sensitive_dict(
     if not isinstance(data, dict):
         return data
 
-    masked = {}
+    masked: dict[str, Any] = {}
     for key, value in data.items():
         key_lower = key.lower()
         if any(sensitive in key_lower for sensitive in sensitive_keys):
@@ -1121,7 +1121,7 @@ async def map_groups_to_scopes(groups: list[str]) -> list[str]:
     return unique_scopes
 
 
-async def validate_session_cookie(cookie_value: str) -> dict[str, any]:
+async def validate_session_cookie(cookie_value: str) -> dict[str, Any]:
     """
     Validate session cookie using itsdangerous serializer.
 
@@ -1739,8 +1739,8 @@ class SimplifiedCognitoValidator:
             region: Default AWS region
         """
         self.default_region = region
-        self._cognito_clients = {}  # Cache boto3 clients by region
-        self._jwks_cache = {}  # Cache JWKS by user pool
+        self._cognito_clients: dict[str, Any] = {}  # Cache boto3 clients by region
+        self._jwks_cache: dict[str, Any] = {}  # Cache JWKS by user pool
 
     def _get_cognito_client(self, region: str):
         """Get or create boto3 cognito client for region"""
@@ -1805,7 +1805,7 @@ class SimplifiedCognitoValidator:
 
             # Get JWKS and find matching key
             jwks = self._get_jwks(user_pool_id, region)
-            signing_key = None
+            signing_key: Any = None
 
             for key in jwks.get("keys", []):
                 if key.get("kid") == kid:
@@ -1823,8 +1823,8 @@ class SimplifiedCognitoValidator:
                             algorithms = get_default_algorithms()
                             signing_key = algorithms["RS256"].from_jwk(key)
                         except (ImportError, AttributeError):
-                            # For PyJWT 2.0.0+
-                            signing_key = PyJWK.from_jwk(json.dumps(key)).key
+                            # For PyJWT 2.0.0+ (from_jwk exists at runtime; stubs lag)
+                            signing_key = PyJWK.from_jwk(json.dumps(key)).key  # type: ignore[attr-defined]
                     break
 
             if not signing_key:
@@ -2041,7 +2041,7 @@ class SimplifiedCognitoValidator:
             jwt_claims = self.validate_jwt_token(access_token, user_pool_id, client_id, region)
 
             # Extract scopes and other info
-            scopes = []
+            scopes: list[str] = []
             if "scope" in jwt_claims:
                 scopes = jwt_claims["scope"].split() if jwt_claims["scope"] else []
 
@@ -2431,7 +2431,7 @@ async def validate_request(request: Request):
                     "federation/read",
                     "federation/peers",
                 ]
-                response_data = {
+                response_data: dict[str, Any] = {
                     "valid": True,
                     "username": "federation-peer",
                     "client_id": "federation-static",
@@ -3180,7 +3180,7 @@ async def validate_request(request: Request):
             if mcp_logger:
                 try:
                     # Build identity from validation result
-                    identity = Identity(
+                    mcp_identity = Identity(
                         # Human-readable identity for the audit record
                         # (email -> preferred_username -> sub). The resolved
                         # claims are surfaced under validation_result["data"];
@@ -3205,7 +3205,7 @@ async def validate_request(request: Request):
                     # Log the MCP access event
                     await mcp_logger.log_mcp_access(
                         request_id=request_id,
-                        identity=identity,
+                        identity=mcp_identity,
                         mcp_server=mcp_server,
                         request_body=body.encode("utf-8") if body else b"",
                         response_status="success",
@@ -3285,7 +3285,7 @@ async def validate_request(request: Request):
             mcp_logger = get_mcp_logger()
             if mcp_logger:
                 try:
-                    identity = Identity(
+                    mcp_identity = Identity(
                         username="anonymous",
                         auth_method="unknown",
                         credential_type="none",
@@ -3297,7 +3297,7 @@ async def validate_request(request: Request):
                     )
                     await mcp_logger.log_mcp_access(
                         request_id=request_id,
-                        identity=identity,
+                        identity=mcp_identity,
                         mcp_server=mcp_server,
                         request_body=body.encode("utf-8") if body else b"",
                         response_status="error",

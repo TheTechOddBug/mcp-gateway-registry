@@ -114,9 +114,12 @@ repos:
           - types-PyYAML
           - pydantic
         args: [--ignore-missing-imports, --no-strict-optional]
-        # Exclude tests, scripts, and the sample A2A agents under
-        # agents/a2a/src/ (hyphenated package dirs mypy cannot import).
-        exclude: ^(tests/|scripts/|agents/a2a/src/)
+        # Scope type checking to the importable application packages. Script
+        # trees (api/, cli/, servers/, credentials-provider/, terraform/,
+        # infra/ lambdas, sample agents) reuse module basenames without
+        # __init__.py, which collide under a single mypy invocation.
+        files: ^(registry|auth_server|metrics-service)/
+        exclude: ^(tests/|scripts/)
 
   # Local hooks for project-specific checks
   - repo: local

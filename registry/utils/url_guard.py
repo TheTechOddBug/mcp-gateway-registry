@@ -281,7 +281,7 @@ def _resolve_public_ips(
 
     ips: list[str] = []
     for _family, _socktype, _proto, _canonname, sockaddr in addr_info:
-        ip_str = sockaddr[0]
+        ip_str = str(sockaddr[0])
         if _is_blocked_ip(ip_str, allowlist):
             raise UrlValidationError(
                 hostname,

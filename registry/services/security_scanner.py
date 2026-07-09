@@ -14,6 +14,7 @@ import re
 import subprocess  # nosec B404
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from ..core.config import settings
 from ..core.endpoint_utils import get_endpoint_url
@@ -114,7 +115,7 @@ def _organize_findings_by_analyzer(tool_results: list) -> dict:
     Returns:
         Dictionary organized by analyzer name with findings
     """
-    organized_results = {}
+    organized_results: dict[str, Any] = {}
 
     for tool_result in tool_results:
         findings_dict = tool_result.get("findings", {})

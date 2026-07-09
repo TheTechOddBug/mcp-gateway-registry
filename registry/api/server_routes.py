@@ -1035,26 +1035,6 @@ def _to_dt(value: Any) -> datetime | None:
     return None
 
 
-def _require_admin(user_context: dict | None) -> None:
-    """Reject the request unless the caller is an authenticated admin.
-
-    Mirrors the sibling ``_require_admin`` helpers in management_routes.py,
-    log_routes.py, etc. Used to gate scope/group mutation endpoints, which
-    have no finer-grained permission model and must be admin-only.
-
-    Args:
-        user_context: Authenticated user context (may be None if auth failed).
-
-    Raises:
-        HTTPException: 403 if the user is missing or not an admin.
-    """
-    if not user_context or not user_context.get("is_admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator permissions are required for this operation",
-        )
-
-
 def _check_server_permission(
     permission: str,
     server_name: str,
@@ -1670,7 +1650,7 @@ async def internal_register_service(
     # Create server entry with auto-generated UUID
     from uuid import uuid4
 
-    server_entry = {
+    server_entry: dict[str, Any] = {
         "id": str(uuid4()),
         "server_name": name,
         "description": description,

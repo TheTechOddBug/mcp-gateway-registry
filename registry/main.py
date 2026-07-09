@@ -635,7 +635,9 @@ async def lifespan(app: FastAPI):
                                         server_data["id"] = str(uuid4())
 
                                     # Register or update server
-                                    success = await server_service.register_server(server_data)
+                                    success: (
+                                        dict[str, Any] | bool
+                                    ) = await server_service.register_server(server_data)
                                     if not success:
                                         # Ensure UUID exists before updating (for servers registered before UUID feature)
                                         if "id" not in server_data or not server_data["id"]:
@@ -1174,8 +1176,8 @@ from registry.api.ard_routes import router as ard_router  # noqa: E402
 app.include_router(ard_router, prefix="/api/ard", tags=["ARD Registry"])
 # ARD error envelope: reshape HTTPException / validation errors on /api/ard/* only;
 # default behavior is preserved for every other path.
-app.add_exception_handler(StarletteHTTPException, ard_http_exception_handler)
-app.add_exception_handler(RequestValidationError, ard_validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, ard_http_exception_handler)  # type: ignore[arg-type]  # FastAPI narrows exc type; Starlette signature expects base Exception
+app.add_exception_handler(RequestValidationError, ard_validation_exception_handler)  # type: ignore[arg-type]  # FastAPI narrows exc type; Starlette signature expects base Exception
 
 
 # SSRF / URL validation: any registration or fetch path that persists or
@@ -1252,7 +1254,7 @@ def custom_openapi():
     return app.openapi_schema
 
 
-app.openapi = custom_openapi
+app.openapi = custom_openapi  # type: ignore[method-assign]  # standard FastAPI pattern for overriding the OpenAPI schema generator
 
 
 # Add user info endpoint for React auth context

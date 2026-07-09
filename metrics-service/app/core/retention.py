@@ -616,7 +616,7 @@ class RetentionManager:
 
             db_path = self.storage.db_path
 
-            size_info = {}
+            size_info: dict[str, Any] = {}
 
             if os.path.exists(db_path):
                 # Main database file

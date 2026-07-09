@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional, Union
 
-from .models import RegistryApiAccessRecord, TokenMintAuditRecord
+from .models import MCPServerAccessRecord, RegistryApiAccessRecord, TokenMintAuditRecord
 
 if TYPE_CHECKING:
     from ..repositories.audit_repository import AuditRepositoryBase

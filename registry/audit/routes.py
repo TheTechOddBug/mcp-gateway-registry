@@ -761,7 +761,7 @@ async def get_statistics(
             )
         )
 
-    results = await asyncio.gather(*tasks)
+    results: list[Any] = await asyncio.gather(*tasks)
 
     # Unpack results
     total_events = results[0]
@@ -1023,7 +1023,7 @@ async def _compute_executive_summary(
     maa_match = _window_match(now - timedelta(days=30), now, agent_filter)
 
     # Run all independent queries concurrently
-    results = await asyncio.gather(
+    results: list[Any] = await asyncio.gather(
         _count_distinct_usernames(repository, cur_window),
         repository.distinct("mcp_server.name", cur_mcp),
         repository.distinct("mcp_request.tool_name", cur_mcp),

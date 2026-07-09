@@ -159,7 +159,9 @@ async def _perform_agent_security_scan_on_registration(
                         updated_card["tags"] = current_tags
                         from ..schemas.agent_models import AgentCard as AgentCardModel
 
-                        await agent_service.update_agent(path, AgentCardModel(**updated_card))
+                        await agent_service.update_agent(
+                            path, AgentCardModel(**updated_card).model_dump()
+                        )
                     logger.info(f"Added 'security-pending' tag to agent {path}")
 
             # Disable agent if configured
@@ -509,6 +511,13 @@ def _normalize_path(
     return path
 
 
+def _normalize_tag_list(tags: str | list[str]) -> list[str]:
+    """Normalize a tags field that may be a comma-separated string or a list."""
+    if isinstance(tags, str):
+        return [tag.strip() for tag in tags.split(",") if tag.strip()]
+    return [str(tag).strip() for tag in tags if str(tag).strip()]
+
+
 def _weak_etag_for(agent_card: AgentCard) -> str:
     """Weak ETag derived from updated_at epoch milliseconds.
 
@@ -798,7 +807,7 @@ async def register_agent(
             },
         )
 
-    tag_list = [tag.strip() for tag in request.tags.split(",") if tag.strip()]
+    tag_list = _normalize_tag_list(request.tags)
 
     # Parse external_tags
     external_tag_list = []
@@ -2060,7 +2069,7 @@ async def update_agent(
             detail="You can only update agents you registered",
         )
 
-    tag_list = [tag.strip() for tag in request.tags.split(",") if tag.strip()]
+    tag_list = _normalize_tag_list(request.tags)
 
     try:
         # Build optional kwargs for fields that have defaults on AgentCard
@@ -2145,7 +2154,7 @@ async def update_agent(
             detail=f"Registration denied by policy gate: {gate_result.error_message}",
         )
 
-    success = await agent_service.update_agent(path, updated_agent)
+    success = await agent_service.update_agent(path, updated_agent.model_dump())
 
     if not success:
         return JSONResponse(

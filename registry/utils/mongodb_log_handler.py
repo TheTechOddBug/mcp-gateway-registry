@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pymongo import MongoClient
+from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .mongodb_connection import build_client_options, build_connection_string, build_tls_kwargs
@@ -66,7 +67,7 @@ class MongoDBLogHandler(logging.Handler):
         self._collection_name = f"application_logs_{namespace}"
 
         self._client: MongoClient | None = None
-        self._collection = None
+        self._collection: Collection[dict[str, Any]] | None = None
         self._connect_error_logged = False
 
         self._flush_thread = threading.Thread(

@@ -1899,7 +1899,9 @@ class TestRunSecurityScanOnRegistrationUpdatesViaUpdateAgent:
         assert service_mock.update_agent.await_count == 1
         called_path, called_card = service_mock.update_agent.await_args.args
         assert called_path == path
-        assert "security-pending" in called_card.tags
+        # update_agent takes a dict of updates (its body calls updates.get(...)
+        # and agent_dict.update(updates)), so the route must pass model_dump().
+        assert "security-pending" in called_card["tags"]
         assert service_mock.register_agent.await_count == 0
 
         # block_unsafe_agents was False, so the scan helper does not toggle
