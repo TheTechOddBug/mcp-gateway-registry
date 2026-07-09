@@ -350,6 +350,10 @@ export class RegistryServiceStack extends cdk.Stack {
     authService.securityGroup.addIngressRule(alb.albSg, ec2.Port.tcp(8888), 'Auth server port from ALB');
     authService.securityGroup.addIngressRule(registryService.securityGroup, ec2.Port.tcp(8888), 'Allow registry to access auth server');
 
+    // Registry nginx hard-fails if auth-server Service Connect DNS is not yet
+    // registered on first deploy. Force CFN to create auth-server first.
+    registryService.service.node.addDependency(authService.service);
+
     // Optional MCP servers / A2A agents
     new McpServerService(this, 'CurrenttimeSvc', {
       serviceName: 'currenttime-server',
