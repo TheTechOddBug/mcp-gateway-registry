@@ -142,14 +142,34 @@ variable "keycloak_database_username" {
   default     = "keycloak"
 }
 
+variable "allow_unsafe_password_chars" {
+  description = <<-EOT
+    Escape hatch for the URI/RDS-safe password character validation added in
+    #1354. Default false: keycloak_database_password and documentdb_admin_password
+    are rejected if they contain / @ " ' + : ? # & ! = % or spaces (these break
+    RDS/DocumentDB, connection-string/URI parsing, or curl form-encoding).
+
+    Set true ONLY for an EXISTING install whose databases were already created
+    with such a password (rotating a live master password is avoidable churn).
+    This does NOT make those characters safe; it suppresses the fail-fast check
+    so an existing deployment can keep applying without a forced password change.
+    New installs should leave this false and choose a compliant password.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "keycloak_database_password" {
   description = "Keycloak database password"
   type        = string
   sensitive   = true
 
   validation {
-    condition     = !can(regex("[/ @\"'+:?#&!=%]", var.keycloak_database_password))
-    error_message = "Password cannot contain URI-reserved or RDS-rejected characters: / @ \" ' + : ? # & ! = % or spaces."
+    # Reject URI/RDS-unsafe characters (#1354) unless the operator explicitly
+    # opts out via allow_unsafe_password_chars (for existing installs already
+    # running such a password). Safe by default.
+    condition     = var.allow_unsafe_password_chars || !can(regex("[/ @\"'+:?#&!=%]", var.keycloak_database_password))
+    error_message = "Password cannot contain URI-reserved or RDS-rejected characters: / @ \" ' + : ? # & ! = % or spaces. Set allow_unsafe_password_chars=true to override for an existing install."
   }
 }
 
@@ -390,8 +410,12 @@ variable "documentdb_admin_password" {
   default     = ""
 
   validation {
-    condition     = var.documentdb_admin_password == "" || !can(regex("[/ @\"'+:?#&!=%]", var.documentdb_admin_password))
-    error_message = "Password cannot contain URI-reserved or RDS-rejected characters: / @ \" ' + : ? # & ! = % or spaces."
+    # Reject URI/RDS-unsafe characters (#1354) unless the operator explicitly
+    # opts out via allow_unsafe_password_chars (for existing installs already
+    # running such a password). Empty is allowed (only required for documentdb
+    # storage backend). Safe by default.
+    condition     = var.allow_unsafe_password_chars || var.documentdb_admin_password == "" || !can(regex("[/ @\"'+:?#&!=%]", var.documentdb_admin_password))
+    error_message = "Password cannot contain URI-reserved or RDS-rejected characters: / @ \" ' + : ? # & ! = % or spaces. Set allow_unsafe_password_chars=true to override for an existing install."
   }
 }
 

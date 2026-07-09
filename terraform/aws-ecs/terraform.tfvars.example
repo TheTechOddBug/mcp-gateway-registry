@@ -95,6 +95,15 @@ keycloak_admin_password = "CHANGE-ME-SECURE-PASSWORD"
 keycloak_database_username = "keycloak"
 keycloak_database_password = "CHANGE-ME-DB-PASSWORD"
 
+# Password character policy (issue #1354). By default keycloak_database_password
+# and documentdb_admin_password may NOT contain / @ " ' + : ? # & ! = % or
+# spaces -- they break RDS/DocumentDB, connection-string/URI parsing, or curl
+# form-encoding. Leave this false and pick a compliant password for new installs.
+# Set true ONLY for an existing install whose databases were already created with
+# such a password, to avoid rotating a live master password. Prints a loud
+# warning at plan/apply when enabled.
+# allow_unsafe_password_chars = false
+
 # ============================================================================
 # CONTAINER IMAGES (Optional - pre-built public ECR images used by default)
 # ============================================================================
@@ -319,11 +328,11 @@ storage_backend = "documentdb"
 # DocumentDB Elastic Cluster credentials (REQUIRED)
 # RECOMMENDED: Set via environment variables instead of tfvars for security:
 #   export TF_VAR_documentdb_admin_username="docdbadmin"
-#   export TF_VAR_documentdb_admin_password="YourSecurePassword123!"
+#   export TF_VAR_documentdb_admin_password="YourSecurePassword123"
 #
 # Alternatively, uncomment below (less secure - credentials in file):
 # documentdb_admin_username = "docdbadmin"
-# documentdb_admin_password = "CHANGE-ME-DocumentDB-Password123!"
+# documentdb_admin_password = "CHANGE-ME-DocumentDB-Password123"
 
 # DocumentDB Elastic Cluster capacity configuration (OPTIONAL)
 # Uncomment to override defaults
