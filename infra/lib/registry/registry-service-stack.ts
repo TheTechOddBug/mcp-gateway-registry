@@ -330,7 +330,8 @@ export class RegistryServiceStack extends cdk.Stack {
         })]
       : [];
 
-    // Registry ECS service
+    // Registry ECS service — nginx (:8080) fronts everything external. Gradio
+    // (:7860) is loopback-bound and reached through nginx path routes.
     const registryService = new RegistryEcsService(this, 'RegistrySvc', {
       serviceName: 'registry',
       image: config.images.registry,
@@ -339,7 +340,7 @@ export class RegistryServiceStack extends cdk.Stack {
       containerPort: 8080,
       additionalPorts: [
         { port: 8443, name: 'https' },
-        { port: 7860, name: 'registry' },
+        { port: 7860, name: 'gradio-internal' },
       ],
       vpc,
       subnets: privateSubnets,
@@ -350,21 +351,20 @@ export class RegistryServiceStack extends cdk.Stack {
       secrets: registrySecrets,
       targetGroups: [
         { targetGroup: alb.registryTg, containerPort: 8080 },
-        { targetGroup: alb.gradioTg, containerPort: 7860 },
       ],
       additionalTaskRolePolicies: registryTaskRolePolicies,
       additionalExecRoleStatements: secretsAccessStatements,
-      healthCheckCommand: 'curl -f http://localhost:7860/health || exit 1',
+      healthCheckCommand: 'curl -f http://localhost:8080/health || exit 1',
       namePrefix,
       desiredCount: config.replicas.registry,
     });
     this.registryEcsSg = registryService.securityGroup;
 
-    for (const port of [8080, 8443, 7860]) {
-      registryService.securityGroup.addIngressRule(
-        alb.albSg, ec2.Port.tcp(port), `Port ${port} from ALB`,
-      );
-    }
+    // Only :8080 (nginx) accepts traffic from the ALB. :8443/:7860 remain
+    // inside the task for nginx-internal reverse-proxy to the app process.
+    registryService.securityGroup.addIngressRule(
+      alb.albSg, ec2.Port.tcp(8080), 'Registry nginx from ALB',
+    );
 
     // Auth ECS service
     const authService = new RegistryEcsService(this, 'AuthSvc', {
@@ -394,7 +394,9 @@ export class RegistryServiceStack extends cdk.Stack {
           containerPath: '/efs/auth_config',
         },
       ],
-      targetGroups: [{ targetGroup: alb.authTg, containerPort: 8888 }],
+      // No public ALB attachment — auth-server is only reachable via Service
+      // Connect from the registry container (nginx proxies /oauth2/*).
+      targetGroups: [],
       additionalExecRoleStatements: secretsAccessStatements,
       healthCheckCommand: 'curl -f http://localhost:8888/health || exit 1',
       namePrefix,
@@ -402,7 +404,6 @@ export class RegistryServiceStack extends cdk.Stack {
     });
     this.authEcsSg = authService.securityGroup;
 
-    authService.securityGroup.addIngressRule(alb.albSg, ec2.Port.tcp(8888), 'Auth server port from ALB');
     authService.securityGroup.addIngressRule(registryService.securityGroup, ec2.Port.tcp(8888), 'Allow registry to access auth server');
 
     // Registry nginx hard-fails if auth-server Service Connect DNS is not yet
@@ -551,13 +552,16 @@ export class RegistryServiceStack extends cdk.Stack {
     cdk.Tags.of(this).add('Environment', 'production');
     cdk.Tags.of(this).add('ManagedBy', 'cdk');
 
-    // Outputs
+    // Outputs. Auth-server and Gradio are NOT exposed on the ALB — external
+    // callers reach both via nginx path routes on the registry container.
+    // OAuth callbacks go to ${REGISTRY_URL}/oauth2/callback/keycloak; the
+    // Gradio UI is proxied at the registry root.
     new cdk.CfnOutput(this, 'RegistryUrl', { value: this.registryUrl, description: 'MCP Gateway Registry URL' });
     new cdk.CfnOutput(this, 'RegistryAlbDnsName', { value: this.registryAlbDns, description: 'Registry ALB DNS name' });
     new cdk.CfnOutput(this, 'KeycloakUrl', { value: authStack.keycloakUrl, description: 'Keycloak identity provider URL' });
     new cdk.CfnOutput(this, 'GradioUiUrl', {
-      value: `${this.registryUrl.replace(/:\d+$/, '')}:7860`,
-      description: 'Gradio UI URL (port 7860)',
+      value: this.registryUrl,
+      description: 'Gradio UI URL (proxied by registry nginx at the root path)',
     });
     if (config.enableObservability) {
       new cdk.CfnOutput(this, 'GrafanaUrl', { value: `${this.registryUrl}/grafana`, description: 'Grafana dashboard URL' });
@@ -568,8 +572,8 @@ export class RegistryServiceStack extends cdk.Stack {
         registryApi: `${this.registryUrl}/api/v1`,
         registryHealth: `${this.registryUrl}/health`,
         keycloak: authStack.keycloakUrl,
-        authServer: `${this.registryUrl}:8888`,
-        gradioUi: `${this.registryUrl.replace(/:\d+$/, '')}:7860`,
+        authServer: `${this.registryUrl}/oauth2`,
+        gradioUi: this.registryUrl,
       }),
       description: 'All service endpoints as JSON',
     });
