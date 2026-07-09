@@ -138,6 +138,7 @@ class TestInternalTokenAttribution:
             {"SECRET_KEY": self._SECRET, "AUDIT_INSTANCE_ID": "registry-green-9"},
         ):
             token = generate_internal_token(subject="auth-server", purpose="egress-token-vend")
-            caller = _validate_bearer_token(f"Bearer {token}")
+            caller, claims = _validate_bearer_token(f"Bearer {token}")
 
         assert caller == "auth-server@registry-green-9"
+        assert claims["instance_id"] == "registry-green-9"
