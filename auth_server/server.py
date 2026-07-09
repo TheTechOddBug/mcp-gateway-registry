@@ -2127,11 +2127,13 @@ async def validate_a2a_agent_access(
     """Check per-agent A2A invocation access against structured agent scopes.
 
     Enforced at the ``/validate`` auth subrequest: it answers "may this caller
-    invoke this agent?". Mirrors :func:`validate_server_tool_access`: each of the
-    caller's scopes is resolved via the scope repository, then we look for an
-    ``invoke_agent`` action under the scope's ``agents`` block whose resources
-    cover this agent. Resources support ``all``/``*`` wildcards or an exact agent
-    path (e.g. ``/travel``).
+    invoke this agent?". Mirrors :func:`validate_server_tool_access` and uses the
+    same rule shape as a server rule: each ``server_access`` entry is a per-agent
+    dict ``{"agent": "<path or *>", "actions": [...]}`` -- ``agent`` is the
+    identifier (like ``server``) and ``actions`` are its siblings (like
+    ``methods``). A caller may invoke the agent if any of their scopes has a rule
+    whose ``agent`` matches (exact path, or ``*``/``all`` wildcard) and whose
+    ``actions`` include ``invoke_agent`` (or the ``all``/``*`` wildcard).
 
     Args:
         agent_path: Agent path with leading slash (e.g. "/travel").
@@ -2154,15 +2156,17 @@ async def validate_a2a_agent_access(
             continue
 
         for entry in scope_config:
-            agents_block = entry.get("agents")
-            if not isinstance(agents_block, dict):
+            rule_agent = entry.get("agent")
+            if not isinstance(rule_agent, str):
                 continue
-            for action in agents_block.get("actions", []):
-                if action.get("action") != "invoke_agent":
-                    continue
-                resources = action.get("resources", [])
-                if "all" in resources or "*" in resources or agent_path in resources:
-                    return True
+            # Agent identifier match: exact path, or a wildcard covering any agent.
+            if rule_agent not in ("*", "all") and rule_agent != agent_path:
+                continue
+            actions = entry.get("actions", [])
+            if not isinstance(actions, list):
+                continue
+            if "invoke_agent" in actions or "all" in actions or "*" in actions:
+                return True
     return False
 
 

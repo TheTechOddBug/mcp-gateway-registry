@@ -4738,9 +4738,11 @@ class TestValidateA2AAgentAccess:
     """Tests for validate_a2a_agent_access structured per-agent gating.
 
     The function resolves each caller scope via the scope repository and looks
-    for an ``invoke_agent`` action whose resources cover the agent path. The
-    repository is mocked to return scope -> server_access config, mirroring the
-    fixtures used by the MCP validate_server_tool_access tests.
+    for a per-agent rule ``{"agent": "<path or *>", "actions": [...]}`` whose
+    ``agent`` matches and whose ``actions`` include ``invoke_agent`` (or a
+    wildcard). The rule shape mirrors a server rule (``agent`` like ``server``,
+    ``actions`` like ``methods``). The repository is mocked to return scope ->
+    server_access config, mirroring the MCP validate_server_tool_access tests.
     """
 
     @staticmethod
@@ -4755,44 +4757,60 @@ class TestValidateA2AAgentAccess:
         return repo
 
     @staticmethod
-    def _invoke_scope(resources: list[str]) -> list:
-        """A server_access list granting invoke_agent on the given resources."""
-        return [{"agents": {"actions": [{"action": "invoke_agent", "resources": resources}]}}]
+    def _invoke_scope(agent: str) -> list:
+        """A server_access list granting invoke_agent on the given agent (path or *)."""
+        return [{"agent": agent, "actions": ["invoke_agent"]}]
 
-    async def test_invoke_all_resources_allows(self):
+    async def test_invoke_wildcard_agent_allows(self):
         from auth_server.server import validate_a2a_agent_access
 
-        repo = self._repo({"a2a-invoker": self._invoke_scope(["all"])})
+        repo = self._repo({"a2a-invoker": self._invoke_scope("*")})
+        with patch("auth_server.server.get_scope_repository", return_value=repo):
+            assert await validate_a2a_agent_access("/travel", ["a2a-invoker"]) is True
+
+    async def test_invoke_all_agent_keyword_allows(self):
+        """The ``all`` keyword works as a wildcard for the agent identifier too."""
+        from auth_server.server import validate_a2a_agent_access
+
+        repo = self._repo({"a2a-invoker": self._invoke_scope("all")})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert await validate_a2a_agent_access("/travel", ["a2a-invoker"]) is True
 
     async def test_invoke_exact_path_allows(self):
         from auth_server.server import validate_a2a_agent_access
 
-        repo = self._repo({"a2a-travel": self._invoke_scope(["/travel"])})
+        repo = self._repo({"a2a-travel": self._invoke_scope("/travel")})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert await validate_a2a_agent_access("/travel", ["a2a-travel"]) is True
 
     async def test_invoke_different_path_denied(self):
         from auth_server.server import validate_a2a_agent_access
 
-        repo = self._repo({"a2a-hr": self._invoke_scope(["/hr"])})
+        repo = self._repo({"a2a-hr": self._invoke_scope("/hr")})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert await validate_a2a_agent_access("/travel", ["a2a-hr"]) is False
 
     async def test_sibling_path_not_matched(self):
-        """An exact-path resource for /travel-extended must NOT grant /travel."""
+        """An exact-path rule for /travel-extended must NOT grant /travel."""
         from auth_server.server import validate_a2a_agent_access
 
-        repo = self._repo({"a2a-ext": self._invoke_scope(["/travel-extended"])})
+        repo = self._repo({"a2a-ext": self._invoke_scope("/travel-extended")})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert await validate_a2a_agent_access("/travel", ["a2a-ext"]) is False
 
-    async def test_non_invoke_action_denied(self):
-        """A scope granting only agent CRUD (no invoke_agent) is denied."""
+    async def test_actions_wildcard_allows(self):
+        """A rule whose actions include the ``all`` wildcard grants invoke."""
         from auth_server.server import validate_a2a_agent_access
 
-        crud = [{"agents": {"actions": [{"action": "get_agent", "resources": ["all"]}]}}]
+        repo = self._repo({"a2a-admin": [{"agent": "/travel", "actions": ["all"]}]})
+        with patch("auth_server.server.get_scope_repository", return_value=repo):
+            assert await validate_a2a_agent_access("/travel", ["a2a-admin"]) is True
+
+    async def test_non_invoke_action_denied(self):
+        """A rule granting only agent CRUD (no invoke_agent) is denied."""
+        from auth_server.server import validate_a2a_agent_access
+
+        crud = [{"agent": "*", "actions": ["get_agent", "list_agents"]}]
         repo = self._repo({"a2a-reader": crud})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert await validate_a2a_agent_access("/travel", ["a2a-reader"]) is False
