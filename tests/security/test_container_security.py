@@ -82,6 +82,34 @@ def _extract_hcl_resource_block(content: str, resource_name: str) -> str:
     return ""
 
 
+def _extract_hcl_variable_block(content: str, variable_name: str) -> str:
+    """Return the text of a named Terraform variable block via brace matching.
+
+    Args:
+        content: Full HCL file contents.
+        variable_name: The variable label (quoted token) to extract.
+
+    Returns:
+        The block text (from the opening brace to its matching close), or an
+        empty string if the variable is not found.
+    """
+    marker = re.search(rf'variable\s+"{re.escape(variable_name)}"\s*{{', content)
+    if not marker:
+        return ""
+
+    start = marker.end() - 1  # position of the opening brace
+    depth = 0
+    for idx in range(start, len(content)):
+        char = content[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return content[start : idx + 1]
+    return ""
+
+
 @pytest.mark.parametrize("dockerfile_path", DOCKERFILES)
 def test_dockerfile_has_user_directive(repo_root: Path, dockerfile_path: str):
     """Test that Dockerfile has USER directive (CIS Docker Benchmark 4.1)."""
@@ -458,3 +486,35 @@ class TestBedrockAgentCoreLeastPrivilege:
         assert (
             "resources: ['*']" not in content
         ), "registry-service-stack.ts: no statement may use resources: ['*']."
+
+    @pytest.mark.parametrize(
+        "vars_path",
+        [
+            "terraform/aws-ecs/modules/mcp-gateway/variables.tf",
+            "terraform/aws-ecs/variables.tf",
+        ],
+    )
+    def test_assume_role_arns_variable_is_validated(self, repo_root: Path, vars_path: str):
+        """Both the module and the root variable must validate the ARN format.
+
+        A configured role ARN flows into the sts:AssumeRole Resource, so a
+        malformed/over-broad value (e.g. "*") must be rejected at plan time on
+        BOTH surfaces -- the root variable is what operators set, the module
+        variable is the last line of defense. Missing validation on either lets
+        an unvalidated value propagate.
+        """
+        vars_file = repo_root / vars_path
+        block = _extract_hcl_variable_block(
+            vars_file.read_text(), "aws_registry_federation_assume_role_arns"
+        )
+        assert block, f"{vars_path}: aws_registry_federation_assume_role_arns variable not found."
+
+        assert "validation {" in block, (
+            f"{vars_path}: aws_registry_federation_assume_role_arns must carry a "
+            f"validation block rejecting non-IAM-role ARNs."
+        )
+        # The validation must pin the account-id + role path, so a bare "*" cannot pass.
+        assert "arn:aws" in block and ":iam::" in block and ":role/" in block, (
+            f"{vars_path}: the ARN validation regex must require a full IAM role ARN "
+            f"(arn:aws...:iam::<account>:role/<name>)."
+        )

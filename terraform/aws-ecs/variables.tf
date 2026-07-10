@@ -1197,6 +1197,14 @@ variable "aws_registry_federation_assume_role_arns" {
   EOT
   type        = list(string)
   default     = []
+
+  validation {
+    condition = alltrue([
+      for arn in var.aws_registry_federation_assume_role_arns :
+      can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", arn))
+    ])
+    error_message = "Each entry must be a full IAM role ARN (arn:aws:iam::<account-id>:role/<name>)."
+  }
 }
 
 # =============================================================================
