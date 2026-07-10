@@ -56,6 +56,9 @@ coverage.xml
 cover/
 tests/reports/
 frontend/tests/reports/
+# pytest report artifacts from the agents/a2a subproject (its own test runs)
+agents/a2a/tests/reports/
+agents/a2a/src/*/tests/reports/
 
 # Translations
 *.mo
