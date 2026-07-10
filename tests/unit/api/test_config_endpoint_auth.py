@@ -70,6 +70,29 @@ class TestConfigEndpointAuth:
             app.dependency_overrides.clear()
 
 
+    def test_full_config_requires_admin(self) -> None:
+        """GET /api/config/full is admin-only: a non-admin authenticated user is
+        rejected (403), so the richer parameter dump is not exposed to any user."""
+        app.dependency_overrides[enhanced_auth] = _mock_authenticated_user
+        try:
+            client = TestClient(app)
+            response = client.get("/api/config/full")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_export_config_requires_admin(self) -> None:
+        """GET /api/config/export is admin-only (it can emit sensitive values);
+        a non-admin authenticated user is rejected (403)."""
+        app.dependency_overrides[enhanced_auth] = _mock_authenticated_user
+        try:
+            client = TestClient(app)
+            response = client.get("/api/config/export")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+        finally:
+            app.dependency_overrides.clear()
+
+
 @pytest.mark.unit
 class TestPreLoginConfigStillWorks:
     """The pre-login surface must keep working after gating /api/config."""
@@ -85,3 +108,29 @@ class TestPreLoginConfigStillWorks:
         assert "ui_title" in data
         assert isinstance(data["ui_title"], str)
         assert data["ui_title"]
+
+    def test_auth_providers_stays_anonymous(self) -> None:
+        """/api/auth/providers must NOT require authentication — the login page
+        needs it to render OAuth buttons. It must not 401 for an anonymous
+        caller (a future refactor that gates it would break the login screen)."""
+        app.dependency_overrides.clear()
+        client = TestClient(app)
+        response = client.get("/api/auth/providers")
+
+        # It may return 200 (providers list) or degrade gracefully if the auth
+        # server is unreachable in a unit context, but it must never be a 401.
+        assert response.status_code != status.HTTP_401_UNAUTHORIZED
+
+    def test_health_does_not_leak_topology_anonymously(self) -> None:
+        """The anonymous /health probe must not disclose deployment topology —
+        the same reconnaissance data /api/config gates."""
+        app.dependency_overrides.clear()
+        client = TestClient(app)
+        response = client.get("/health")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert "deployment_mode" not in data
+        assert "registry_mode" not in data
+        assert "nginx_updates_enabled" not in data
