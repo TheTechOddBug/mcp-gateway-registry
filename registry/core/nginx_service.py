@@ -1632,6 +1632,38 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         except Exception as e:
             logger.error(f"Failed to write virtual server mappings: {e}", exc_info=True)
 
+    @staticmethod
+    async def _agent_backend_resolves(
+        hostname: str,
+    ) -> bool:
+        """Return True if the agent backend hostname resolves right now.
+
+        Used to fail safe before emitting a literal ``proxy_pass`` in an agent
+        block: an unresolvable host would make the whole nginx reload fail. Runs
+        the blocking ``getaddrinfo`` in a thread so it does not block the event
+        loop. An IP literal or a resolvable name (including a bare docker/service
+        name valid on this host's network) returns True; a dead name returns
+        False. Fails safe to False on lookup error so a bad host is skipped, not
+        emitted.
+
+        Args:
+            hostname: Upstream host (no scheme or port); may be empty.
+
+        Returns:
+            True if the host resolves, else False.
+        """
+        if not hostname:
+            return False
+        import socket
+
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, socket.getaddrinfo, hostname, None)
+            return True
+        except (OSError, UnicodeError) as exc:
+            logger.debug(f"Agent backend host {hostname!r} did not resolve: {exc}")
+            return False
+
     async def _generate_agent_location_blocks(self) -> str:
         """Generate nginx reverse-proxy location blocks for enabled A2A agents.
 
@@ -1685,6 +1717,23 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
                     logger.debug(
                         f"Agent '{path}' health is {agent.health_status!r} "
                         "(not healthy); skipping nginx block"
+                    )
+                    continue
+
+                # The agent block emits a LITERAL proxy_pass, which nginx resolves
+                # at config-load time; a backend host that does not resolve then
+                # makes the WHOLE nginx reload fail ("host not found in upstream"),
+                # taking every route down, not just this agent. Fail safe: verify
+                # the host resolves now and skip the block with a warning if it
+                # does not (same posture as the health and no-url skips above), so
+                # one dead backend host can never crash the reload. This is a real
+                # DNS check (not the dot heuristic) so a legitimately-resolvable
+                # bare docker/service name is kept and a dead FQDN is caught.
+                backend_host = urlparse(backend_url).hostname or ""
+                if not await self._agent_backend_resolves(backend_host):
+                    logger.warning(
+                        f"Agent '{path}' backend host {backend_host!r} does not "
+                        "resolve; skipping nginx block so the reload cannot fail"
                     )
                     continue
 

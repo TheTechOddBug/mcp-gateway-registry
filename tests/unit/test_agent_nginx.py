@@ -36,8 +36,20 @@ def _agent(
 
 @pytest.fixture
 def patched_agent_service():
-    """Patch the agent_service singleton imported lazily by the generator."""
-    with patch("registry.services.agent_service.agent_service") as mock_svc:
+    """Patch the agent_service singleton imported lazily by the generator.
+
+    Also stub _agent_backend_resolves to True so block-generation tests do not
+    depend on live DNS for their (non-resolvable) example backend hosts. Tests
+    that exercise the resolve-skip behavior patch it explicitly.
+    """
+    with (
+        patch("registry.services.agent_service.agent_service") as mock_svc,
+        patch.object(
+            NginxConfigService,
+            "_agent_backend_resolves",
+            AsyncMock(return_value=True),
+        ),
+    ):
         mock_svc.get_enabled_agents = AsyncMock(return_value=[])
         mock_svc.get_agent_info = AsyncMock(return_value=None)
         yield mock_svc
@@ -203,6 +215,47 @@ class TestGenerateAgentLocationBlocks:
         assert result == ""
 
     @pytest.mark.asyncio
+    async def test_skips_agent_whose_backend_host_does_not_resolve(self):
+        """An agent whose backend host does not resolve is skipped (fail safe): the
+        block emits a literal proxy_pass and an unresolvable host would fail the
+        whole nginx reload. Uses its own patches so the resolver is NOT stubbed."""
+        with (
+            patch("registry.services.agent_service.agent_service") as mock_svc,
+            patch.object(
+                NginxConfigService,
+                "_agent_backend_resolves",
+                AsyncMock(return_value=False),
+            ),
+        ):
+            mock_svc.get_enabled_agents = AsyncMock(return_value=["/flight-booking-agent"])
+            mock_svc.get_agent_info = AsyncMock(return_value=_agent())
+            service = NginxConfigService()
+
+            result = await service._generate_agent_location_blocks()
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_generates_block_when_backend_host_resolves(self):
+        """The block IS generated when the backend host resolves (real resolve
+        check stubbed True), confirming the guard is what gates generation."""
+        with (
+            patch("registry.services.agent_service.agent_service") as mock_svc,
+            patch.object(
+                NginxConfigService,
+                "_agent_backend_resolves",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            mock_svc.get_enabled_agents = AsyncMock(return_value=["/flight-booking-agent"])
+            mock_svc.get_agent_info = AsyncMock(return_value=_agent())
+            service = NginxConfigService()
+
+            result = await service._generate_agent_location_blocks()
+
+        assert "{{ROOT_PATH}}/agent/flight-booking-agent/" in result
+
+    @pytest.mark.asyncio
     async def test_skips_non_a2a_protocol_agent(self, patched_agent_service):
         """A non-A2A agent with a URL does not get a JSON-RPC proxy block."""
         patched_agent_service.get_enabled_agents = AsyncMock(return_value=["/flight-booking-agent"])
@@ -271,6 +324,28 @@ class TestReverseProxyFlagDefault:
         from registry.core.config import Settings
 
         assert Settings.model_fields["a2a_reverse_proxy_enabled"].default is False
+
+
+class TestAgentBackendResolves:
+    """The pre-emit DNS resolution guard (fail safe before a literal proxy_pass)."""
+
+    @pytest.mark.asyncio
+    async def test_empty_host_is_false(self):
+        assert await NginxConfigService._agent_backend_resolves("") is False
+
+    @pytest.mark.asyncio
+    async def test_ip_literal_resolves(self):
+        assert await NginxConfigService._agent_backend_resolves("127.0.0.1") is True
+
+    @pytest.mark.asyncio
+    async def test_dead_host_is_false(self):
+        """A name that cannot resolve returns False (skip, do not crash reload)."""
+        assert (
+            await NginxConfigService._agent_backend_resolves(
+                "no-such-host.invalid"
+            )
+            is False
+        )
 
 
 class TestCreateAgentLocationBlock:

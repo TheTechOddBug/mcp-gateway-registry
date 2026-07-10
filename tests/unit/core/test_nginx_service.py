@@ -466,9 +466,19 @@ async def test_enabling_agent_changes_rendered_config_hash(
                             nginx_service, "get_additional_server_names", return_value=""
                         ):
                             with patch.object(nginx_service, "reload_nginx", return_value=True):
-                                with patch(
-                                    "registry.services.agent_service.agent_service"
-                                ) as mock_agent_svc:
+                                with (
+                                    patch(
+                                        "registry.services.agent_service.agent_service"
+                                    ) as mock_agent_svc,
+                                    # The backend DNS resolvability guard is an
+                                    # environmental dependency; stub it True so the
+                                    # test exercises the render path deterministically.
+                                    patch.object(
+                                        type(nginx_service),
+                                        "_agent_backend_resolves",
+                                        AsyncMock(return_value=True),
+                                    ),
+                                ):
                                     mock_agent_svc.get_enabled_agents = AsyncMock(
                                         return_value=enabled_paths
                                     )

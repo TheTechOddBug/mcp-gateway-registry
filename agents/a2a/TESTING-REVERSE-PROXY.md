@@ -238,5 +238,6 @@ the thing to check.
 | Agent marked unhealthy / 502 from the gateway | Gateway can't reach the backend — add the host/CIDR to `SSRF_ALLOWED_HOSTS`/`SSRF_ALLOWED_CIDRS`; on ECS also open the host SG to the NAT EIPs. |
 | JSON-RPC returns 403 | Caller's token lacks an `invoke_agent` grant for that agent path. |
 | JSON-RPC returns 401 on an agent path | No `X-Authorization` (agent paths authenticate on `X-Authorization` only, no `Authorization` fallback), or the same token was sent in both headers (rejected by design). |
-| No `/agent/*` blocks generated | `DEPLOYMENT_MODE` is `registry-only`, or the agent is disabled — reverse-proxy blocks are emitted only for enabled agents in `with-gateway` mode. |
+| No `/agent/*` blocks generated | `DEPLOYMENT_MODE` is `registry-only`, or the agent is disabled — reverse-proxy blocks are emitted only for enabled agents in `with-gateway` mode. Also: the agent must be `healthy` and its backend host must resolve on the registry's network (see next row). |
+| A specific enabled agent has no block (others do) | Its backend host does not resolve from the registry container, so the block is skipped on purpose (an unresolvable literal `proxy_pass` would fail the whole nginx reload). Make the host resolvable from the registry (correct Docker service name / ECS Service Connect name / DNS), then re-enable or re-register. |
 | Card advertises `http` behind CloudFront | ALB clobbered `X-Forwarded-Proto`; confirm `X-Cloudfront-Forwarded-Proto` reaches nginx. |
