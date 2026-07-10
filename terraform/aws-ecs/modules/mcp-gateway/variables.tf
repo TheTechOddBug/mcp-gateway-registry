@@ -407,6 +407,24 @@ variable "cors_allowed_origins" {
   default     = ""
 }
 
+variable "trusted_proxy_hops" {
+  description = "Number of trusted reverse-proxy hops in front of the app. The audit client IP is taken from the Nth-from-the-right X-Forwarded-For entry, never the client-controlled left-most one. Default 1 (the bundled nginx). Raise it when additional trusted proxies (e.g. ALB + CloudFront) sit in front."
+  type        = number
+  default     = 1
+}
+
+variable "trusted_external_hosts" {
+  description = "ADDITIONAL hostnames (optionally host:port) trusted in the inbound Host header when building OAuth external URLs. The primary domain is already covered automatically (the allowlist always includes the registry URL host), so leave empty for a single-domain deployment. Only list extra hostnames the app is also reached at but that differ from the registry URL host (e.g. a CloudFront domain alongside a custom domain). A Host not on the allowlist falls back to the configured host (prevents host-header injection / open redirect)."
+  type        = string
+  default     = ""
+}
+
+variable "trusted_real_ip_cidrs" {
+  description = "Comma-separated CIDRs (or bare IPs) of the trusted proxy hop(s) directly in front of the bundled nginx, used for nginx's set_real_ip_from so the audited client IP is the real end user rather than the load balancer's internal IP. Leave empty (default) for edge deployments where nginx is reached directly. Behind an ALB (EC2/ECS/EKS) set your VPC CIDR (e.g. 10.0.0.0/16); for CloudFront in front of an ALB list the VPC CIDR AND CloudFront's origin-facing ranges. Malformed entries are dropped (fail closed) and a spoofed left-most X-Forwarded-For is always ignored. Note: the ECS root module (terraform/aws-ecs/main.tf) defaults this to the VPC CIDR when unset, since ECS is always behind an ALB."
+  type        = string
+  default     = ""
+}
+
 variable "bind_host" {
   description = "Network bind address for registry and gateway services. Default '0.0.0.0' (IPv4) works on all hosts. Set to '::' only for IPv6-only deployments (requires net.ipv6.bindv6only=0 on the host)."
   type        = string
@@ -1203,6 +1221,12 @@ variable "audit_log_ttl_days" {
   description = "Audit log retention period in days."
   type        = number
   default     = 7
+}
+
+variable "audit_log_require_durable" {
+  description = "Require a durable audit sink (fail closed). When true (default), the registry refuses to start if audit logging is enabled but no durable store (MongoDB/DocumentDB) is available, instead of silently degrading to non-durable JSON log lines. Set to false only where a non-durable audit trail is acceptable."
+  type        = bool
+  default     = true
 }
 
 # =============================================================================

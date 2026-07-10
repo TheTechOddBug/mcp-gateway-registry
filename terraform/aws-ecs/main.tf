@@ -118,9 +118,18 @@ module "mcp_gateway" {
   keycloak_admin_password = var.keycloak_admin_password
 
   # Session cookie security configuration
-  session_cookie_secure = var.session_cookie_secure
-  session_cookie_domain = var.session_cookie_domain
-  cors_allowed_origins  = var.cors_allowed_origins
+  session_cookie_secure  = var.session_cookie_secure
+  session_cookie_domain  = var.session_cookie_domain
+  cors_allowed_origins   = var.cors_allowed_origins
+  trusted_proxy_hops     = var.trusted_proxy_hops
+  trusted_external_hosts = var.trusted_external_hosts
+  # ECS is always behind an ALB, so default the nginx realip trust to the VPC CIDR
+  # when the operator has not set it explicitly. This makes the inbound rate-limit
+  # zones (which key on the connection peer) throttle per real client IP instead of
+  # collapsing to a single global bucket at the ALB's ENI IP, and makes the audited
+  # client_ip the real end user. Falls back to empty (direct-peer behaviour) only if
+  # the VPC CIDR cannot be resolved (e.g. an existing-VPC lookup that returned none).
+  trusted_real_ip_cidrs = var.trusted_real_ip_cidrs != "" ? var.trusted_real_ip_cidrs : local.selected_vpc_cidr_block
   bind_host             = var.bind_host
 
   # DocumentDB configuration
@@ -273,8 +282,9 @@ module "mcp_gateway" {
   registry_contact_url       = var.registry_contact_url
 
   # Audit logging configuration
-  audit_log_enabled  = var.audit_log_enabled
-  audit_log_ttl_days = var.audit_log_ttl_days
+  audit_log_enabled         = var.audit_log_enabled
+  audit_log_ttl_days        = var.audit_log_ttl_days
+  audit_log_require_durable = var.audit_log_require_durable
 
   # Application log configuration
   app_log_centralized_enabled  = var.app_log_centralized_enabled
