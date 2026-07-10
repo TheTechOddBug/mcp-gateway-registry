@@ -44,7 +44,9 @@ _check() {
 _http() {
   local label="$1" url="$2" allow="${3:-200}"
   local code
-  code=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
+  # -k: REGISTRY_URL/KEYCLOAK_URL are CloudFront https:// endpoints; -L: follow
+  # the HTTP->HTTPS redirect CloudFront/ALB issues. Matches post-deploy.sh.
+  code=$(curl -skL -o /dev/null -w "%{http_code}" "$url" 2>/dev/null || echo "000")
   if echo " $allow " | grep -q " $code "; then
     _check "$label ($code)" 0
   else
@@ -103,7 +105,10 @@ fi
 echo
 _log_info "HTTP endpoints"
 _http "Registry /health" "$REGISTRY_URL/health"
-_http "Auth-server /health" "$REGISTRY_URL:8888/health"
+# Auth-server has no direct ALB listener (:8888 dropped for TF parity) and no
+# plain probe endpoint through nginx; it is proxied at /oauth2/* via Service
+# Connect. A successful OAuth token flow (section 4 below) is its real
+# integration test, so there is no standalone auth-server /health probe here.
 _http "Keycloak /" "$KEYCLOAK_URL/" "200 302 303"
 _http "Keycloak realm OIDC" "$KEYCLOAK_URL/realms/mcp-gateway/.well-known/openid-configuration"
 _http ".well-known/ai-catalog" "$REGISTRY_URL/.well-known/ai-catalog.json"
