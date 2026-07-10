@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.repository == 'agentic-community/mcp-gateway-registry'
-    
+
     strategy:
       matrix:
         include:

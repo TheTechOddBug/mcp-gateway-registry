@@ -1188,7 +1188,7 @@ class BatchItemOp(str, Enum):
 
     register = "register"
     patch = "patch"
-    replace = "replace"
+    replace = "replace"  # type: ignore[assignment]  # enum member shadows str.replace
     delete = "delete"
 
 

@@ -4826,9 +4826,7 @@ class TestValidateA2AAgentAccess:
         repo = self._repo({})
         with patch("auth_server.server.get_scope_repository", return_value=repo):
             assert (
-                await validate_a2a_agent_access(
-                    "/travel", [], user_groups=["mcp-registry-admin"]
-                )
+                await validate_a2a_agent_access("/travel", [], user_groups=["mcp-registry-admin"])
                 is True
             )
 

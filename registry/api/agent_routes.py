@@ -639,6 +639,13 @@ def _normalize_path(
     return path
 
 
+def _normalize_tag_list(tags: str | list[str]) -> list[str]:
+    """Normalize a tags field that may be a comma-separated string or a list."""
+    if isinstance(tags, str):
+        return [tag.strip() for tag in tags.split(",") if tag.strip()]
+    return [str(tag).strip() for tag in tags if str(tag).strip()]
+
+
 def _gateway_agent_url(
     agent_path: str,
 ) -> str:
@@ -993,7 +1000,7 @@ async def register_agent(
             },
         )
 
-    tag_list = [tag.strip() for tag in request.tags.split(",") if tag.strip()]
+    tag_list = _normalize_tag_list(request.tags)
 
     # Parse external_tags
     external_tag_list = []
@@ -2227,7 +2234,7 @@ async def update_agent(
             detail="You can only update agents you registered",
         )
 
-    tag_list = [tag.strip() for tag in request.tags.split(",") if tag.strip()]
+    tag_list = _normalize_tag_list(request.tags)
 
     try:
         # Build optional kwargs for fields that have defaults on AgentCard

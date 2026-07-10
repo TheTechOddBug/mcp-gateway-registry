@@ -141,4 +141,3 @@ highlight here and its release note is intentional: the two serve different read
 - **⚡ Amazon Bedrock AgentCore Integration** - AgentCore Gateway support with dual authentication. [Integration Guide](../agentcore.md)
 
 ---
-

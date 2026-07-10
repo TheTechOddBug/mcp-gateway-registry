@@ -753,9 +753,7 @@ class TestNginxTrigger:
         mock_search_repo.remove_entity = AsyncMock(return_value=True)
 
         with (
-            patch.object(
-                service, "_trigger_nginx_reload", new_callable=AsyncMock
-            ) as mock_reload,
+            patch.object(service, "_trigger_nginx_reload", new_callable=AsyncMock) as mock_reload,
             patch(
                 "registry.services.virtual_server_service.get_search_repository",
                 return_value=mock_search_repo,
@@ -1429,7 +1427,9 @@ class TestNginxReloadLock:
             await asyncio.sleep(0.01)
 
         mock_scheduler = MagicMock()
-        mock_scheduler.mark_dirty = MagicMock(side_effect=lambda: call_count.update({"mark_dirty": call_count["mark_dirty"] + 1}))
+        mock_scheduler.mark_dirty = MagicMock(
+            side_effect=lambda: call_count.update({"mark_dirty": call_count["mark_dirty"] + 1})
+        )
         mock_scheduler.flush_now = AsyncMock(side_effect=mock_flush_now)
 
         with patch(

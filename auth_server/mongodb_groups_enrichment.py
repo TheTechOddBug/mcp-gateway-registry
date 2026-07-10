@@ -168,9 +168,7 @@ async def enrich_user_groups_from_mongodb(
         logger.debug(f"User {username} has {len(current_groups)} groups in token")
         return current_groups
 
-    logger.info(
-        f"User {username} (provider={provider}) has no groups in token, querying database"
-    )
+    logger.info(f"User {username} (provider={provider}) has no groups in token, querying database")
 
     # Try to fetch groups from DocumentDB/MongoDB
     try:
@@ -182,9 +180,7 @@ async def enrich_user_groups_from_mongodb(
         if doc:
             db_groups = doc.get("groups", [])
             if db_groups:
-                logger.info(
-                    f"Enriched {len(db_groups)} groups for user {username} from database"
-                )
+                logger.info(f"Enriched {len(db_groups)} groups for user {username} from database")
                 return db_groups
             else:
                 logger.debug(f"User {username} found in database but has no groups")

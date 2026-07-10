@@ -340,12 +340,7 @@ class TestAgentBackendResolves:
     @pytest.mark.asyncio
     async def test_dead_host_is_false(self):
         """A name that cannot resolve returns False (skip, do not crash reload)."""
-        assert (
-            await NginxConfigService._agent_backend_resolves(
-                "no-such-host.invalid"
-            )
-            is False
-        )
+        assert await NginxConfigService._agent_backend_resolves("no-such-host.invalid") is False
 
 
 class TestCreateAgentLocationBlock:

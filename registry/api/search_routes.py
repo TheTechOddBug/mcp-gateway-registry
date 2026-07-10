@@ -777,7 +777,7 @@ async def semantic_search(
         )
         # Build matching tools with schema lookup from backend servers
         # Only include tools that matched the search query
-        matching_tools: list[MatchingToolResult] = []
+        matching_tools = []
         for tool in allowed_vs_matching:
             tool_name = tool.get("tool_name") or tool.get("name", "")
             # Look up the tool schema from the backend server

@@ -182,9 +182,7 @@ class TestEffectiveUiTitle:
 
     def test_override_with_gateway(self):
         """Set UI_TITLE wins over with-gateway default."""
-        settings = Settings(
-            deployment_mode=DeploymentMode.WITH_GATEWAY, ui_title="Acme Portal"
-        )
+        settings = Settings(deployment_mode=DeploymentMode.WITH_GATEWAY, ui_title="Acme Portal")
         assert settings.effective_ui_title == "Acme Portal"
 
     def test_override_registry_only(self):
@@ -255,9 +253,7 @@ class TestVersionEndpointUiTitle:
 
     def test_override_wins_over_mode_default(self, monkeypatch):
         """UI_TITLE='Acme Portal' is returned regardless of deployment_mode."""
-        client = self._patched_client(
-            monkeypatch, DeploymentMode.REGISTRY_ONLY, "Acme Portal"
-        )
+        client = self._patched_client(monkeypatch, DeploymentMode.REGISTRY_ONLY, "Acme Portal")
         response = client.get("/api/version")
         assert response.status_code == 200
         assert response.json()["ui_title"] == "Acme Portal"

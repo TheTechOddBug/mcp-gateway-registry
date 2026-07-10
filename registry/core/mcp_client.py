@@ -9,6 +9,7 @@ import asyncio
 import logging
 import re
 from typing import (
+    Any,
     TypedDict,
 )
 
@@ -487,7 +488,7 @@ async def _get_tools_sse(base_url: str, server_info: dict = None) -> list[dict] 
                 url = normalize_sse_endpoint_url_for_request(str(url))
             return await original_request(self, method, url, **kwargs)
 
-        httpx.AsyncClient.request = patched_request
+        httpx.AsyncClient.request = patched_request  # type: ignore[method-assign]  # legacy SSE monkeypatch
 
         try:
             async with sse_client(mcp_server_url, headers=headers) as (read, write):
@@ -497,7 +498,7 @@ async def _get_tools_sse(base_url: str, server_info: dict = None) -> list[dict] 
 
                     return _extract_tool_details(tools_response)
         finally:
-            httpx.AsyncClient.request = original_request
+            httpx.AsyncClient.request = original_request  # type: ignore[method-assign]  # restore monkeypatch
 
     except TimeoutError:
         logger.error(f"MCP Check Error: Timeout during SSE session with {base_url}.")
@@ -509,7 +510,7 @@ async def _get_tools_sse(base_url: str, server_info: dict = None) -> list[dict] 
 
 def _extract_tool_details(tools_response) -> list[dict]:
     """Extract tool details from MCP tools response."""
-    tool_details_list = []
+    tool_details_list: list[dict[str, Any]] = []
 
     if tools_response and hasattr(tools_response, "tools"):
         for tool in tools_response.tools:
@@ -530,9 +531,9 @@ def _extract_tool_details(tools_response) -> list[dict]:
             if tool_desc:
                 tool_desc = tool_desc.strip()
                 lines = tool_desc.split("\n")
-                main_desc_lines = []
+                main_desc_lines: list[str] = []
                 current_section = "main"
-                section_content = []
+                section_content: list[str] = []
 
                 for line in lines:
                     stripped_line = line.strip()
@@ -740,7 +741,7 @@ async def get_mcp_connection_result(
                     tools = _extract_tool_details(tools_response)
 
                     # Extract server info from initialize result
-                    mcp_server_info: MCPServerInfo = {}
+                    mcp_server_info = MCPServerInfo()
                     if (
                         init_result
                         and hasattr(init_result, "serverInfo")

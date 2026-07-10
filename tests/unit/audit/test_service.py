@@ -255,9 +255,9 @@ class TestEnforceDurableAuditSink:
         with caplog.at_level(logging.WARNING, logger="registry.audit.service"):
             enforce_durable_audit_sink(durable_sink_available=False, require_durable=False)
 
-        assert any(
-            "WITHOUT a durable sink" in record.message for record in caplog.records
-        ), "expected a loud warning when running non-durable"
+        assert any("WITHOUT a durable sink" in record.message for record in caplog.records), (
+            "expected a loud warning when running non-durable"
+        )
 
 
 class TestRecordInstanceAttribution:

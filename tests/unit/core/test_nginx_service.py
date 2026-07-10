@@ -2121,9 +2121,9 @@ def _assert_all_locations_rate_limited(
     duplicated server blocks in the http+https template — which has two listeners
     (:8080 and :8443) — fails the test instead of silently passing on the survivor.
     """
-    assert (
-        text.count(marker) == expected_count
-    ), f"expected {expected_count} occurrence(s) of {marker!r}, found {text.count(marker)}"
+    assert text.count(marker) == expected_count, (
+        f"expected {expected_count} occurrence(s) of {marker!r}, found {text.count(marker)}"
+    )
     start = 0
     seen = 0
     while True:
@@ -2132,12 +2132,12 @@ def _assert_all_locations_rate_limited(
             break
         seen += 1
         body = text[idx : idx + 800]
-        assert (
-            "limit_req zone=mcp_gateway_edge burst=100 nodelay;" in body
-        ), f"{marker!r} occurrence {seen} is missing the edge rate limit"
-        assert (
-            "limit_conn mcp_gateway_conn 100;" in body
-        ), f"{marker!r} occurrence {seen} is missing the connection limit"
+        assert "limit_req zone=mcp_gateway_edge burst=100 nodelay;" in body, (
+            f"{marker!r} occurrence {seen} is missing the edge rate limit"
+        )
+        assert "limit_conn mcp_gateway_conn 100;" in body, (
+            f"{marker!r} occurrence {seen} is missing the connection limit"
+        )
         start = idx + len(marker)
     assert seen == expected_count
 

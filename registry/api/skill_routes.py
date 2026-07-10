@@ -402,7 +402,7 @@ async def search_skills(
     if not include_draft:
         excluded_statuses.add("draft")
 
-    matching_skills = []
+    matching_skills: list[dict[str, Any]] = []
     for skill in skills:
         # Filter by lifecycle status
         skill_status = getattr(skill, "status", "active") or "active"
@@ -1453,7 +1453,7 @@ async def _perform_skill_security_scan_on_registration(
         # scan_complete webhook (Issue #1330): safe or unsafe path.
         fire_scan_complete_event(
             skill.model_dump(),
-            result,
+            result,  # type: ignore[arg-type]  # SkillSecurityScanResult is structurally handled by the shared scan-complete emitter
             auto_disabled=auto_disabled,
             registration_type="skill",
         )

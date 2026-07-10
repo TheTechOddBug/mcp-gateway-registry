@@ -146,10 +146,6 @@ class RegistryDiscoveryClient:
                 logger.error(f"Network error during discovery: {e}")
                 raise Exception(f"Network error: {e}")
 
-            except aiohttp.ClientError as e:
-                logger.error(f"Network error during discovery: {e}")
-                raise Exception(f"Network error: {e}")
-
     async def discover_by_skills(
         self,
         skills: list[str],

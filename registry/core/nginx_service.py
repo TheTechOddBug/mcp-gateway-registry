@@ -238,7 +238,7 @@ def _atomic_write_text(
         NGINX_CONFIG_WRITES.labels(status="failure").inc()
         try:
             tmp.close()
-        except Exception:
+        except Exception:  # nosec B110 - best-effort cleanup of temp file on write failure
             pass
         try:
             tmp_path.unlink()

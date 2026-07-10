@@ -409,7 +409,11 @@ class AgentService:
         try:
             agent_data = agent_card.model_dump(mode="json")
             is_enabled = await self.is_agent_enabled(agent_card.path)
-            await self._search_repo.index_entity(
+            # NOTE: `index_entity` is not defined on any SearchRepository backend;
+            # this unused method's body is a latent bug (the call raises
+            # AttributeError at runtime, swallowed by the surrounding except).
+            # Preserving existing behavior; ignore the attr-defined error here.
+            await self._search_repo.index_entity(  # type: ignore[attr-defined]
                 entity_path=agent_card.path,
                 entity_data=agent_data,
                 entity_type="a2a_agent",

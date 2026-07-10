@@ -42,9 +42,7 @@ logger = logging.getLogger(__name__)
 # discovery metadata that the A2A spec treats as publicly fetchable (only the
 # authenticated/extended card requires a credential), and the registry's health
 # probe fetches it unauthenticated -- so it must stay open.
-_PUBLIC_PATHS: frozenset[str] = frozenset(
-    {"/ping", "/api/health", "/.well-known/agent-card.json"}
-)
+_PUBLIC_PATHS: frozenset[str] = frozenset({"/ping", "/api/health", "/.well-known/agent-card.json"})
 
 _SIGNING_ALGORITHMS: tuple[str, ...] = ("RS256", "RS384", "RS512", "ES256", "ES384")
 
@@ -280,9 +278,7 @@ def install_agent_auth(
     # auth_disabled for the bind guard: refuse an exposed bind unless the operator
     # explicitly opts in with AGENT_AUTH_ALLOW_EXPOSED_PRESENCE_ONLY=true (intended
     # only for a throwaway gateway-passthrough test). Never use in production.
-    allow_exposed_presence_only = _env_flag(
-        "AGENT_AUTH_ALLOW_EXPOSED_PRESENCE_ONLY", default=False
-    )
+    allow_exposed_presence_only = _env_flag("AGENT_AUTH_ALLOW_EXPOSED_PRESENCE_ONLY", default=False)
     if presence_only and exposed_bind and not allow_exposed_presence_only:
         raise AuthConfigurationError(
             "Refusing to start: AGENT_AUTH_PRESENCE_ONLY is set while binding to "
