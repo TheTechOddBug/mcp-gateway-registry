@@ -502,6 +502,19 @@ class Settings(BaseSettings):
     agent_security_add_pending_tag: bool = True
     a2a_scanner_llm_api_key: str = ""  # Optional Azure OpenAI API key for LLM-based analysis
 
+    # A2A reverse-proxy mode (opt-in)
+    a2a_reverse_proxy_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable A2A agent reverse-proxy generation. When true, each enabled agent "
+            "gets nginx location blocks that proxy its A2A traffic (agent card + "
+            "JSON-RPC) through the gateway for centralized auth and metrics, instead of "
+            "clients connecting directly to the agent backend. When false (default), no "
+            "agent proxy blocks are emitted and /agent/* paths fall through to the "
+            "existing behavior."
+        ),
+    )
+
     # Skill security scanning settings (AI Agent Skills)
     skill_security_scan_enabled: bool = True
     skill_security_scan_on_registration: bool = True
@@ -1093,6 +1106,19 @@ class Settings(BaseSettings):
     def nginx_updates_enabled(self) -> bool:
         """Check if nginx updates should be performed."""
         return self.deployment_mode == DeploymentMode.WITH_GATEWAY
+
+    @property
+    def a2a_reverse_proxy_effective(self) -> bool:
+        """Whether A2A reverse-proxy routing is ACTUALLY active.
+
+        The A2A_REVERSE_PROXY_ENABLED flag only takes effect in with-gateway
+        mode: registry-only mode has no gateway to proxy through, so agent
+        routing is force-disabled there even when the flag is set. This is the
+        single source of truth every A2A path must consult (nginx block
+        generation, the registration url/proxy_pass_url rewrite) so behavior
+        cannot drift between them.
+        """
+        return self.a2a_reverse_proxy_enabled and self.nginx_updates_enabled
 
     # UI Title Configuration
     ui_title: str | None = Field(
@@ -1912,6 +1938,35 @@ Skills do not require gateway integration.
 Auto-converting to:
   DEPLOYMENT_MODE={corrected_deployment.value}
   REGISTRY_MODE={corrected_registry.value}
+================================================================================
+"""
+    logger.warning(banner)
+    print(banner)
+
+
+def print_a2a_reverse_proxy_mode_banner(s: Settings) -> None:
+    """Loudly warn when A2A reverse-proxy is enabled but force-disabled by mode.
+
+    In registry-only mode there is no gateway to proxy through, so agent routing
+    is disabled even when A2A_REVERSE_PROXY_ENABLED=true. Operators who set the
+    flag expecting routing must be told plainly that it is inert here (and that
+    agent url == proxy_pass_url, i.e. no gateway rewrite).
+    """
+    if not s.a2a_reverse_proxy_enabled:
+        return
+    if s.a2a_reverse_proxy_effective:
+        return
+    banner = f"""
+================================================================================
+WARNING: A2A_REVERSE_PROXY_ENABLED=true but DEPLOYMENT_MODE={s.deployment_mode.value}.
+
+A2A agent reverse-proxy routing requires with-gateway mode. In registry-only
+mode there is no gateway to proxy through, so agent routing is DISABLED:
+  - no /agent/* nginx location blocks are generated
+  - registered agents keep url == proxy_pass_url (no gateway rewrite)
+  - /agent/* paths return the registry-only 503
+
+Set DEPLOYMENT_MODE=with-gateway to actually enable A2A reverse-proxy routing.
 ================================================================================
 """
     logger.warning(banner)
