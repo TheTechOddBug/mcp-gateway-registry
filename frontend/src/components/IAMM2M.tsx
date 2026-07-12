@@ -27,6 +27,7 @@ import {
 import DeleteConfirmation from './DeleteConfirmation';
 import ProviderBadge from './iam/ProviderBadge';
 import ListStateBoundary from './iam/ListStateBoundary';
+import RateLimitGroupsEditor from './iam/RateLimitGroupsEditor';
 import { extractErrorDetail as extractDetail } from '../utils/apiError';
 
 interface IAMM2MProps {
@@ -636,6 +637,7 @@ const IAMM2M: React.FC<IAMM2MProps> = ({ onShowToast }) => {
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Name</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Provider</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Groups</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Rate-limit Groups</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Registered by</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Action</th>
               </tr>
@@ -662,6 +664,13 @@ const IAMM2M: React.FC<IAMM2MProps> = ({ onShowToast }) => {
                           ))}
                           {(!c.groups || c.groups.length === 0) && <span className="text-gray-400 text-xs">{'—'}</span>}
                         </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <RateLimitGroupsEditor
+                          subjectType="client"
+                          subject={c.client_id}
+                          onShowToast={onShowToast}
+                        />
                       </td>
                       <td
                         className="py-3 px-4 text-sm text-gray-600 dark:text-gray-400"
@@ -694,7 +703,7 @@ const IAMM2M: React.FC<IAMM2MProps> = ({ onShowToast }) => {
                     </tr>
                     {deleteTarget === c.client_id && (
                       <tr>
-                        <td colSpan={5} className="p-2">
+                        <td colSpan={6} className="p-2">
                           <DeleteConfirmation
                             entityType="m2m"
                             entityName={c.name}

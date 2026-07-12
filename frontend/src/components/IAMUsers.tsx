@@ -15,6 +15,7 @@ import { useIAMUsers, useIAMGroups, createHumanUser, deleteUser, updateUserGroup
 import DeleteConfirmation from './DeleteConfirmation';
 import SearchableSelect from './SearchableSelect';
 import ListStateBoundary from './iam/ListStateBoundary';
+import RateLimitGroupsEditor from './iam/RateLimitGroupsEditor';
 
 interface IAMUsersProps {
   onShowToast: (message: string, type: 'success' | 'error' | 'info') => void;
@@ -368,6 +369,7 @@ const IAMUsers: React.FC<IAMUsersProps> = ({ onShowToast }) => {
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Email</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Name</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Groups</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Rate-limit Groups</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400">Action</th>
               </tr>
             </thead>
@@ -397,6 +399,13 @@ const IAMUsers: React.FC<IAMUsersProps> = ({ onShowToast }) => {
                         </button>
                       </div>
                     </td>
+                    <td className="py-3 px-4">
+                      <RateLimitGroupsEditor
+                        subjectType="user"
+                        subject={u.username}
+                        onShowToast={onShowToast}
+                      />
+                    </td>
                     <td className="py-3 px-4 text-right">
                       <button onClick={() => setDeleteTarget(u.username)} className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400" title="Delete user">
                         <TrashIcon className="h-4 w-4" />
@@ -405,7 +414,7 @@ const IAMUsers: React.FC<IAMUsersProps> = ({ onShowToast }) => {
                   </tr>
                   {deleteTarget === u.username && (
                     <tr>
-                      <td colSpan={5} className="p-2">
+                      <td colSpan={6} className="p-2">
                         <DeleteConfirmation
                           entityType="user"
                           entityName={u.username}
@@ -418,7 +427,7 @@ const IAMUsers: React.FC<IAMUsersProps> = ({ onShowToast }) => {
                   )}
                   {editingUser === u.username && (
                     <tr className="bg-purple-50 dark:bg-purple-900/10">
-                      <td colSpan={5} className="p-4">
+                      <td colSpan={6} className="p-4">
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
