@@ -51,6 +51,14 @@ echo "admin token length: ${#ADMIN_TOKEN}"    # non-zero => good
 ### 0a. Human user `rl-test-user` (password grant)
 
 ```bash
+# Delete any pre-existing rl-test-user first for a clean slate. If it does not
+# exist the lookup returns null and the DELETE is skipped/404s -- that is fine.
+EXISTING_USER_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$KC/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id // empty')
+[ -n "$EXISTING_USER_ID" ] && curl -s -o /dev/null -w "delete_existing_user=%{http_code}\n" \
+  -X DELETE "$KC/admin/realms/$REALM/users/$EXISTING_USER_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204 (or skipped if none existed)
+
 # Create the user with a permanent password (Demo123!)
 curl -s -o /dev/null -w "create_user=%{http_code}\n" -X POST "$KC/admin/realms/$REALM/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
@@ -104,6 +112,15 @@ echo "user token bytes: $(wc -c < .token-rl-test-user)"    # non-trivial => good
 ### 0b. M2M client `rl-test-m2m` (client_credentials grant)
 
 ```bash
+# Delete any pre-existing rl-test-m2m client first for a clean slate (deleting the
+# client also removes its service-account user). If none exists the lookup returns
+# null and the DELETE is skipped -- that is fine.
+EXISTING_M2M_UUID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$KC/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id // empty')
+[ -n "$EXISTING_M2M_UUID" ] && curl -s -o /dev/null -w "delete_existing_m2m=%{http_code}\n" \
+  -X DELETE "$KC/admin/realms/$REALM/clients/$EXISTING_M2M_UUID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204 (or skipped if none existed)
+
 # Create a confidential client with a service account (client_credentials only)
 curl -s -o /dev/null -w "create_m2m=%{http_code}\n" -X POST "$KC/admin/realms/$REALM/clients" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
