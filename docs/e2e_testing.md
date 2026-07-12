@@ -82,9 +82,13 @@ curl -s -o /dev/null -w "reset_password=%{http_code}\n" -X PUT \
   -d '{"type":"password","value":"Demo123!","temporary":false}'      # -> 204
 
 # Put the user in a group that grants MCP-server access so it can reach the data
-# plane (otherwise calls are denied with a genuine 403, not a throttle).
+# plane (otherwise calls are denied with a genuine 403, not a throttle). The group
+# must be mapped to a scope in mcp_scopes_default that grants the target server.
+# read-all-register-new grants server:"*" (all servers) in this deployment; pick
+# whichever group your deployment maps to the servers you are testing.
+export ACCESS_GROUP="${ACCESS_GROUP:-read-all-register-new}"
 export GID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/groups" | jq -r '.[] | select(.name=="mcp-servers-unrestricted") | .id')
+  "$KC/admin/realms/$REALM/groups" | jq -r ".[] | select(.name==\"$ACCESS_GROUP\") | .id")
 curl -s -o /dev/null -w "join_group=%{http_code}\n" -X PUT \
   "$KC/admin/realms/$REALM/users/$RL_USER_ID/groups/$GID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204
@@ -143,7 +147,8 @@ export M2M_CLIENT_ID=rl-test-m2m
 echo "m2m secret bytes: ${#M2M_SECRET}"
 
 # The service account needs MCP-server access too. Its user is named
-# service-account-rl-test-m2m; add it to the unrestricted group.
+# service-account-rl-test-m2m; add it to the same access group ($GID from 0a,
+# e.g. read-all-register-new).
 export M2M_SA_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
   "$KC/admin/realms/$REALM/users?username=service-account-rl-test-m2m" | jq -r '.[0].id')
 curl -s -o /dev/null -w "m2m_join_group=%{http_code}\n" -X PUT \
@@ -448,7 +453,7 @@ rm -f .token-rl-test-user .token-rl-test-m2m
 | Symptom | Likely cause |
 |---------|--------------|
 | All 200s even with a limit + membership | `RATE_LIMITING_ENABLED` not `true` on the containers; or you tested as **admin** (bypassed); or you hit `/api/*` (control-plane, exempt) instead of an MCP server. |
-| `403 Access forbidden` on every call as `rl-test-user`/`rl-test-m2m` (no `X-RateLimit-*` header) | Genuine **authorization** denial, not a throttle: the principal's group does not map to a scope granting the target server (auth-server logs `no scopes configured` / `Final mapped scopes: []`). Rate limiting runs only **after** authorization passes. Ensure the principal is in a group that grants the server (e.g. `mcp-servers-unrestricted`) and that group is mapped to a scope in `mcp_scopes_default`. |
+| `403 Access forbidden` on every call as `rl-test-user`/`rl-test-m2m` (no `X-RateLimit-*` header, `0 throttled`) | Genuine **authorization** denial, not a throttle: the principal's group does not map to a scope granting the target server (auth-server logs `Final mapped scopes: []` then `Access denied ... no scopes configured`). Rate limiting runs only **after** authorization passes, so the limiter is never reached. Fix: put the principal in a group whose name appears in some `mcp_scopes_default` doc's `group_mappings` array **and** whose scope grants the target server. `read-all-register-new` maps to a scope with `server:"*"` in this deployment (used in Step 0). Check with: `docker exec mcp-mongodb mongosh -u admin -p "$DOCUMENTDB_PASSWORD" --authenticationDatabase admin --quiet --eval 'db.getSiblingDB("mcp_registry").mcp_scopes_default.find({group_mappings:"<group>"},{_id:1}).forEach(d=>print(d._id))'`. |
 | `member-set` returns 404 | Containers predate the memberships build; rebuild. |
 | Login/dashboard breaks | Should not happen now (data-plane-only scope + admin bypass). If it does, a caller limit is somehow applying to `/api/*` — capture the auth-server logs. |
 | Metrics missing in Prometheus | Scrape `auth-server:9464/metrics` directly; if present there but not in Prometheus, check the `mcp-auth-server` job. Enforcement is in auth-server, not registry. |
