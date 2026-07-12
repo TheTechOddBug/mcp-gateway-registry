@@ -1477,6 +1477,21 @@ class Settings(BaseSettings):
         ge=1,
         description="Hard per-op timeout (ms) for each rate-limit counter operation.",
     )
+    # Lockout safeguard: minimum per-minute limit a GROUP definition may set for a
+    # human user / an agent, enforced at config time on short windows (<= 60s). A
+    # group definition below its caller-type floor is REJECTED. Config-only (no API
+    # to read/reset), so an operator cannot accidentally throttle interactive users
+    # into a lockout. A group that wants a tighter cap must set exactly the floor.
+    rate_limit_user_floor_per_min: int = Field(
+        default=20,
+        ge=1,
+        description="Minimum per-minute user limit a group may set (short windows). Config-only.",
+    )
+    rate_limit_agent_floor_per_min: int = Field(
+        default=10,
+        ge=1,
+        description="Minimum per-minute agent limit a group may set (short windows). Config-only.",
+    )
 
     # Agent batch API (issue #956)
     batch_max_operations_per_job: int = Field(

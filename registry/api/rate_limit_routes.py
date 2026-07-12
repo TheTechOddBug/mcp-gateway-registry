@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 from registry.audit.context import set_audit_action
 from registry.auth.dependencies import nginx_proxied_auth
+from registry.core.config import settings
 from registry.rate_limiting.definitions_repository import DefinitionsRepository
 from registry.rate_limiting.memberships_repository import MembershipsRepository
 from registry.rate_limiting.models import (
@@ -41,6 +42,11 @@ def _require_admin(
         raise HTTPException(status_code=403, detail="Administrator permissions are required")
 
 
+# Floor is a per-minute rate; enforced only on short windows so daily/hourly
+# volume caps (which are legitimately below a per-minute floor) are exempt.
+_FLOOR_WINDOW_SECONDS: int = 60
+
+
 def _validate_enforceable(
     definition: RateLimitDefinition,
 ) -> None:
@@ -55,6 +61,42 @@ def _validate_enforceable(
             detail=(
                 f"entity_type '{definition.entity_type}' is not enforced in this version "
                 f"(tool/skill rate limiting is a later phase)"
+            ),
+        )
+
+
+def _validate_caller_floor(
+    definition: RateLimitDefinition,
+) -> None:
+    """Reject a group definition whose short-window limit is below its caller-type floor.
+
+    Lockout safeguard: on windows <= 60s, a group's ``user_max_requests`` must be
+    >= the user floor and ``agent_max_requests`` >= the agent floor (both config-only,
+    no API). Longer windows (hourly/daily volume caps) are exempt because a low
+    per-day cap is a legitimate limit that a per-minute floor should not block.
+    """
+    if definition.axis != "caller" or definition.window_seconds > _FLOOR_WINDOW_SECONDS:
+        return
+
+    user_floor = settings.rate_limit_user_floor_per_min
+    agent_floor = settings.rate_limit_agent_floor_per_min
+
+    if definition.user_max_requests is not None and definition.user_max_requests < user_floor:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"user_max_requests {definition.user_max_requests} is below the user floor "
+                f"of {user_floor}/min for windows <= {_FLOOR_WINDOW_SECONDS}s. Set it to at "
+                f"least {user_floor} (the floor is a fixed config safeguard against lockout)."
+            ),
+        )
+    if definition.agent_max_requests is not None and definition.agent_max_requests < agent_floor:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"agent_max_requests {definition.agent_max_requests} is below the agent floor "
+                f"of {agent_floor}/min for windows <= {_FLOOR_WINDOW_SECONDS}s. Set it to at "
+                f"least {agent_floor} (the floor is a fixed config safeguard against lockout)."
             ),
         )
 
@@ -173,6 +215,7 @@ async def put_rate_limit(
     set_audit_action(request, "update", _RESOURCE_TYPE, resource_id=definition_id)
     definition = _parse_definition(body)
     _validate_enforceable(definition)
+    _validate_caller_floor(definition)
 
     built_id = definition.build_id()
     if built_id != definition_id:

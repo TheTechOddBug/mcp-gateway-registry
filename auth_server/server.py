@@ -1275,10 +1275,21 @@ async def _enforce_rate_limit(
 
     target_entity_type, target_name = _classify_rate_limit_target(original_url, server_name)
 
+    # Scope: rate limiting applies to DATA-PLANE calls only (an MCP server or A2A
+    # agent target). Control-plane /api/* requests have no classified target, so
+    # they are exempt -- caller limits never throttle the dashboard/login/config UI.
+    if not target_entity_type:
+        return
+
+    # Admin bypass: an operator must not be able to lock themselves out. Admins
+    # skip caller gates (target gates still protect a weak backend).
+    is_admin = bool(validation_result.get("is_admin", False))
+
     try:
         decision = await get_rate_limiter().check(
             username=username,
             client_id=client_id,
+            is_admin=is_admin,
             target_entity_type=target_entity_type,
             target_name=target_name,
         )

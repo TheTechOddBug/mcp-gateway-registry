@@ -10,15 +10,33 @@ class TestRateLimitDefinition:
     """Tests for RateLimitDefinition validation and id construction."""
 
     def test_valid_caller_group_definition(self):
-        """A caller/group definition is accepted and builds the expected _id."""
+        """A caller/group definition with per-caller-type limits is accepted."""
         d = RateLimitDefinition(
             axis="caller",
             entity_type="group",
             name="developers",
-            max_requests=100,
+            user_max_requests=100,
+            agent_max_requests=50,
             window_seconds=60,
         )
         assert d.build_id() == "caller:group:developers:60"
+        assert d.limit_for_caller_type("user") == 100
+        assert d.limit_for_caller_type("agent") == 50
+
+    def test_caller_group_requires_at_least_one_limit(self):
+        """A group definition with neither user nor agent limit is rejected."""
+        with pytest.raises(ValidationError, match="must set user_max_requests"):
+            RateLimitDefinition(
+                axis="caller", entity_type="group", name="developers", window_seconds=60
+            )
+
+    def test_caller_group_allows_user_only(self):
+        """A group may set just the user limit (agent unset => agents ungated by it)."""
+        d = RateLimitDefinition(
+            axis="caller", entity_type="group", name="devs", user_max_requests=30
+        )
+        assert d.limit_for_caller_type("user") == 30
+        assert d.limit_for_caller_type("agent") is None
 
     def test_valid_target_mcp_server_definition(self):
         """A target/mcp_server definition is accepted."""
@@ -47,7 +65,7 @@ class TestRateLimitDefinition:
             axis="caller",
             entity_type="group",
             name="developers",
-            max_requests=5000,
+            user_max_requests=5000,
             window_seconds=86400,
         )
         assert d.window_seconds == 86400
@@ -79,18 +97,18 @@ class TestRateLimitDefinition:
                 axis="caller",
                 entity_type="group",
                 name="x",
-                max_requests=1,
+                user_max_requests=1,
                 window_seconds=86401,
             )
 
-    def test_max_requests_must_be_positive(self):
-        """max_requests below 1 is rejected."""
+    def test_limit_must_be_positive(self):
+        """A limit below 1 is rejected."""
         with pytest.raises(ValidationError):
             RateLimitDefinition(
                 axis="caller",
                 entity_type="group",
                 name="x",
-                max_requests=0,
+                user_max_requests=0,
             )
 
     def test_empty_name_rejected(self):
@@ -100,7 +118,7 @@ class TestRateLimitDefinition:
                 axis="caller",
                 entity_type="group",
                 name="",
-                max_requests=1,
+                user_max_requests=1,
             )
 
 
@@ -115,14 +133,15 @@ class TestRateLimitDecision:
 
     def test_deny_builds_rate_limit_headers(self):
         """A deny decision renders the standard 429 headers."""
-        definition = RateLimitDefinition(
-            axis="caller",
+        d = RateLimitDecision(
+            allowed=False,
+            axis="clr",
             entity_type="group",
-            name="developers",
-            max_requests=5,
-            window_seconds=60,
+            limit=5,
+            remaining=0,
+            reset_epoch=1000,
+            retry_after=30,
         )
-        d = RateLimitDecision.deny(definition, "clr", reset_epoch=1000, retry_after=30)
         headers = d.headers()
         assert headers["X-RateLimit-Limit"] == "5"
         assert headers["X-RateLimit-Remaining"] == "0"

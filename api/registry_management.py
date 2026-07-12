@@ -1094,7 +1094,11 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 def cmd_rate_limit_set(args: argparse.Namespace) -> int:
-    """Create or update a rate-limit definition."""
+    """Create or update a rate-limit definition.
+
+    Caller (group) axis uses --user-max-requests / --agent-max-requests (at least
+    one). Target axis uses --max-requests.
+    """
     try:
         client = _create_client(args)
         result = client.set_rate_limit(
@@ -1102,6 +1106,8 @@ def cmd_rate_limit_set(args: argparse.Namespace) -> int:
             entity_type=args.entity_type,
             name=args.name,
             max_requests=args.max_requests,
+            user_max_requests=args.user_max_requests,
+            agent_max_requests=args.agent_max_requests,
             window_seconds=args.window_seconds,
             fail_closed=args.fail_closed,
             enabled=not args.disabled,
@@ -6147,7 +6153,22 @@ Examples:
         "--name", required=True, help="Group name, server path, or agent path"
     )
     rate_limit_set_parser.add_argument(
-        "--max-requests", required=True, type=int, dest="max_requests", help="Max requests per window"
+        "--max-requests",
+        type=int,
+        dest="max_requests",
+        help="TARGET axis: max requests per window across all callers",
+    )
+    rate_limit_set_parser.add_argument(
+        "--user-max-requests",
+        type=int,
+        dest="user_max_requests",
+        help="CALLER/group axis: max requests per window for a human user (>= user floor)",
+    )
+    rate_limit_set_parser.add_argument(
+        "--agent-max-requests",
+        type=int,
+        dest="agent_max_requests",
+        help="CALLER/group axis: max requests per window for an agent/client (>= agent floor)",
     )
     rate_limit_set_parser.add_argument(
         "--window-seconds",

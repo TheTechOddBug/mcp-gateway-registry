@@ -768,7 +768,17 @@ async def _build_rate_limit_definitions_group() -> dict[str, Any] | None:
     fields: list[dict[str, Any]] = []
     for d in sorted(definitions, key=lambda x: x.build_id()):
         state = "enabled" if d.enabled else "disabled"
-        summary = f"{d.max_requests} req / {d.window_seconds}s ({state})"
+        # Caller (group) defs carry per-caller-type limits; target defs a single one.
+        if d.axis == "caller":
+            parts = []
+            if d.user_max_requests is not None:
+                parts.append(f"user {d.user_max_requests}")
+            if d.agent_max_requests is not None:
+                parts.append(f"agent {d.agent_max_requests}")
+            limit_str = ", ".join(parts)
+        else:
+            limit_str = f"{d.max_requests} req"
+        summary = f"{limit_str} / {d.window_seconds}s ({state})"
         if d.fail_closed:
             summary += ", fail-closed"
         fields.append(

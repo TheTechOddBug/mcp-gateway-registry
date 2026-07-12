@@ -37,7 +37,8 @@ class TestRateLimitDefinitionsGroup:
                 axis="caller",
                 entity_type="group",
                 name="developers",
-                max_requests=5,
+                user_max_requests=25,
+                agent_max_requests=15,
                 window_seconds=60,
             ),
             RateLimitDefinition(
@@ -58,7 +59,8 @@ class TestRateLimitDefinitionsGroup:
         by_key = {f["key"]: f for f in group["fields"]}
         developers = by_key["caller:group:developers:60"]
         assert developers["label"] == "caller:group:developers:60"
-        assert "5 req / 60s" in developers["value"]
+        assert "user 25" in developers["value"]
+        assert "agent 15" in developers["value"]
         assert "enabled" in developers["value"]
         # Read-only: not copyable, not masked.
         assert developers["raw_value"] is None

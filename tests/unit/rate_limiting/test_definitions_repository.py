@@ -56,7 +56,7 @@ class TestDefinitionsCache:
                 "axis": "caller",
                 "entity_type": "group",
                 "name": "dev",
-                "max_requests": 5,
+                "user_max_requests": 5,
                 "window_seconds": 60,
                 "enabled": True,
             }
@@ -64,7 +64,7 @@ class TestDefinitionsCache:
         repo, _ = _make_repo_with_docs(docs)
         result = await repo.list_caller_limits("group", ["dev"])
         assert len(result) == 1
-        assert result[0].max_requests == 5
+        assert result[0].user_max_requests == 5
 
     async def test_second_read_is_cached(self):
         """A repeated identical query does not hit the collection again."""
@@ -74,7 +74,7 @@ class TestDefinitionsCache:
                 "axis": "caller",
                 "entity_type": "group",
                 "name": "dev",
-                "max_requests": 5,
+                "user_max_requests": 5,
                 "window_seconds": 60,
                 "enabled": True,
             }
@@ -118,7 +118,7 @@ class TestDefinitionsCache:
                 "axis": "caller",
                 "entity_type": "group",
                 "name": "dev",
-                "max_requests": 5,
+                "user_max_requests": 5,
                 "window_seconds": 60,
                 "enabled": True,
             },
@@ -127,7 +127,7 @@ class TestDefinitionsCache:
                 "axis": "caller",
                 "entity_type": "group",
                 "name": "bad",
-                "max_requests": -1,  # invalid: ge=1
+                "user_max_requests": -1,  # invalid: ge=1
                 "window_seconds": 60,
                 "enabled": True,
             },

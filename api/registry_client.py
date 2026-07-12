@@ -2126,28 +2126,39 @@ class RegistryClient:
         axis: str,
         entity_type: str,
         name: str,
-        max_requests: int,
+        max_requests: int | None = None,
+        user_max_requests: int | None = None,
+        agent_max_requests: int | None = None,
         window_seconds: int = 60,
         fail_closed: bool = False,
         enabled: bool = True,
     ) -> dict[str, Any]:
         """Create or update a rate-limit definition (admin only).
 
-        The ``_id`` is derived server-side; this client builds the matching URL id.
+        Caller (group) axis: pass ``user_max_requests`` and/or ``agent_max_requests``.
+        Target axis: pass ``max_requests``. The ``_id`` is derived server-side; this
+        client builds the matching URL id.
 
         Raises:
             requests.HTTPError: If the request fails (e.g. 400 invalid definition).
         """
         definition_id = f"{axis}:{entity_type}:{name}:{window_seconds}"
-        body = {
+        body: dict[str, Any] = {
             "axis": axis,
             "entity_type": entity_type,
             "name": name,
-            "max_requests": max_requests,
             "window_seconds": window_seconds,
             "fail_closed": fail_closed,
             "enabled": enabled,
         }
+        # Only include limit fields that were provided (schema requires the right
+        # one per axis and rejects the others).
+        if max_requests is not None:
+            body["max_requests"] = max_requests
+        if user_max_requests is not None:
+            body["user_max_requests"] = user_max_requests
+        if agent_max_requests is not None:
+            body["agent_max_requests"] = agent_max_requests
         logger.info(f"Setting rate-limit definition {definition_id}")
         response = self._make_request(
             method="PUT",

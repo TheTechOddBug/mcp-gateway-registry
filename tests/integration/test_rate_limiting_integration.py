@@ -102,7 +102,11 @@ class TestCrossReplicaCorrectness:
         username = f"it-{uuid.uuid4().hex}"
         caller_defs = [
             RateLimitDefinition(
-                axis="caller", entity_type="group", name="devs", max_requests=10, window_seconds=60
+                axis="caller",
+                entity_type="group",
+                name="devs",
+                user_max_requests=10,
+                window_seconds=60,
             )
         ]
         memberships = _FixedMemberships({username: ["devs"]})
@@ -128,13 +132,17 @@ class TestDenyDoesNotConsumeThroughRealBackend:
         username = f"it-{uuid.uuid4().hex}"
         caller_defs = [
             RateLimitDefinition(
-                axis="caller", entity_type="group", name="devs", max_requests=5, window_seconds=60
+                axis="caller",
+                entity_type="group",
+                name="devs",
+                user_max_requests=5,
+                window_seconds=60,
             ),
             RateLimitDefinition(
                 axis="caller",
                 entity_type="group",
                 name="devs",
-                max_requests=20,
+                user_max_requests=20,
                 window_seconds=86400,
             ),
         ]

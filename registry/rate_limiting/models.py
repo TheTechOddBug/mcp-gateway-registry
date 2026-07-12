@@ -53,14 +53,21 @@ MIN_WINDOW_SECONDS: int = 1
 MAX_WINDOW_SECONDS: int = 86400
 
 
+# Caller types for floor selection and per-type limit resolution.
+CALLER_TYPE_USER: str = "user"
+CALLER_TYPE_AGENT: str = "agent"
+
+
 class RateLimitDefinition(BaseModel):
     """A rate-limit definition on one axis, for one entity type, at one window.
 
-    - ``axis="caller"``: aggregate limit on a group the caller belongs to. A
-      specific user or agent is limited by being a member of a limited group.
+    - ``axis="caller"``: aggregate limit on a group the caller belongs to. A group
+      carries a SEPARATE limit for human users (``user_max_requests``) and for
+      agents/M2M clients (``agent_max_requests``); at least one is required, both
+      are allowed. A specific user/agent is subject to the group by a membership.
     - ``axis="target"``: aggregate limit on one target entity across all callers
-      (v1 enforced: an MCP server or an A2A agent; tool/skill modeled but not
-      wired).
+      via ``max_requests`` (v1 enforced: an MCP server or an A2A agent; tool/skill
+      modeled but not wired).
     """
 
     axis: str = Field(
@@ -76,10 +83,22 @@ class RateLimitDefinition(BaseModel):
         min_length=1,
         description="Group name, server path, or agent name this applies to",
     )
-    max_requests: int = Field(
-        ...,
+    # Target axis uses this single aggregate limit.
+    max_requests: int | None = Field(
+        default=None,
         ge=1,
-        description="Max requests allowed per window",
+        description="Target-axis: max requests per window across all callers",
+    )
+    # Caller (group) axis uses these per-caller-type limits. At least one required.
+    user_max_requests: int | None = Field(
+        default=None,
+        ge=1,
+        description="Caller/group: max requests per window for a human user in the group",
+    )
+    agent_max_requests: int | None = Field(
+        default=None,
+        ge=1,
+        description="Caller/group: max requests per window for an agent/client in the group",
     )
     window_seconds: int = Field(
         default=60,
@@ -98,7 +117,7 @@ class RateLimitDefinition(BaseModel):
 
     @model_validator(mode="after")
     def _check_axis_and_entity_type(self) -> "RateLimitDefinition":
-        """Reject any axis/entity_type combination outside the allowlists (fail closed)."""
+        """Validate axis/entity_type allowlists and the per-axis limit fields (fail closed)."""
         if self.axis not in AXIS_ABBREVIATION:
             raise ValueError(f"axis must be one of {sorted(AXIS_ABBREVIATION)}, got '{self.axis}'")
 
@@ -108,7 +127,28 @@ class RateLimitDefinition(BaseModel):
                 f"entity_type '{self.entity_type}' invalid for axis '{self.axis}' "
                 f"(allowed: {sorted(allowed)})"
             )
+
+        if self.axis == "caller":
+            # A group must set at least one of the per-caller-type limits.
+            if self.user_max_requests is None and self.agent_max_requests is None:
+                raise ValueError(
+                    "a caller (group) definition must set user_max_requests and/or "
+                    "agent_max_requests"
+                )
+        else:
+            # Target axis uses the single max_requests.
+            if self.max_requests is None:
+                raise ValueError("a target definition must set max_requests")
         return self
+
+    def limit_for_caller_type(
+        self,
+        caller_type: str,
+    ) -> int | None:
+        """Return the per-window limit for a caller type ('user'/'agent'), or None if unset."""
+        if caller_type == CALLER_TYPE_AGENT:
+            return self.agent_max_requests
+        return self.user_max_requests
 
     def build_id(self) -> str:
         """Build the definition document ``_id``: '<axis>:<entity_type>:<name>:<window_seconds>'."""
@@ -182,25 +222,6 @@ class RateLimitDecision(BaseModel):
     ) -> "RateLimitDecision":
         """Build an allow decision. ``remaining`` is best-effort headroom for headers."""
         return cls(allowed=True, remaining=max(0, remaining))
-
-    @classmethod
-    def deny(
-        cls,
-        definition: RateLimitDefinition,
-        axis_abbr: str,
-        reset_epoch: int,
-        retry_after: int,
-    ) -> "RateLimitDecision":
-        """Build a deny decision carrying the info needed for 429 headers."""
-        return cls(
-            allowed=False,
-            axis=axis_abbr,
-            entity_type=definition.entity_type,
-            limit=definition.max_requests,
-            remaining=0,
-            reset_epoch=reset_epoch,
-            retry_after=max(0, retry_after),
-        )
 
     def headers(self) -> dict[str, str]:
         """Build the ``X-RateLimit-*`` / ``Retry-After`` headers for a 429 response."""

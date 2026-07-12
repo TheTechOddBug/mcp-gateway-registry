@@ -143,11 +143,17 @@ async def _count_allowed(
 
 
 def _caller(name, max_requests, window_seconds):
+    """A group caller definition setting both user + agent limits to max_requests.
+
+    (Model-level construction; the config-time floor is a route-layer check and
+    does not constrain direct model instances, so small test values are fine.)
+    """
     return RateLimitDefinition(
         axis="caller",
         entity_type="group",
         name=name,
-        max_requests=max_requests,
+        user_max_requests=max_requests,
+        agent_max_requests=max_requests,
         window_seconds=window_seconds,
     )
 
@@ -189,6 +195,78 @@ class TestRateLimiter:
         )
         allowed = await _count_allowed(limiter, 6, username=None, client_id="agent-1")
         assert allowed == 3
+
+    async def test_user_and_agent_limits_differ_within_a_group(self):
+        """A group's user vs agent number applies by caller type."""
+        # Group sets user=4, agent=2 on the same window.
+        group = RateLimitDefinition(
+            axis="caller",
+            entity_type="group",
+            name="mixed",
+            user_max_requests=4,
+            agent_max_requests=2,
+            window_seconds=60,
+        )
+        # A human (username, no client_id) gets the user number.
+        b1 = _FakeBackend()
+        lim1 = _make_limiter(
+            b1, caller_defs=[group], memberships=_FakeMemberships(by_user={"alice": ["mixed"]})
+        )
+        assert await _count_allowed(lim1, 8, username="alice", client_id=None) == 4
+        # An agent (client_id) gets the agent number.
+        b2 = _FakeBackend()
+        lim2 = _make_limiter(
+            b2, caller_defs=[group], memberships=_FakeMemberships(by_client={"cli": ["mixed"]})
+        )
+        assert await _count_allowed(lim2, 8, username=None, client_id="cli") == 2
+
+    async def test_group_with_only_user_limit_does_not_gate_agents(self):
+        """A group that sets only user_max_requests does not limit agent callers."""
+        group = RateLimitDefinition(
+            axis="caller", entity_type="group", name="u-only", user_max_requests=3, window_seconds=60
+        )
+        backend = _FakeBackend()
+        limiter = _make_limiter(
+            backend, caller_defs=[group], memberships=_FakeMemberships(by_client={"cli": ["u-only"]})
+        )
+        # Agent has no agent-limit in this group -> unlimited.
+        assert await _count_allowed(limiter, 6, username=None, client_id="cli") == 6
+
+    async def test_admin_bypasses_caller_gates(self):
+        """An admin caller is not subject to caller (group) limits."""
+        backend = _FakeBackend()
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("dev", 2, 60)],
+            memberships=_FakeMemberships(by_user={"admin": ["dev"]}),
+        )
+        # is_admin=True -> caller gates skipped, all allowed.
+        allowed = 0
+        for _ in range(6):
+            d = await limiter.check(username="admin", client_id=None, is_admin=True)
+            allowed += 1 if d.allowed else 0
+        assert allowed == 6
+
+    async def test_admin_still_subject_to_target_gates(self):
+        """Admin bypass covers caller gates only; target gates still protect a backend."""
+        backend = _FakeBackend()
+        target_defs = [
+            RateLimitDefinition(
+                axis="target", entity_type="mcp_server", name="mcpgw", max_requests=2, window_seconds=60
+            )
+        ]
+        limiter = _make_limiter(backend, target_defs=target_defs)
+        allowed = 0
+        for _ in range(5):
+            d = await limiter.check(
+                username="admin",
+                client_id=None,
+                is_admin=True,
+                target_entity_type="mcp_server",
+                target_name="mcpgw",
+            )
+            allowed += 1 if d.allowed else 0
+        assert allowed == 2
 
     async def test_burst_denial_does_not_consume_daily_cap(self):
         """BLOCKER-1 regression: a burst-denied request must NOT advance the daily gate."""
@@ -295,7 +373,8 @@ class TestRateLimiter:
             axis="caller",
             entity_type="group",
             name="dev",
-            max_requests=5,
+            user_max_requests=5,
+            agent_max_requests=5,
             window_seconds=60,
             fail_closed=True,
         )
@@ -337,7 +416,8 @@ class TestRateLimiter:
             axis="caller",
             entity_type="group",
             name="dev",
-            max_requests=5,
+            user_max_requests=5,
+            agent_max_requests=5,
             window_seconds=60,
             fail_closed=True,
         )

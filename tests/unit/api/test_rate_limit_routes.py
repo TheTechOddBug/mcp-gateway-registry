@@ -77,7 +77,11 @@ class TestPutRateLimit:
         from registry.rate_limiting.models import RateLimitDefinition
 
         definition = RateLimitDefinition(
-            axis="caller", entity_type="group", name="developers", max_requests=5, window_seconds=60
+            axis="caller",
+            entity_type="group",
+            name="developers",
+            user_max_requests=25,
+            window_seconds=60,
         )
         mock_repository.upsert.return_value = definition
 
@@ -85,12 +89,12 @@ class TestPutRateLimit:
             "axis": "caller",
             "entity_type": "group",
             "name": "developers",
-            "max_requests": 5,
+            "user_max_requests": 25,
             "window_seconds": 60,
         }
         resp = client.put("/api/rate-limits/caller:group:developers:60", json=body)
         assert resp.status_code == 200
-        assert resp.json()["max_requests"] == 5
+        assert resp.json()["user_max_requests"] == 25
 
     def test_put_url_id_mismatch_rejected(self, client, mock_auth_admin, mock_repository):
         """A body that builds a different _id than the URL id is a 400."""
@@ -98,7 +102,7 @@ class TestPutRateLimit:
             "axis": "caller",
             "entity_type": "group",
             "name": "developers",
-            "max_requests": 5,
+            "user_max_requests": 25,
             "window_seconds": 60,
         }
         # URL says window 30, body says 60 -> mismatch.
@@ -112,7 +116,7 @@ class TestPutRateLimit:
             "axis": "sideways",
             "entity_type": "group",
             "name": "x",
-            "max_requests": 5,
+            "user_max_requests": 25,
             "window_seconds": 60,
         }
         resp = client.put("/api/rate-limits/sideways:group:x:60", json=body)
@@ -130,6 +134,54 @@ class TestPutRateLimit:
         resp = client.put("/api/rate-limits/target:mcp_tool:mcpgw:search:60", json=body)
         assert resp.status_code == 400
         assert "not enforced" in resp.json()["detail"]
+
+    def test_put_user_below_floor_rejected(self, client, mock_auth_admin, mock_repository):
+        """A short-window group user limit below the user floor (20/min) is rejected."""
+        body = {
+            "axis": "caller",
+            "entity_type": "group",
+            "name": "devs",
+            "user_max_requests": 3,  # below the 20/min floor on a 60s window
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/caller:group:devs:60", json=body)
+        assert resp.status_code == 400
+        assert "below the user floor" in resp.json()["detail"]
+
+    def test_put_agent_below_floor_rejected(self, client, mock_auth_admin, mock_repository):
+        """A short-window group agent limit below the agent floor (10/min) is rejected."""
+        body = {
+            "axis": "caller",
+            "entity_type": "group",
+            "name": "agents",
+            "agent_max_requests": 2,  # below the 10/min floor on a 60s window
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/caller:group:agents:60", json=body)
+        assert resp.status_code == 400
+        assert "below the agent floor" in resp.json()["detail"]
+
+    def test_put_low_limit_allowed_on_daily_window(self, client, mock_auth_admin, mock_repository):
+        """A low limit is allowed on a long (daily) window -- floor only applies to <=60s."""
+        from registry.rate_limiting.models import RateLimitDefinition
+
+        definition = RateLimitDefinition(
+            axis="caller",
+            entity_type="group",
+            name="devs",
+            user_max_requests=5000,
+            window_seconds=86400,
+        )
+        mock_repository.upsert.return_value = definition
+        body = {
+            "axis": "caller",
+            "entity_type": "group",
+            "name": "devs",
+            "user_max_requests": 5000,
+            "window_seconds": 86400,
+        }
+        resp = client.put("/api/rate-limits/caller:group:devs:86400", json=body)
+        assert resp.status_code == 200
 
     def test_put_requires_admin(self, client, mock_auth_regular, mock_repository):
         """A non-admin gets 403."""
@@ -190,7 +242,11 @@ class TestGetAndToggle:
         from registry.rate_limiting.models import RateLimitDefinition
 
         mock_repository.get_by_id.return_value = RateLimitDefinition(
-            axis="caller", entity_type="group", name="developers", max_requests=5, window_seconds=60
+            axis="caller",
+            entity_type="group",
+            name="developers",
+            user_max_requests=25,
+            window_seconds=60,
         )
         resp = client.get("/api/rate-limits/caller:group:developers:60")
         assert resp.status_code == 200
