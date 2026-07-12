@@ -14,6 +14,7 @@ import logging
 import time
 
 from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo import ReturnDocument
 
 from ..repositories.documentdb.client import (
     get_collection_name,
@@ -167,3 +168,29 @@ class DefinitionsRepository:
     async def list_all(self) -> list[RateLimitDefinition]:
         """Return every definition (admin listing; bypasses the enabled filter and cache)."""
         return await self._find_definitions({})
+
+    async def get_by_id(
+        self,
+        definition_id: str,
+    ) -> RateLimitDefinition | None:
+        """Return a single definition by ``_id``, or None if absent (admin read; no cache)."""
+        results = await self._find_definitions({"_id": definition_id})
+        return results[0] if results else None
+
+    async def set_enabled(
+        self,
+        definition_id: str,
+        enabled: bool,
+    ) -> RateLimitDefinition | None:
+        """Toggle a definition's ``enabled`` flag in place; return the updated def or None."""
+        collection = await self._get_collection()
+        doc = await collection.find_one_and_update(
+            {"_id": definition_id},
+            {"$set": {"enabled": enabled}},
+            return_document=ReturnDocument.AFTER,
+        )
+        self.invalidate_cache()
+        if not doc:
+            return None
+        doc.pop("_id", None)
+        return RateLimitDefinition(**doc)

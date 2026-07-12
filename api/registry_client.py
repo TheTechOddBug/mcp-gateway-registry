@@ -2172,6 +2172,40 @@ class RegistryClient:
         )
         return response.json()
 
+    def get_rate_limit(
+        self,
+        definition_id: str,
+    ) -> dict[str, Any]:
+        """Read a single rate-limit definition by id (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 404 not found).
+        """
+        logger.info(f"Getting rate-limit definition {definition_id}")
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/rate-limits/{definition_id}",
+        )
+        return response.json()
+
+    def set_rate_limit_enabled(
+        self,
+        definition_id: str,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        """Enable or disable a rate-limit definition in place (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 404 not found).
+        """
+        logger.info(f"Setting rate-limit definition {definition_id} enabled={enabled}")
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/rate-limits-enabled/{definition_id}",
+            params={"enabled": str(enabled).lower()},
+        )
+        return response.json()
+
     def rate_limit_status(
         self,
         identity: str | None = None,

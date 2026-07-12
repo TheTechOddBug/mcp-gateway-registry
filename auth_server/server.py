@@ -1263,9 +1263,12 @@ async def _enforce_rate_limit(
     if not RATE_LIMITING_ENABLED:
         return
 
-    # Identity from the validated token only. client_id (M2M/agent) preferred, else username.
-    identity = validation_result.get("client_id") or validation_result.get("username")
-    if not identity:
+    # Identity from the validated token only, never a client header. Pass username
+    # and client_id separately so the limiter can enforce per-user, per-client, and
+    # per-group limits independently.
+    username = validation_result.get("username")
+    client_id = validation_result.get("client_id")
+    if not username and not client_id:
         return
 
     groups = validation_result.get("groups", []) or []
@@ -1273,7 +1276,8 @@ async def _enforce_rate_limit(
 
     try:
         decision = await get_rate_limiter().check(
-            identity=identity,
+            username=username,
+            client_id=client_id,
             groups=groups,
             target_entity_type=target_entity_type,
             target_name=target_name,

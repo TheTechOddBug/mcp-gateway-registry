@@ -25,7 +25,7 @@ This document describes the application-level rate limiting in the MCP Gateway R
 
 MCP tool calls and A2A agent calls pass through the gateway with authentication and authorization, but historically there was no cap on **how often** an authenticated caller could invoke them. A single user or agent could call a tool thousands of times a minute and overwhelm a backend MCP server, exhaust a downstream API quota, or run up cost.
 
-This feature adds **application-level, identity/group/target-aware** rate limiting: limits that are expressed in terms of *who* is calling (a user or agent, via their groups) and *what* they are calling (a specific MCP server or A2A agent), enforced at the one hop every call already crosses.
+This feature adds **application-level, identity/group/target-aware** rate limiting: limits that are expressed in terms of *who* is calling (a group, a specific user, or a specific agent/client) and *what* they are calling (a specific MCP server or A2A agent), enforced at the one hop every call already crosses.
 
 It is **not** a volumetric DoS control. That job belongs to the coarse per-IP limiting at the nginx edge (see the next section). The two are complementary layers.
 
@@ -56,7 +56,7 @@ This document covers **only the application-level layer**. The nginx edge limiti
                          1. resolve identity + groups + target (existing)
                          2. authorize (existing; fails closed)
                          3. RATE LIMIT (new): every applicable gate must pass
-                            ├─ caller gates:  (identity, per window)
+                            ├─ caller gates:  group (per-caller) + user + client, per window
                             └─ target gates:  (entity_type:name, per window)  [if defined]
                                │
                                ▼
@@ -79,7 +79,11 @@ Three design commitments shape everything else:
 
 A limit applies to one of two **axes**:
 
-- **Caller axis (Limit A):** a caller (a user or agent), across *all* targets, may not exceed N requests per window. The N comes from the caller's **group(s)**. If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
+- **Caller axis (Limit A):** limits who is calling, across *all* targets. It supports three entity types, all keyed on values resolved from the validated token (never a client header):
+  - `group` — a group the caller belongs to (name = group). Enforced **per caller** (each caller gets their own quota under the group's limit). If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
+  - `user` — a specific human user (name = username). That user's own aggregate.
+  - `client` — a specific agent / M2M client (name = `client_id` / `azp`). That agent's own aggregate.
+  A caller subject to several of these (e.g. a user, in a limited group, calling as a client) is bounded by **all** of them; the tightest effectively governs.
 - **Target axis (Limit B):** a target *entity*, across *all* callers combined, may not exceed N requests per window. Only enforced for targets that define a limit. This protects a weak backend from combined load.
 
 The target axis is **entity-type-generic**. v1 enforces two target kinds:
@@ -218,9 +222,13 @@ Both the `registry` and `auth-server` services read these; keep them in agreemen
 Limit **definitions** are managed at runtime, not through env vars. All endpoints are admin-only.
 
 - `GET /api/rate-limits` — list all definitions.
+- `GET /api/rate-limits/{id}` — read a single definition (404 if absent).
 - `PUT /api/rate-limits/{id}` — create/update. The `_id` is derived from the body; the URL id must match exactly (a colon-bearing tool/skill name is never parsed out of the URL).
+- `POST /api/rate-limits-enabled/{id}?enabled=true|false` — enable/disable in place without re-specifying the definition (a distinct prefix so the greedy `{id:path}` doesn't swallow the action).
 - `DELETE /api/rate-limits/{id}` — delete.
 - `GET /api/rate-limits-status?identity=&entity_type=&name=` — introspect matching definitions.
+
+A **read-only** view of the current definitions also appears on the **Settings → System Config** page (group "Rate Limit Definitions (read-only)"), fed live from `/api/config/full`. The UI is view-only by design; all mutations go through the API/CLI above.
 
 CLI equivalents:
 
@@ -231,11 +239,20 @@ uv run python registry_management.py rate-limit-set \
 uv run python registry_management.py rate-limit-set \
   --axis caller --entity-type group --name developers --max-requests 5000 --window-seconds 86400
 
+# Limit a specific USER (by username) or a specific AGENT (by client_id)
+uv run python registry_management.py rate-limit-set \
+  --axis caller --entity-type user --name alice --max-requests 60 --window-seconds 60
+uv run python registry_management.py rate-limit-set \
+  --axis caller --entity-type client --name my-agent-client-id --max-requests 120 --window-seconds 60
+
 # 500 requests/minute aggregate to the "mcpgw" MCP server, across all callers
 uv run python registry_management.py rate-limit-set \
   --axis target --entity-type mcp_server --name mcpgw --max-requests 500 --window-seconds 60
 
 uv run python registry_management.py rate-limit-list
+uv run python registry_management.py rate-limit-get --id caller:user:alice:60
+uv run python registry_management.py rate-limit-disable --id caller:user:alice:60
+uv run python registry_management.py rate-limit-enable --id caller:user:alice:60
 uv run python registry_management.py rate-limit-delete --id caller:group:developers:60
 ```
 

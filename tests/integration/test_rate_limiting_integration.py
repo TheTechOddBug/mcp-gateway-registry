@@ -68,13 +68,19 @@ class TestConditionalIncrement:
 
 
 class _FixedGroupDefs:
-    """Definitions stub returning fixed caller defs (isolates the DB test from the definitions collection)."""
+    """Definitions stub returning fixed caller defs (isolates the DB test from the definitions collection).
+
+    Filters by entity_type and name like the real repo, so the group query does
+    not leak into the user/client queries the limiter now also issues.
+    """
 
     def __init__(self, caller_defs):
         self._caller_defs = caller_defs
 
     async def list_caller_limits(self, entity_type, names):
-        return self._caller_defs if names else []
+        return [
+            d for d in self._caller_defs if d.entity_type == entity_type and d.name in names
+        ]
 
     async def list_target_limits(self, entity_type, name):
         return []
@@ -97,7 +103,7 @@ class TestCrossReplicaCorrectness:
         allowed = 0
         for i in range(20):
             limiter = lim_a if i % 2 else lim_b
-            decision = await limiter.check(identity=identity, groups=["devs"])
+            decision = await limiter.check(username=identity, client_id=None, groups=["devs"])
             if decision.allowed:
                 allowed += 1
 
@@ -126,7 +132,7 @@ class TestDenyDoesNotConsumeThroughRealBackend:
 
         allowed = 0
         for _ in range(30):
-            decision = await limiter.check(identity=identity, groups=["devs"])
+            decision = await limiter.check(username=identity, client_id=None, groups=["devs"])
             if decision.allowed:
                 allowed += 1
 

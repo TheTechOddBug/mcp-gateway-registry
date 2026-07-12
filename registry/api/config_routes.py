@@ -736,7 +736,58 @@ async def get_full_config(
         except Exception:
             logger.debug("Could not write structured audit event for config_view", exc_info=True)
 
-    return _get_cached_config_response()
+    response = _get_cached_config_response()
+    # Append a live, read-only view of the current rate-limit definitions. These
+    # are dynamic Mongo documents (not static settings), so they are fetched fresh
+    # per request and never cached with the static config. Fail-soft: a lookup
+    # error must not break the whole config view.
+    rate_limit_group = await _build_rate_limit_definitions_group()
+    if rate_limit_group is not None:
+        response = dict(response)
+        response["groups"] = [*response["groups"], rate_limit_group]
+        response["total_groups"] = len(response["groups"])
+    return response
+
+
+async def _build_rate_limit_definitions_group() -> dict[str, Any] | None:
+    """Build a read-only config group listing the current rate-limit definitions.
+
+    Returns a group whose fields are one-per-definition (``key``/``label`` = the
+    definition id, ``value`` = a human summary). Returns an empty-fields group when
+    none exist, or None on error (fail-soft so the config view still renders).
+    """
+    try:
+        from ..rate_limiting.definitions_repository import DefinitionsRepository
+
+        repository = DefinitionsRepository()
+        definitions = await repository.list_all()
+    except Exception as exc:
+        logger.warning("Could not load rate-limit definitions for config view: %s", exc)
+        return None
+
+    fields: list[dict[str, Any]] = []
+    for d in sorted(definitions, key=lambda x: x.build_id()):
+        state = "enabled" if d.enabled else "disabled"
+        summary = f"{d.max_requests} req / {d.window_seconds}s ({state})"
+        if d.fail_closed:
+            summary += ", fail-closed"
+        fields.append(
+            {
+                "key": d.build_id(),
+                "label": d.build_id(),
+                "value": summary,
+                "raw_value": None,  # read-only; not copyable as a config value
+                "is_masked": False,
+                "unit": None,
+            }
+        )
+
+    return {
+        "id": "rate_limit_definitions",
+        "title": "Rate Limit Definitions (read-only)",
+        "order": 999,
+        "fields": fields,
+    }
 
 
 # ---------------------------------------------------------------------------

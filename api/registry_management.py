@@ -1139,6 +1139,44 @@ def cmd_rate_limit_delete(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_rate_limit_get(args: argparse.Namespace) -> int:
+    """Read a single rate-limit definition by id."""
+    try:
+        client = _create_client(args)
+        result = client.get_rate_limit(args.id)
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to get rate limit: {e}")
+        return 1
+
+
+def cmd_rate_limit_enable(args: argparse.Namespace) -> int:
+    """Enable a rate-limit definition in place."""
+    try:
+        client = _create_client(args)
+        result = client.set_rate_limit_enabled(args.id, enabled=True)
+        logger.info(f"Enabled rate-limit definition {args.id}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to enable rate limit: {e}")
+        return 1
+
+
+def cmd_rate_limit_disable(args: argparse.Namespace) -> int:
+    """Disable a rate-limit definition in place (without deleting it)."""
+    try:
+        client = _create_client(args)
+        result = client.set_rate_limit_enabled(args.id, enabled=False)
+        logger.info(f"Disabled rate-limit definition {args.id}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to disable rate limit: {e}")
+        return 1
+
+
 def cmd_rate_limit_status(args: argparse.Namespace) -> int:
     """Introspect rate-limit definitions for a caller and/or target."""
     try:
@@ -6060,10 +6098,12 @@ Examples:
         "--entity-type",
         required=True,
         dest="entity_type",
-        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent'",
+        help="caller: 'group' | 'user' | 'client'; target: 'mcp_server' | 'a2a_agent'",
     )
     rate_limit_set_parser.add_argument(
-        "--name", required=True, help="Group name, server path, or agent path"
+        "--name",
+        required=True,
+        help="Group name, username, client_id, server path, or agent path",
     )
     rate_limit_set_parser.add_argument(
         "--max-requests", required=True, type=int, dest="max_requests", help="Max requests per window"
@@ -6097,6 +6137,25 @@ Examples:
         required=True,
         help="Definition id, e.g. 'caller:group:developers:60'",
     )
+
+    rate_limit_get_parser = subparsers.add_parser(
+        "rate-limit-get", help="Read a single rate-limit definition by id (admin)"
+    )
+    rate_limit_get_parser.add_argument(
+        "--id",
+        required=True,
+        help="Definition id, e.g. 'caller:user:alice:60'",
+    )
+
+    rate_limit_enable_parser = subparsers.add_parser(
+        "rate-limit-enable", help="Enable a rate-limit definition in place (admin)"
+    )
+    rate_limit_enable_parser.add_argument("--id", required=True, help="Definition id")
+
+    rate_limit_disable_parser = subparsers.add_parser(
+        "rate-limit-disable", help="Disable a rate-limit definition without deleting it (admin)"
+    )
+    rate_limit_disable_parser.add_argument("--id", required=True, help="Definition id")
 
     rate_limit_status_parser = subparsers.add_parser(
         "rate-limit-status", help="Introspect rate-limit definitions (admin)"
@@ -7465,7 +7524,10 @@ Examples:
         "config": cmd_config,
         "rate-limit-set": cmd_rate_limit_set,
         "rate-limit-list": cmd_rate_limit_list,
+        "rate-limit-get": cmd_rate_limit_get,
         "rate-limit-delete": cmd_rate_limit_delete,
+        "rate-limit-enable": cmd_rate_limit_enable,
+        "rate-limit-disable": cmd_rate_limit_disable,
         "rate-limit-status": cmd_rate_limit_status,
         "add-to-groups": cmd_add_to_groups,
         "remove-from-groups": cmd_remove_from_groups,

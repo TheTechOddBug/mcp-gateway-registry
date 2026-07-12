@@ -36,7 +36,7 @@ Access is decided per caller and per resource, not all-or-nothing. A caller's id
 The gateway meters how often callers may invoke tools and agents, in two complementary layers:
 
 - **Edge (per-IP) limiting** at nginx protects against volumetric floods before a request is even authenticated.
-- **Application-level, identity/target-aware limiting** at the authorization hop caps how many requests a given caller (via their groups) may make, and how many a given MCP server or A2A agent may absorb across all callers — at windows from per-second bursts to per-day volume quotas.
+- **Application-level, identity/target-aware limiting** at the authorization hop caps how many requests a given caller (by group, by specific user, or by specific agent/client) may make, and how many a given MCP server or A2A agent may absorb across all callers — at windows from per-second bursts to per-day volume quotas.
 
 Together they protect weak backends from overload, keep one tenant from starving others, and bound the cost and quota consumption of downstream APIs. Limits are identity- and target-aware because the gateway, unlike a raw network appliance, knows exactly who is calling and what they are calling. See [Rate limiting design](design/rate-limiting.md).
 

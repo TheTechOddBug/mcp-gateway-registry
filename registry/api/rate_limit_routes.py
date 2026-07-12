@@ -98,6 +98,42 @@ async def list_rate_limits(
     return {"definitions": [d.model_dump() for d in definitions]}
 
 
+@router.get("/rate-limits/{definition_id:path}")
+async def get_rate_limit(
+    definition_id: str,
+    request: Request,
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> dict:
+    """Read a single rate-limit definition by id (admin only). 404 if absent."""
+    _require_admin(user_context)
+    set_audit_action(request, "read", _RESOURCE_TYPE, resource_id=definition_id)
+    definition = await _get_repository().get_by_id(definition_id)
+    if definition is None:
+        raise HTTPException(status_code=404, detail="Definition not found")
+    return definition.model_dump()
+
+
+@router.post("/rate-limits-enabled/{definition_id:path}")
+async def set_rate_limit_enabled(
+    definition_id: str,
+    request: Request,
+    enabled: Annotated[bool, Query()],
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> dict:
+    """Enable or disable a definition in place without re-specifying it (admin only).
+
+    A distinct ``/rate-limits-enabled/`` prefix avoids the greedy ``:path`` under
+    ``/rate-limits/`` swallowing a trailing action segment.
+    """
+    _require_admin(user_context)
+    action = "enable" if enabled else "disable"
+    set_audit_action(request, action, _RESOURCE_TYPE, resource_id=definition_id)
+    updated = await _get_repository().set_enabled(definition_id, enabled)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Definition not found")
+    return updated.model_dump()
+
+
 @router.put("/rate-limits/{definition_id:path}")
 async def put_rate_limit(
     definition_id: str,
