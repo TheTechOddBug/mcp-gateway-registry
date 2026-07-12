@@ -15,6 +15,7 @@ import os
 from registry.rate_limiting.definitions_repository import DefinitionsRepository
 from registry.rate_limiting.documentdb_backend import DocumentDBRateLimiterBackend
 from registry.rate_limiting.limiter import RateLimiter
+from registry.rate_limiting.memberships_repository import MembershipsRepository
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -84,12 +85,13 @@ def get_rate_limiter() -> RateLimiter:
     global _rate_limiter
     if _rate_limiter is None:
         backend = _build_backend()
-        definitions = DefinitionsRepository(
-            cache_ttl_seconds=float(RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS)
-        )
+        cache_ttl = float(RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS)
+        definitions = DefinitionsRepository(cache_ttl_seconds=cache_ttl)
+        memberships = MembershipsRepository(cache_ttl_seconds=cache_ttl)
         _rate_limiter = RateLimiter(
             backend=backend,
             definitions=definitions,
+            memberships=memberships,
             fail_open=RATE_LIMIT_FAIL_OPEN,
             backend_timeout_seconds=RATE_LIMIT_BACKEND_TIMEOUT_MS / 1000.0,
         )

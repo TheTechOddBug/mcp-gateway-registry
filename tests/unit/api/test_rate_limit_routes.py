@@ -60,6 +60,14 @@ def mock_repository():
         yield repo
 
 
+@pytest.fixture
+def mock_memberships_repository():
+    """Patch the routes' memberships repository singleton with an AsyncMock."""
+    repo = AsyncMock()
+    with patch("registry.api.rate_limit_routes._get_memberships_repository", return_value=repo):
+        yield repo
+
+
 @pytest.mark.unit
 class TestPutRateLimit:
     """Tests for PUT /api/rate-limits/{id}."""
@@ -221,4 +229,62 @@ class TestGetAndToggle:
     def test_get_requires_admin(self, client, mock_auth_regular, mock_repository):
         """A non-admin gets 403 on read."""
         resp = client.get("/api/rate-limits/caller:user:alice:60")
+        assert resp.status_code == 403
+
+
+@pytest.mark.unit
+class TestMemberships:
+    """Tests for /api/rate-limit-memberships CRUD."""
+
+    def test_put_valid_membership(self, client, mock_auth_admin, mock_memberships_repository):
+        """A valid membership whose body matches the URL id is stored."""
+        from registry.rate_limiting.models import RateLimitMembership
+
+        membership = RateLimitMembership(subject_type="user", subject="alice", groups=["devs"])
+        mock_memberships_repository.upsert.return_value = membership
+        body = {"subject_type": "user", "subject": "alice", "groups": ["devs"]}
+        resp = client.put("/api/rate-limit-memberships/user:alice", json=body)
+        assert resp.status_code == 200
+        assert resp.json()["groups"] == ["devs"]
+
+    def test_put_url_id_mismatch_rejected(self, client, mock_auth_admin, mock_memberships_repository):
+        """A body building a different _id than the URL is a 400."""
+        body = {"subject_type": "user", "subject": "alice", "groups": ["devs"]}
+        resp = client.put("/api/rate-limit-memberships/user:bob", json=body)
+        assert resp.status_code == 400
+        assert "does not match" in resp.json()["detail"]
+
+    def test_put_invalid_subject_type_rejected(self, client, mock_auth_admin, mock_memberships_repository):
+        """An invalid subject_type fails model validation with a 400."""
+        body = {"subject_type": "group", "subject": "x", "groups": ["g"]}
+        resp = client.put("/api/rate-limit-memberships/group:x", json=body)
+        assert resp.status_code == 400
+
+    def test_list_memberships(self, client, mock_auth_admin, mock_memberships_repository):
+        """List returns the repository's memberships."""
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.list_all.return_value = [
+            RateLimitMembership(subject_type="client", subject="agent-1", groups=["agents"])
+        ]
+        resp = client.get("/api/rate-limit-memberships")
+        assert resp.status_code == 200
+        assert len(resp.json()["memberships"]) == 1
+
+    def test_delete_present(self, client, mock_auth_admin, mock_memberships_repository):
+        """Deleting an existing membership returns deleted=true."""
+        mock_memberships_repository.delete.return_value = True
+        resp = client.request("DELETE", "/api/rate-limit-memberships/user:alice")
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
+
+    def test_delete_absent_is_404(self, client, mock_auth_admin, mock_memberships_repository):
+        """Deleting a missing membership returns 404."""
+        mock_memberships_repository.delete.return_value = False
+        resp = client.request("DELETE", "/api/rate-limit-memberships/user:ghost")
+        assert resp.status_code == 404
+
+    def test_membership_requires_admin(self, client, mock_auth_regular, mock_memberships_repository):
+        """A non-admin gets 403 on membership list."""
+        resp = client.get("/api/rate-limit-memberships")
         assert resp.status_code == 403

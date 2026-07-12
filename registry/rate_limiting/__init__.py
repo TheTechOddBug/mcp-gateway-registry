@@ -10,15 +10,20 @@ default (``RATE_LIMITING_ENABLED=false``) and adds no required infrastructure.
 """
 
 from .backend import IncrResult, RateLimiterBackend
+from .definitions_repository import DefinitionsRepository
 from .documentdb_backend import DocumentDBRateLimiterBackend
 from .limiter import RateLimiter
-from .models import RateLimitDecision, RateLimitDefinition
+from .memberships_repository import MembershipsRepository
+from .models import RateLimitDecision, RateLimitDefinition, RateLimitMembership
 
 __all__ = [
     "IncrResult",
     "RateLimiterBackend",
     "DocumentDBRateLimiterBackend",
+    "DefinitionsRepository",
+    "MembershipsRepository",
     "RateLimiter",
     "RateLimitDecision",
     "RateLimitDefinition",
+    "RateLimitMembership",
 ]

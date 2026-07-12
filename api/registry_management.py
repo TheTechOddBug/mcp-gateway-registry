@@ -1193,6 +1193,49 @@ def cmd_rate_limit_status(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_rate_limit_member_set(args: argparse.Namespace) -> int:
+    """Map a user or agent (client_id) to rate-limit group(s)."""
+    try:
+        client = _create_client(args)
+        groups = [g.strip() for g in args.groups.split(",") if g.strip()]
+        result = client.set_rate_limit_membership(
+            subject_type=args.subject_type,
+            subject=args.subject,
+            groups=groups,
+        )
+        logger.info(f"Set rate-limit membership {args.subject_type}:{args.subject}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to set rate-limit membership: {e}")
+        return 1
+
+
+def cmd_rate_limit_member_list(args: argparse.Namespace) -> int:
+    """List all rate-limit memberships."""
+    try:
+        client = _create_client(args)
+        result = client.list_rate_limit_memberships()
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to list rate-limit memberships: {e}")
+        return 1
+
+
+def cmd_rate_limit_member_delete(args: argparse.Namespace) -> int:
+    """Delete a rate-limit membership by id ('<subject_type>:<subject>')."""
+    try:
+        client = _create_client(args)
+        result = client.delete_rate_limit_membership(args.id)
+        logger.info(f"Deleted rate-limit membership {args.id}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to delete rate-limit membership: {e}")
+        return 1
+
+
 def cmd_add_to_groups(args: argparse.Namespace) -> int:
     """
     Add server to user groups.
@@ -6166,6 +6209,36 @@ Examples:
     )
     rate_limit_status_parser.add_argument("--name", help="Target name")
 
+    # Rate-limit membership commands: map a user/agent to rate-limit group(s).
+    rate_limit_member_set_parser = subparsers.add_parser(
+        "rate-limit-member-set",
+        help="Map a user or agent (client_id) to rate-limit group(s) (admin)",
+    )
+    rate_limit_member_set_parser.add_argument(
+        "--subject-type",
+        required=True,
+        choices=["user", "client"],
+        dest="subject_type",
+        help="'user' (subject = username) or 'client' (subject = client_id)",
+    )
+    rate_limit_member_set_parser.add_argument(
+        "--subject", required=True, help="The username or client_id"
+    )
+    rate_limit_member_set_parser.add_argument(
+        "--groups", required=True, help="Comma-separated rate-limit group names"
+    )
+
+    rate_limit_member_list_parser = subparsers.add_parser(
+        "rate-limit-member-list", help="List all rate-limit memberships (admin)"
+    )
+
+    rate_limit_member_delete_parser = subparsers.add_parser(
+        "rate-limit-member-delete", help="Delete a rate-limit membership by id (admin)"
+    )
+    rate_limit_member_delete_parser.add_argument(
+        "--id", required=True, help="Membership id, e.g. 'user:alice' or 'client:my-agent-id'"
+    )
+
     # Add to groups command
     add_groups_parser = subparsers.add_parser("add-to-groups", help="Add server to groups")
     add_groups_parser.add_argument("--server", required=True, help="Server name")
@@ -7527,6 +7600,9 @@ Examples:
         "rate-limit-enable": cmd_rate_limit_enable,
         "rate-limit-disable": cmd_rate_limit_disable,
         "rate-limit-status": cmd_rate_limit_status,
+        "rate-limit-member-set": cmd_rate_limit_member_set,
+        "rate-limit-member-list": cmd_rate_limit_member_list,
+        "rate-limit-member-delete": cmd_rate_limit_member_delete,
         "add-to-groups": cmd_add_to_groups,
         "remove-from-groups": cmd_remove_from_groups,
         "create-group": cmd_create_group,

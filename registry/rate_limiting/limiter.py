@@ -26,6 +26,7 @@ from ..observability.meters import (
 )
 from .backend import RateLimiterBackend
 from .definitions_repository import DefinitionsRepository
+from .memberships_repository import MembershipsRepository
 from .models import AXIS_ABBREVIATION, RateLimitDecision, RateLimitDefinition
 
 # Configure logging with basicConfig
@@ -86,11 +87,13 @@ class RateLimiter:
         self,
         backend: RateLimiterBackend,
         definitions: DefinitionsRepository,
+        memberships: "MembershipsRepository",
         fail_open: bool = True,
         backend_timeout_seconds: float = DEFAULT_BACKEND_TIMEOUT_SECONDS,
     ) -> None:
         self._backend = backend
         self._definitions = definitions
+        self._memberships = memberships
         self._fail_open = fail_open
         self._backend_timeout_seconds = backend_timeout_seconds
 
@@ -101,12 +104,13 @@ class RateLimiter:
     ) -> list[_Gate]:
         """Build one caller gate per window, most-restrictive across the caller's groups.
 
+        ``groups`` are the caller's RATE-LIMIT groups, resolved from the memberships
+        collection (keyed by username/client_id) -- NOT the token's authz groups.
         Group limits are enforced per caller: the counter subject is the caller's
-        identity, so each caller gets their own quota under the group's limit. A
-        specific user or agent is subject to a group limit by being a MEMBER of that
-        group (its group shows up in the token via enrichment), not by naming the
-        user/client here.
+        identity, so each caller gets their own quota under the group's limit.
         """
+        if not groups:
+            return []
         group_defs = await self._definitions.list_caller_limits("group", groups)
         gates: list[_Gate] = []
         for defs_in_window in _by_window(group_defs).values():
@@ -131,20 +135,26 @@ class RateLimiter:
     async def check(
         self,
         *,
-        identity: str,
-        groups: list[str],
+        username: str | None,
+        client_id: str | None,
         target_entity_type: str | None = None,
         target_name: str | None = None,
     ) -> RateLimitDecision:
         """Enforce every applicable gate; return the first denial or an aggregate allow.
 
-        Caller gates cover the caller's group memberships (per-caller). Gates are
-        evaluated **sequentially, tightest-window-first**, short-circuiting on the first
-        denial so a request rejected by a burst gate never increments a wider volume gate
+        The caller's RATE-LIMIT groups are resolved internally from the memberships
+        collection keyed by ``username`` / ``client_id`` -- the token's authz groups
+        claim is intentionally NOT consulted (no IdP emits rate-limit groups, and
+        mixing them into authz groups could change scopes). Gates are evaluated
+        **sequentially, tightest-window-first**, short-circuiting on the first denial
+        so a request rejected by a burst gate never increments a wider volume gate
         (deny-does-not-consume across windows).
 
-        ``identity`` and ``groups`` MUST come from the validated token, never a client header.
+        ``username`` and ``client_id`` MUST come from the validated token, never a header.
         """
+        # Per-caller counter subject: prefer client_id (agents), else username.
+        identity = client_id or username or ""
+        groups = await self._memberships.get_groups_for(username, client_id)
         caller_gates = await self._build_caller_gates(identity, groups)
         target_gates = await self._build_target_gates(target_entity_type, target_name)
         gates = caller_gates + target_gates

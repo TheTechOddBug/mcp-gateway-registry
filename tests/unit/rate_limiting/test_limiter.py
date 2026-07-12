@@ -90,6 +90,44 @@ class _FakeDefs:
         ]
 
 
+class _FakeMemberships:
+    """MembershipsRepository stand-in mapping username/client_id -> rate-limit groups."""
+
+    def __init__(
+        self,
+        by_user: dict[str, list[str]] | None = None,
+        by_client: dict[str, list[str]] | None = None,
+    ) -> None:
+        self._by_user = by_user or {}
+        self._by_client = by_client or {}
+
+    async def get_groups_for(self, username, client_id):
+        groups: list[str] = []
+        if username and username in self._by_user:
+            groups.extend(self._by_user[username])
+        if client_id and client_id in self._by_client:
+            groups.extend(self._by_client[client_id])
+        return groups
+
+
+def _make_limiter(
+    backend,
+    caller_defs=None,
+    target_defs=None,
+    memberships=None,
+    fail_open=True,
+    backend_timeout_seconds=0.25,
+):
+    """Build a RateLimiter with fake defs + memberships (keeps tests concise)."""
+    return RateLimiter(
+        backend,
+        _FakeDefs(caller_defs or [], target_defs or []),
+        memberships or _FakeMemberships(),
+        fail_open=fail_open,
+        backend_timeout_seconds=backend_timeout_seconds,
+    )
+
+
 async def _count_allowed(
     limiter: RateLimiter,
     times: int,
@@ -115,42 +153,64 @@ def _caller(name, max_requests, window_seconds):
 
 
 class TestRateLimiter:
-    """Behavioral tests for gate orchestration."""
+    """Behavioral tests for gate orchestration.
+
+    A caller's rate-limit groups come from the memberships stub (keyed by
+    username), never from the token, mirroring production.
+    """
 
     async def test_no_definitions_allows(self):
         """With no matching definitions, every call is allowed."""
-        limiter = RateLimiter(_FakeBackend(), _FakeDefs([], []), fail_open=True)
-        decision = await limiter.check(identity="u", groups=[])
+        limiter = _make_limiter(_FakeBackend())
+        decision = await limiter.check(username="u", client_id=None)
         assert decision.allowed is True
 
-    async def test_single_caller_gate_enforced(self):
-        """A single caller gate allows exactly max_requests then denies."""
+    async def test_membership_group_gate_enforced(self):
+        """A caller in a rate-limited group (via memberships) is limited; the token is not consulted."""
         backend = _FakeBackend()
-        limiter = RateLimiter(backend, _FakeDefs([_caller("dev", 5, 60)], []), fail_open=True)
-        allowed = await _count_allowed(limiter, 8, identity="alice", groups=["dev"])
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("dev", 5, 60)],
+            memberships=_FakeMemberships(by_user={"alice": ["dev"]}),
+        )
+        allowed = await _count_allowed(limiter, 8, username="alice", client_id=None)
         assert allowed == 5
+        # A user with no membership is unlimited (no group resolved).
+        other = await _count_allowed(limiter, 4, username="bob", client_id=None)
+        assert other == 4
+
+    async def test_client_membership_resolves_groups(self):
+        """An agent's rate-limit group resolves from its client_id membership."""
+        backend = _FakeBackend()
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("agents", 3, 60)],
+            memberships=_FakeMemberships(by_client={"agent-1": ["agents"]}),
+        )
+        allowed = await _count_allowed(limiter, 6, username=None, client_id="agent-1")
+        assert allowed == 3
 
     async def test_burst_denial_does_not_consume_daily_cap(self):
-        """BLOCKER-1 regression: requests rejected by the burst gate must NOT advance the daily gate.
-
-        Caller has 5/min and 20/day. Drive 30 rapid calls: 5 succeed (burst), and the daily
-        counter must read 5, not 30.
-        """
+        """BLOCKER-1 regression: a burst-denied request must NOT advance the daily gate."""
         backend = _FakeBackend()
-        caller_defs = [_caller("dev", 5, 60), _caller("dev", 20, 86400)]
-        limiter = RateLimiter(backend, _FakeDefs(caller_defs, []), fail_open=True)
-
-        allowed = await _count_allowed(limiter, 30, identity="alice", groups=["dev"])
-
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("dev", 5, 60), _caller("dev", 20, 86400)],
+            memberships=_FakeMemberships(by_user={"alice": ["dev"]}),
+        )
+        allowed = await _count_allowed(limiter, 30, username="alice", client_id=None)
         assert allowed == 5
         assert backend.counts.get("clr:group:alice:86400") == 5
 
     async def test_most_restrictive_wins_within_same_window(self):
         """Among a caller's groups sharing a window, the smallest max_requests governs."""
         backend = _FakeBackend()
-        caller_defs = [_caller("g1", 100, 60), _caller("g2", 3, 60)]
-        limiter = RateLimiter(backend, _FakeDefs(caller_defs, []), fail_open=True)
-        allowed = await _count_allowed(limiter, 10, identity="bob", groups=["g1", "g2"])
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("g1", 100, 60), _caller("g2", 3, 60)],
+            memberships=_FakeMemberships(by_user={"bob": ["g1", "g2"]}),
+        )
+        allowed = await _count_allowed(limiter, 10, username="bob", client_id=None)
         assert allowed == 3
 
     async def test_target_gate_counts_across_callers(self):
@@ -165,12 +225,12 @@ class TestRateLimiter:
                 window_seconds=60,
             )
         ]
-        limiter = RateLimiter(backend, _FakeDefs([], target_defs), fail_open=True)
+        limiter = _make_limiter(backend, target_defs=target_defs)
         allowed = await _count_allowed(
             limiter,
             5,
-            identity="anyone",
-            groups=[],
+            username="anyone",
+            client_id=None,
             target_entity_type="a2a_agent",
             target_name="booking",
         )
@@ -180,7 +240,6 @@ class TestRateLimiter:
     async def test_caller_and_target_gates_stack(self):
         """When both a caller and a target gate apply, the tighter one governs."""
         backend = _FakeBackend()
-        caller_defs = [_caller("dev", 10, 60)]
         target_defs = [
             RateLimitDefinition(
                 axis="target",
@@ -190,12 +249,17 @@ class TestRateLimiter:
                 window_seconds=60,
             )
         ]
-        limiter = RateLimiter(backend, _FakeDefs(caller_defs, target_defs), fail_open=True)
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("dev", 10, 60)],
+            target_defs=target_defs,
+            memberships=_FakeMemberships(by_user={"alice": ["dev"]}),
+        )
         allowed = await _count_allowed(
             limiter,
             8,
-            identity="alice",
-            groups=["dev"],
+            username="alice",
+            client_id=None,
             target_entity_type="mcp_server",
             target_name="mcpgw",
         )
@@ -203,21 +267,26 @@ class TestRateLimiter:
 
     async def test_deny_decision_has_retry_after(self):
         """A denied call returns 429-shaped info with a positive Retry-After."""
-        limiter = RateLimiter(
-            _FakeBackend(), _FakeDefs([_caller("dev", 1, 60)], []), fail_open=True
+        limiter = _make_limiter(
+            _FakeBackend(),
+            caller_defs=[_caller("dev", 1, 60)],
+            memberships=_FakeMemberships(by_user={"alice": ["dev"]}),
         )
-        await limiter.check(identity="alice", groups=["dev"])  # consume the 1 allowed
-        decision = await limiter.check(identity="alice", groups=["dev"])
+        await limiter.check(username="alice", client_id=None)  # consume the 1 allowed
+        decision = await limiter.check(username="alice", client_id=None)
         assert decision.allowed is False
         assert decision.limit == 1
         assert int(decision.headers()["Retry-After"]) >= 1
 
     async def test_fail_open_allows_on_backend_error(self):
         """With fail_open, a backend error results in allow (availability guardrail)."""
-        limiter = RateLimiter(
-            _BoomBackend(), _FakeDefs([_caller("dev", 5, 60)], []), fail_open=True
+        limiter = _make_limiter(
+            _BoomBackend(),
+            caller_defs=[_caller("dev", 5, 60)],
+            memberships=_FakeMemberships(by_user={"x": ["dev"]}),
+            fail_open=True,
         )
-        decision = await limiter.check(identity="x", groups=["dev"])
+        decision = await limiter.check(username="x", client_id=None)
         assert decision.allowed is True
 
     async def test_fail_closed_definition_denies_on_backend_error(self):
@@ -230,27 +299,36 @@ class TestRateLimiter:
             window_seconds=60,
             fail_closed=True,
         )
-        limiter = RateLimiter(_BoomBackend(), _FakeDefs([fc], []), fail_open=True)
-        decision = await limiter.check(identity="x", groups=["dev"])
+        limiter = _make_limiter(
+            _BoomBackend(),
+            caller_defs=[fc],
+            memberships=_FakeMemberships(by_user={"x": ["dev"]}),
+            fail_open=True,
+        )
+        decision = await limiter.check(username="x", client_id=None)
         assert decision.allowed is False
 
     async def test_global_fail_open_false_denies_on_error(self):
         """With fail_open=False globally, a backend error denies even without fail_closed."""
-        limiter = RateLimiter(
-            _BoomBackend(), _FakeDefs([_caller("dev", 5, 60)], []), fail_open=False
+        limiter = _make_limiter(
+            _BoomBackend(),
+            caller_defs=[_caller("dev", 5, 60)],
+            memberships=_FakeMemberships(by_user={"x": ["dev"]}),
+            fail_open=False,
         )
-        decision = await limiter.check(identity="x", groups=["dev"])
+        decision = await limiter.check(username="x", client_id=None)
         assert decision.allowed is False
 
     async def test_slow_backend_times_out_and_fails_open(self):
         """A backend slower than the timeout is treated as an error and fails open fast."""
-        limiter = RateLimiter(
+        limiter = _make_limiter(
             _SlowBackend(delay_seconds=1.0),
-            _FakeDefs([_caller("dev", 5, 60)], []),
+            caller_defs=[_caller("dev", 5, 60)],
+            memberships=_FakeMemberships(by_user={"x": ["dev"]}),
             fail_open=True,
             backend_timeout_seconds=0.05,
         )
-        decision = await limiter.check(identity="x", groups=["dev"])
+        decision = await limiter.check(username="x", client_id=None)
         assert decision.allowed is True
 
     async def test_slow_backend_times_out_and_fails_closed_when_configured(self):
@@ -263,11 +341,12 @@ class TestRateLimiter:
             window_seconds=60,
             fail_closed=True,
         )
-        limiter = RateLimiter(
+        limiter = _make_limiter(
             _SlowBackend(delay_seconds=1.0),
-            _FakeDefs([fc], []),
+            caller_defs=[fc],
+            memberships=_FakeMemberships(by_user={"x": ["dev"]}),
             fail_open=True,
             backend_timeout_seconds=0.05,
         )
-        decision = await limiter.check(identity="x", groups=["dev"])
+        decision = await limiter.check(username="x", client_id=None)
         assert decision.allowed is False

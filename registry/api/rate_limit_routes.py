@@ -17,9 +17,11 @@ from pydantic import BaseModel, ValidationError
 from registry.audit.context import set_audit_action
 from registry.auth.dependencies import nginx_proxied_auth
 from registry.rate_limiting.definitions_repository import DefinitionsRepository
+from registry.rate_limiting.memberships_repository import MembershipsRepository
 from registry.rate_limiting.models import (
     UNENFORCED_ENTITY_TYPES,
     RateLimitDefinition,
+    RateLimitMembership,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ def _parse_definition(
 
 
 _repository: DefinitionsRepository | None = None
+_memberships_repository: MembershipsRepository | None = None
 
 
 def _get_repository() -> DefinitionsRepository:
@@ -78,6 +81,26 @@ def _get_repository() -> DefinitionsRepository:
     if _repository is None:
         _repository = DefinitionsRepository()
     return _repository
+
+
+def _get_memberships_repository() -> MembershipsRepository:
+    """Return a shared MembershipsRepository singleton for the registry process."""
+    global _memberships_repository
+    if _memberships_repository is None:
+        _memberships_repository = MembershipsRepository()
+    return _memberships_repository
+
+
+def _parse_membership(
+    body: dict,
+) -> RateLimitMembership:
+    """Parse a request body into a RateLimitMembership or raise 400."""
+    try:
+        return RateLimitMembership(**body)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid rate-limit membership: {exc}"
+        ) from exc
 
 
 class _DeleteResponse(BaseModel):
@@ -207,3 +230,84 @@ async def rate_limit_status(
         target_defs = await repository.list_target_limits(entity_type, name)
         result["target"] = [d.model_dump() for d in target_defs]
     return result
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit MEMBERSHIPS: which caller (user/client) belongs to which rate-limit
+# group. This is the ONLY source of a caller's rate-limit groups (no IdP emits
+# them; kept separate from authz groups). Admin-only, mirroring the definitions.
+# ---------------------------------------------------------------------------
+
+_MEMBERSHIP_RESOURCE_TYPE: str = "rate_limit_membership"
+
+
+@router.get("/rate-limit-memberships")
+async def list_rate_limit_memberships(
+    request: Request,
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> dict:
+    """List all rate-limit memberships (admin only)."""
+    _require_admin(user_context)
+    set_audit_action(request, "list", _MEMBERSHIP_RESOURCE_TYPE)
+    memberships = await _get_memberships_repository().list_all()
+    return {"memberships": [m.model_dump() for m in memberships]}
+
+
+@router.get("/rate-limit-memberships/{membership_id:path}")
+async def get_rate_limit_membership(
+    membership_id: str,
+    request: Request,
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> dict:
+    """Read a single membership by id ('<subject_type>:<subject>'); 404 if absent (admin only)."""
+    _require_admin(user_context)
+    set_audit_action(request, "read", _MEMBERSHIP_RESOURCE_TYPE, resource_id=membership_id)
+    membership = await _get_memberships_repository().get_by_id(membership_id)
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    return membership.model_dump()
+
+
+@router.put("/rate-limit-memberships/{membership_id:path}")
+async def put_rate_limit_membership(
+    membership_id: str,
+    body: dict,
+    request: Request,
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> dict:
+    """Create or update a membership (admin only).
+
+    The ``_id`` is derived from the body (``<subject_type>:<subject>``); the URL id
+    must match it exactly (a colon-bearing subject is never parsed out of the URL).
+    """
+    _require_admin(user_context)
+    set_audit_action(request, "update", _MEMBERSHIP_RESOURCE_TYPE, resource_id=membership_id)
+    membership = _parse_membership(body)
+
+    built_id = membership.build_id()
+    if built_id != membership_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"URL id '{membership_id}' does not match the membership "
+                f"'{built_id}' derived from the body"
+            ),
+        )
+
+    stored = await _get_memberships_repository().upsert(membership)
+    return stored.model_dump()
+
+
+@router.delete("/rate-limit-memberships/{membership_id:path}")
+async def delete_rate_limit_membership(
+    membership_id: str,
+    request: Request,
+    user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+) -> _DeleteResponse:
+    """Delete a membership by id (admin only)."""
+    _require_admin(user_context)
+    set_audit_action(request, "delete", _MEMBERSHIP_RESOURCE_TYPE, resource_id=membership_id)
+    deleted = await _get_memberships_repository().delete(membership_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    return _DeleteResponse(deleted=True)

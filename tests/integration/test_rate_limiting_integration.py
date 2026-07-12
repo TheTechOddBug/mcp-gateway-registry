@@ -70,8 +70,7 @@ class TestConditionalIncrement:
 class _FixedGroupDefs:
     """Definitions stub returning fixed caller defs (isolates the DB test from the definitions collection).
 
-    Filters by entity_type and name like the real repo, so the group query does
-    not leak into the user/client queries the limiter now also issues.
+    Filters by entity_type and name like the real repo.
     """
 
     def __init__(self, caller_defs):
@@ -86,24 +85,35 @@ class _FixedGroupDefs:
         return []
 
 
+class _FixedMemberships:
+    """Memberships stub mapping a username to fixed rate-limit groups."""
+
+    def __init__(self, by_user):
+        self._by_user = by_user
+
+    async def get_groups_for(self, username, client_id):
+        return list(self._by_user.get(username, []))
+
+
 class TestCrossReplicaCorrectness:
     """Two limiter instances sharing one store must jointly enforce a single N."""
 
     async def test_two_instances_share_one_limit(self, backend):
-        identity = f"it-{uuid.uuid4().hex}"
+        username = f"it-{uuid.uuid4().hex}"
         caller_defs = [
             RateLimitDefinition(
                 axis="caller", entity_type="group", name="devs", max_requests=10, window_seconds=60
             )
         ]
+        memberships = _FixedMemberships({username: ["devs"]})
         # Two limiters, same backend collection = two replicas.
-        lim_a = RateLimiter(backend, _FixedGroupDefs(caller_defs), fail_open=True)
-        lim_b = RateLimiter(backend, _FixedGroupDefs(caller_defs), fail_open=True)
+        lim_a = RateLimiter(backend, _FixedGroupDefs(caller_defs), memberships, fail_open=True)
+        lim_b = RateLimiter(backend, _FixedGroupDefs(caller_defs), memberships, fail_open=True)
 
         allowed = 0
         for i in range(20):
             limiter = lim_a if i % 2 else lim_b
-            decision = await limiter.check(identity=identity, groups=["devs"])
+            decision = await limiter.check(username=username, client_id=None)
             if decision.allowed:
                 allowed += 1
 
@@ -115,7 +125,7 @@ class TestDenyDoesNotConsumeThroughRealBackend:
     """The Blocker-1 property, verified end-to-end against the real store."""
 
     async def test_burst_denial_does_not_consume_daily_counter(self, backend):
-        identity = f"it-{uuid.uuid4().hex}"
+        username = f"it-{uuid.uuid4().hex}"
         caller_defs = [
             RateLimitDefinition(
                 axis="caller", entity_type="group", name="devs", max_requests=5, window_seconds=60
@@ -128,17 +138,22 @@ class TestDenyDoesNotConsumeThroughRealBackend:
                 window_seconds=86400,
             ),
         ]
-        limiter = RateLimiter(backend, _FixedGroupDefs(caller_defs), fail_open=True)
+        limiter = RateLimiter(
+            backend,
+            _FixedGroupDefs(caller_defs),
+            _FixedMemberships({username: ["devs"]}),
+            fail_open=True,
+        )
 
         allowed = 0
         for _ in range(30):
-            decision = await limiter.check(identity=identity, groups=["devs"])
+            decision = await limiter.check(username=username, client_id=None)
             if decision.allowed:
                 allowed += 1
 
         assert allowed == 5
         # The daily counter must read 5 (the allowed requests), NOT 30.
-        daily_key = f"clr:group:{identity}:86400"
+        daily_key = f"clr:group:{username}:86400"
         assert await backend.get(daily_key, 86400) == 5
 
 

@@ -79,9 +79,9 @@ Three design commitments shape everything else:
 
 A limit applies to one of two **axes**:
 
-- **Caller axis (Limit A):** a caller (a user or agent), across *all* targets, may not exceed N requests per window. Limits target a **group** (name = group), and the N comes from the caller's group memberships resolved from the validated token. Enforced **per caller** (each caller gets their own quota under the group's limit). If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
+- **Caller axis (Limit A):** a caller (a user or agent), across *all* targets, may not exceed N requests per window. Limits target a **group** (name = group). Enforced **per caller** (each caller gets their own quota under the group's limit). If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
 
-  A **specific user or agent** is rate-limited by being made a **member of a rate-limited group**, not by naming the user/client in a definition. Membership is managed through the IAM group APIs (`idp_user_groups` for users, `idp_m2m_clients` for agents) and surfaces in the token via group enrichment at `/validate`. This reuses the existing group/RBAC machinery instead of introducing a parallel per-identity limit dimension.
+  **Group resolution is decoupled from the token's authz groups.** No IdP emits rate-limit groups, and reusing the token's `groups` claim would be wrong (adding a rate-limit group could change the caller's scopes, since authz groups map to scopes). Instead, a caller's rate-limit groups come **solely** from a dedicated `rate_limit_memberships` collection, keyed by the caller's **username** and/or **client_id** taken from the validated token. A **specific user or agent** is rate-limited by adding a membership mapping it to a rate-limited group. The token's `groups` claim is never consulted by the limiter.
 - **Target axis (Limit B):** a target *entity*, across *all* callers combined, may not exceed N requests per window. Only enforced for targets that define a limit. This protects a weak backend from combined load.
 
 The target axis is **entity-type-generic**. v1 enforces two target kinds:
@@ -226,6 +226,13 @@ Limit **definitions** are managed at runtime, not through env vars. All endpoint
 - `DELETE /api/rate-limits/{id}` — delete.
 - `GET /api/rate-limits-status?identity=&entity_type=&name=` — introspect matching definitions.
 
+Memberships (which caller belongs to which rate-limit group; id = `<subject_type>:<subject>`):
+
+- `GET /api/rate-limit-memberships` — list all memberships.
+- `GET /api/rate-limit-memberships/{id}` — read one (404 if absent).
+- `PUT /api/rate-limit-memberships/{id}` — create/update (`_id` derived from body; URL must match).
+- `DELETE /api/rate-limit-memberships/{id}` — delete.
+
 A **read-only** view of the current definitions also appears on the **Settings → System Config** page (group "Rate Limit Definitions (read-only)"), fed live from `/api/config/full`. The UI is view-only by design; all mutations go through the API/CLI above.
 
 CLI equivalents:
@@ -248,27 +255,32 @@ uv run python registry_management.py rate-limit-enable --id caller:group:develop
 uv run python registry_management.py rate-limit-delete --id caller:group:developers:60
 ```
 
-To rate-limit a **specific user or agent**, create a group limit and add the user
-or agent to that group (the membership surfaces in the token via group enrichment
-at `/validate`):
+To rate-limit a **specific user or agent**, define a group limit and add a
+**rate-limit membership** mapping that user/agent to the group. Memberships live
+in the `rate_limit_memberships` collection (separate from authz groups) and are
+managed with the `rate-limit-member-*` commands / `/api/rate-limit-memberships`:
 
 ```bash
 # 1. Define the group's limit
 uv run python registry_management.py rate-limit-set \
   --axis caller --entity-type group --name rate-limited-testers --max-requests 3 --window-seconds 60
 
-# 2a. Add a USER to the group (idp_user_groups)
-curl -X POST "$REGISTRY_URL/api/iam/user-groups" \
-  -H "X-Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"username": "alice", "groups": ["rate-limited-testers"]}'
+# 2a. Map a USER (by username) to that rate-limit group
+uv run python registry_management.py rate-limit-member-set \
+  --subject-type user --subject alice --groups rate-limited-testers
 
-# 2b. ...or add an AGENT / client_id to the group (idp_m2m_clients)
-curl -X POST "$REGISTRY_URL/api/iam/m2m-clients" \
-  -H "X-Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"client_id": "my-agent-client-id", "groups": ["rate-limited-testers"]}'
+# 2b. ...or map an AGENT (by client_id) to that group
+uv run python registry_management.py rate-limit-member-set \
+  --subject-type client --subject my-agent-client-id --groups rate-limited-testers
 
-# 3. Re-authenticate so the new group appears in the token, then calls are limited.
+# Inspect / remove memberships
+uv run python registry_management.py rate-limit-member-list
+uv run python registry_management.py rate-limit-member-delete --id user:alice
 ```
+
+The membership is keyed on the username / client_id the auth-server reads from the
+validated token, so it takes effect on the caller's next request. No IdP change or
+re-authentication is required (the token's `groups` claim is not involved).
 
 ## Where the Code Lives
 
@@ -278,6 +290,7 @@ curl -X POST "$REGISTRY_URL/api/iam/m2m-clients" \
 | `registry/rate_limiting/backend.py` | `RateLimiterBackend` ABC + `IncrResult` (the `incr_if_allowed` contract) |
 | `registry/rate_limiting/documentdb_backend.py` | Fixed-window conditional-`$inc` counters, TTL index, latency histogram |
 | `registry/rate_limiting/definitions_repository.py` | Cached CRUD over `mcp_rate_limits` |
+| `registry/rate_limiting/memberships_repository.py` | Cached CRUD over `rate_limit_memberships` + `get_groups_for(username, client_id)` |
 | `registry/rate_limiting/limiter.py` | `RateLimiter.check()` — gate building, sequential enforcement |
 | `registry/api/rate_limit_routes.py` | Admin CRUD + status API |
 | `auth_server/rate_limiting_config.py` | Env-var constants + the `RateLimiter` singleton |

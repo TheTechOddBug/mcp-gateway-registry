@@ -1263,21 +1263,22 @@ async def _enforce_rate_limit(
     if not RATE_LIMITING_ENABLED:
         return
 
-    # Identity from the validated token only, never a client header. Used as the
-    # per-caller counter subject for the caller's group limits. A specific user or
-    # agent is limited by being a member of a rate-limited group (its group appears
-    # in validation_result["groups"] via enrichment).
-    identity = validation_result.get("client_id") or validation_result.get("username")
-    if not identity:
+    # Username / client_id from the validated token only, never a client header.
+    # The limiter resolves the caller's RATE-LIMIT groups from the memberships
+    # collection keyed on these; the token's authz "groups" claim is deliberately
+    # NOT passed here (no IdP emits rate-limit groups, and mixing them into authz
+    # groups could change scopes).
+    username = validation_result.get("username")
+    client_id = validation_result.get("client_id")
+    if not username and not client_id:
         return
 
-    groups = validation_result.get("groups", []) or []
     target_entity_type, target_name = _classify_rate_limit_target(original_url, server_name)
 
     try:
         decision = await get_rate_limiter().check(
-            identity=identity,
-            groups=groups,
+            username=username,
+            client_id=client_id,
             target_entity_type=target_entity_type,
             target_name=target_name,
         )

@@ -1707,7 +1707,7 @@ class RegistryClient:
             or endpoint.startswith("/api/custom-types")
             or endpoint.startswith("/api/custom")
             or endpoint.startswith("/api/admin")
-            or endpoint.startswith("/api/rate-limits")
+            or endpoint.startswith("/api/rate-limit")
             or endpoint.startswith("/api/v1/registry")
             or endpoint.startswith("/api/v1/health")
             or endpoint == "/api/servers/groups/import"
@@ -2229,6 +2229,56 @@ class RegistryClient:
             method="GET",
             endpoint="/api/rate-limits-status",
             params=params,
+        )
+        return response.json()
+
+    def list_rate_limit_memberships(self) -> dict[str, Any]:
+        """List all rate-limit memberships (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails.
+        """
+        logger.info("Listing rate-limit memberships")
+        response = self._make_request(method="GET", endpoint="/api/rate-limit-memberships")
+        return response.json()
+
+    def set_rate_limit_membership(
+        self,
+        subject_type: str,
+        subject: str,
+        groups: list[str],
+    ) -> dict[str, Any]:
+        """Create or update a rate-limit membership (admin only).
+
+        Maps a user (subject_type='user', subject=username) or an agent
+        (subject_type='client', subject=client_id) to rate-limit group name(s).
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 400 invalid membership).
+        """
+        membership_id = f"{subject_type}:{subject}"
+        body = {"subject_type": subject_type, "subject": subject, "groups": groups}
+        logger.info(f"Setting rate-limit membership {membership_id} -> {groups}")
+        response = self._make_request(
+            method="PUT",
+            endpoint=f"/api/rate-limit-memberships/{membership_id}",
+            data=body,
+        )
+        return response.json()
+
+    def delete_rate_limit_membership(
+        self,
+        membership_id: str,
+    ) -> dict[str, Any]:
+        """Delete a rate-limit membership by id (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 404 not found).
+        """
+        logger.info(f"Deleting rate-limit membership {membership_id}")
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/rate-limit-memberships/{membership_id}",
         )
         return response.json()
 

@@ -115,6 +115,50 @@ class RateLimitDefinition(BaseModel):
         return f"{self.axis}:{self.entity_type}:{self.name}:{self.window_seconds}"
 
 
+# Subject kinds for a rate-limit membership: a human user (by username) or an
+# agent / M2M client (by client_id). Rejected if outside this set (fail closed).
+MEMBERSHIP_SUBJECT_TYPES: frozenset[str] = frozenset({"user", "client"})
+
+
+class RateLimitMembership(BaseModel):
+    """Maps a caller (a user or an agent/client) to rate-limit group name(s).
+
+    This is deliberately SEPARATE from the token's authz groups: no IdP emits
+    rate-limit groups, and mixing them into the authz groups list could change a
+    caller's scopes. The limiter reads *only* this collection to resolve which
+    rate-limit ``group`` definitions apply to a caller; it never affects
+    authorization.
+    """
+
+    subject_type: str = Field(
+        ...,
+        description="'user' (name = username) or 'client' (name = client_id / azp)",
+    )
+    subject: str = Field(
+        ...,
+        min_length=1,
+        description="The username or client_id this membership applies to",
+    )
+    groups: list[str] = Field(
+        default_factory=list,
+        description="Rate-limit group names this subject belongs to",
+    )
+
+    @model_validator(mode="after")
+    def _check_subject_type(self) -> "RateLimitMembership":
+        """Reject a subject_type outside the allowlist (fail closed)."""
+        if self.subject_type not in MEMBERSHIP_SUBJECT_TYPES:
+            raise ValueError(
+                f"subject_type must be one of {sorted(MEMBERSHIP_SUBJECT_TYPES)}, "
+                f"got '{self.subject_type}'"
+            )
+        return self
+
+    def build_id(self) -> str:
+        """Build the membership document ``_id``: '<subject_type>:<subject>'."""
+        return f"{self.subject_type}:{self.subject}"
+
+
 class RateLimitDecision(BaseModel):
     """The result of enforcing a single gate (or the aggregate allow).
 
