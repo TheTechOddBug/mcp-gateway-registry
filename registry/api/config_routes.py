@@ -433,6 +433,17 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("ssrf_allowed_cidrs", "SSRF Allowed CIDRs", False),
         ],
     },
+    "rate_limiting": {
+        "title": "Rate Limiting",
+        "order": 27,
+        "fields": [
+            ("rate_limiting_enabled", "Enabled", False),
+            ("rate_limit_backend", "Counter Backend", False),
+            ("rate_limit_fail_open", "Fail Open on Backend Error", False),
+            ("rate_limit_definitions_cache_ttl_seconds", "Definitions Cache TTL (seconds)", False),
+            ("rate_limit_backend_timeout_ms", "Backend Op Timeout (ms)", False),
+        ],
+    },
 }
 
 

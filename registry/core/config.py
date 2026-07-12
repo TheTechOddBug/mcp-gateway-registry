@@ -1451,6 +1451,33 @@ class Settings(BaseSettings):
     # DocumentDB Namespace (for multi-tenancy support)
     documentdb_namespace: str = "default"
 
+    # Rate limiting (issue #295). Application-level, identity/group/target-aware
+    # limits enforced at the auth-server /validate hop. Mirrored here for the
+    # registry-side admin API and the System Config page. Enforcement itself
+    # reads these from the auth-server module-level constants.
+    rate_limiting_enabled: bool = Field(
+        default=False,
+        description="Master switch for application-level rate limiting.",
+    )
+    rate_limit_backend: str = Field(
+        default="documentdb",
+        description="Rate-limit counter backend (only 'documentdb' is implemented in v1).",
+    )
+    rate_limit_fail_open: bool = Field(
+        default=True,
+        description="Global fail-open on rate-limit backend error (per-limit fail_closed overrides).",
+    )
+    rate_limit_definitions_cache_ttl_seconds: int = Field(
+        default=30,
+        ge=1,
+        description="In-process cache TTL (seconds) for rate-limit definition reads.",
+    )
+    rate_limit_backend_timeout_ms: int = Field(
+        default=250,
+        ge=1,
+        description="Hard per-op timeout (ms) for each rate-limit counter operation.",
+    )
+
     # Agent batch API (issue #956)
     batch_max_operations_per_job: int = Field(
         default=1000,

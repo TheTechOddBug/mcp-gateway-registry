@@ -1,0 +1,261 @@
+# Rate Limiting: Design and Implementation Guide
+
+This document describes the application-level rate limiting in the MCP Gateway Registry (issue #295): what it does, how it is designed at a high level, and how it is implemented down to the data model, the enforcement path, and the failure modes. It is written to be read by an engineer who needs to operate, extend, or debug the feature.
+
+## Table of Contents
+
+1. [What This Is (and Is Not)](#what-this-is-and-is-not)
+2. [Two Layers of Rate Limiting](#two-layers-of-rate-limiting)
+3. [High-Level Design](#high-level-design)
+4. [The Two Axes and Windows](#the-two-axes-and-windows)
+5. [Data Model](#data-model)
+6. [The Enforcement Path](#the-enforcement-path)
+7. [Correctness Across Replicas](#correctness-across-replicas)
+8. [Failure Modes](#failure-modes)
+9. [Latency](#latency)
+10. [Observability](#observability)
+11. [Configuration](#configuration)
+12. [Managing Limits (Admin API and CLI)](#managing-limits-admin-api-and-cli)
+13. [Where the Code Lives](#where-the-code-lives)
+14. [Extending It](#extending-it)
+
+---
+
+## What This Is (and Is Not)
+
+MCP tool calls and A2A agent calls pass through the gateway with authentication and authorization, but historically there was no cap on **how often** an authenticated caller could invoke them. A single user or agent could call a tool thousands of times a minute and overwhelm a backend MCP server, exhaust a downstream API quota, or run up cost.
+
+This feature adds **application-level, identity/group/target-aware** rate limiting: limits that are expressed in terms of *who* is calling (a user or agent, via their groups) and *what* they are calling (a specific MCP server or A2A agent), enforced at the one hop every call already crosses.
+
+It is **not** a volumetric DoS control. That job belongs to the coarse per-IP limiting at the nginx edge (see the next section). The two are complementary layers.
+
+## Two Layers of Rate Limiting
+
+The gateway has two independent rate-limiting layers that solve different problems:
+
+| | nginx edge limiting | Application-level limiting (this doc) |
+|---|---|---|
+| **Where** | nginx, at the inbound edge | auth-server `/validate` hop |
+| **Keyed on** | Source IP | Identity (user/client) and target entity (server/agent), via groups |
+| **Sees** | Raw connection only | The authenticated user, their groups, the target server/agent |
+| **Protects against** | Volumetric floods (DoS) | Per-caller / per-target quota abuse, backend overload, cost |
+| **Algorithm** | `limit_req` (leaky bucket) + `limit_conn` | Fixed-window counters |
+| **State** | nginx shared memory (per node) | DocumentDB counters (shared across replicas) |
+| **Failure mode** | Fails closed (429 when zone full) | Fails open (availability guardrail) |
+
+nginx structurally cannot do the application-level job: at the edge it has not yet authenticated the caller, so it cannot see the user, their groups, or the target server. Conversely, the application layer should not try to absorb a raw volumetric flood, because by the time a request reaches `/validate` it has already consumed nginx worker and auth resources. Each layer does what only it can.
+
+This document covers **only the application-level layer**. The nginx edge limiting is configured in the nginx templates and the `trusted_real_ip_cidrs` Terraform variable.
+
+## High-Level Design
+
+```
+                         (nginx auth_request subrequest)
+ MCP/A2A client ─ call ─►  nginx  ──► /validate (auth-server, async)
+                                        │
+                         1. resolve identity + groups + target (existing)
+                         2. authorize (existing; fails closed)
+                         3. RATE LIMIT (new): every applicable gate must pass
+                            ├─ caller gates:  (identity, per window)
+                            └─ target gates:  (entity_type:name, per window)  [if defined]
+                               │
+                               ▼
+                         RateLimiter ──► RateLimiterBackend (interface)
+                               │              ├─ DocumentDBBackend  (v1)
+                               │              └─ RedisBackend       (future)
+                               ▼
+                         allow → 200 (existing)   |   deny → 429 (+ RateLimit headers)
+```
+
+Enforcement lives in the auth-server `/validate` endpoint, **after** authorization and immediately before the success response is built. It is gated by `RATE_LIMITING_ENABLED` (default `false`), so an existing deployment sees no behavior change until an operator opts in.
+
+Three design commitments shape everything else:
+
+- **No new required infrastructure.** Counters live in the DocumentDB/MongoDB the gateway already runs. A `RateLimiterBackend` interface leaves room for a Redis backend later without touching the enforcement logic.
+- **Correct when horizontally scaled.** The auth-server and registry can run as multiple replicas; the counters are shared state with atomic increments, so N replicas enforce a single limit, not N times the limit.
+- **Availability first.** Rate limiting sits on the critical path of every call. If the counter store is unreachable, the default is to allow (fail open) and log loudly, rather than convert a limiter blip into a full gateway outage. Authorization continues to fail closed independently.
+
+## The Two Axes and Windows
+
+A limit applies to one of two **axes**:
+
+- **Caller axis (Limit A):** a caller (a user or agent), across *all* targets, may not exceed N requests per window. The N comes from the caller's **group(s)**. If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
+- **Target axis (Limit B):** a target *entity*, across *all* callers combined, may not exceed N requests per window. Only enforced for targets that define a limit. This protects a weak backend from combined load.
+
+The target axis is **entity-type-generic**. v1 enforces two target kinds:
+
+- `mcp_server` — an MCP server (name = the server path, e.g. `mcpgw`)
+- `a2a_agent` — an A2A agent (name = the agent path, e.g. `/booking-agent`)
+
+The model also reserves `mcp_tool` and `a2a_skill` (name = `<parent>:<leaf>`) for a later phase; those require reading the JSON-RPC payload and are not enforced in v1 (the admin API rejects them with a clear message so an operator never gets a silently inert limit).
+
+**Windows and volume limits.** A window is any length from one second up to a full day (`window_seconds` ≤ 86400). A per-day volume cap ("no more than 5000 calls/day") is therefore the *same mechanism* as a per-second burst cap, just a longer window. A single subject may hold **several limits at different windows at once** — e.g. `100/min` *and* `5000/day`. Each window is enforced as its own independent gate, and all applicable gates must pass. Most-restrictive resolution applies only *within* the same window.
+
+## Data Model
+
+Two collections, both namespaced (`_<documentdb_namespace>`).
+
+### Definitions: `mcp_rate_limits`
+
+Each document is one `RateLimitDefinition`:
+
+```python
+class RateLimitDefinition(BaseModel):
+    axis: str            # "caller" | "target"
+    entity_type: str     # caller: "group"; target: "mcp_server" | "a2a_agent" | "mcp_tool" | "a2a_skill"
+    name: str            # group name, server path, or agent path
+    max_requests: int    # >= 1
+    window_seconds: int  # 1 .. 86400
+    fail_closed: bool    # deny on backend error (security-critical only); default false
+    enabled: bool        # toggle without deleting; default true
+```
+
+The document `_id` is `"<axis>:<entity_type>:<name>:<window_seconds>"` — for example `caller:group:developers:60` or `target:a2a_agent:booking-agent:60`. Putting the window in the `_id` is what lets a subject carry a burst limit and a daily limit as two separate documents.
+
+`axis` and `entity_type` are validated against per-axis allowlists; an unknown combination is rejected (fail closed).
+
+### Counters: `rate_limit_counters`
+
+Ephemeral, TTL-expiring documents. The `_id` encodes axis abbreviation, entity type, subject, window length, and the integer window index:
+
+```
+_id = "clr:group:alice@example.com:60:474320"     (a caller, 60s window)
+      "tgt:a2a_agent:booking-agent:86400:329"      (a target, daily window)
+count        = <int>          # atomically incremented
+window_start = <datetime>     # start of the fixed window
+expire_at    = <datetime>     # window_start + 2*window; TTL index target
+```
+
+Because the window index is part of the `_id`, correctness never depends on precise TTL expiry — an old window's document is simply never touched again, and the periodic TTL sweep reaps it. A TTL index on `expire_at` (`expireAfterSeconds=0`) does the cleanup.
+
+## The Enforcement Path
+
+On each `/validate` call, when `RATE_LIMITING_ENABLED`:
+
+1. **Identity** is taken from the validated token only — `client_id` (M2M/agent) if present, else `username`. It is **never** read from a client-supplied header. This is a hard security property: keying on a client-controlled value would let a caller split load across fabricated identities.
+2. **Target classification** maps the request to `(entity_type, name)`: an `/agent/...` path → `("a2a_agent", agent_path)`; otherwise a server path → `("mcp_server", server_name)`; neither → skip the target axis.
+3. **Gates are built.** Caller definitions (all windows for the caller's groups) are fetched in one cached query and grouped by window; within each window the most-restrictive wins. Target definitions (all windows for the classified entity) are fetched in one cached query. Each `(axis, window)` becomes a gate.
+4. **Gates are enforced sequentially, tightest-window-first**, stopping at the first denial.
+5. On denial, the auth-server raises `HTTPException(429)` with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `Connection: close`. The existing outer handler re-raises 4xx as-is, so the 429 flows through unchanged.
+
+### Why sequential, tightest-window-first
+
+This ordering is the crux of a subtle correctness property: **a request rejected by one gate must not consume any other gate's quota.** Consider a caller with `5/min` and `20/day`. Under a naive concurrent design (increment all counters, then check), a burst of rejected traffic would still advance the daily counter and could exhaust the daily budget in minutes — a self-inflicted lockout driven entirely by *rejected* requests.
+
+Two mechanisms together prevent this:
+
+- **The backend increments only when under the limit** (`incr_if_allowed`, described below). A denied gate performs no increment.
+- **Gates run tightest-window-first and short-circuit.** The burst gate is checked before the daily gate; when it denies, the daily gate is never touched.
+
+The cost is that the *allowed* path makes one DB round trip per configured gate (typically two to four) instead of one. That is a deliberate trade for correct cross-window behavior, and it is bounded (see [Latency](#latency)).
+
+## Correctness Across Replicas
+
+The counter increment is a single atomic conditional update:
+
+```python
+find_one_and_update(
+    {"_id": doc_id, "count": {"$lt": max_requests}},   # only if under the limit
+    {"$inc": {"count": 1}, "$setOnInsert": {...}},
+    upsert=True,
+    return_document=AFTER,
+)
+```
+
+For a counter that is below its limit, this atomically increments and returns the new value. For a counter already at its limit, the `{"count": {"$lt": max_requests}}` predicate does not match, so with `upsert=True` MongoDB tries to *insert* a new document with the same `_id` — which the unique `_id` index rejects with `DuplicateKeyError`. The backend catches that and reports "at limit, not incremented."
+
+Two replicas racing on the boundary both go through the same atomic compare-and-increment, so the aggregate can never exceed `max_requests`, regardless of replica count. This is the entire reason for a shared counter store, and it also means the stored count can never run above the limit.
+
+## Failure Modes
+
+- **Backend error or timeout → fail open by default.** Each counter op runs under a hard timeout (`RATE_LIMIT_BACKEND_TIMEOUT_MS`, default 250 ms). On error or timeout, the limiter logs a warning, emits an error metric, and **allows** the request — unless the specific limit is marked `fail_closed`, or the global `RATE_LIMIT_FAIL_OPEN` is `false`. A slow store therefore fails *fast* into "not limiting," never into "every authenticated request hangs."
+- **A malformed definition is skipped**, logged, and never breaks the auth path.
+- **An unexpected error in the enforcement wrapper is swallowed** — rate limiting must never turn into a 500 on `/validate`.
+- **Feature disabled → complete no-op.** No DB access, no import cost.
+
+The fail-open default is a deliberate, argued exception to the project's "admission fails closed" principle: rate limiting is an *availability guardrail*, not an authorization admission gate. Authorization continues to fail closed on its own.
+
+## Latency
+
+`/validate` runs on almost every authenticated request, so added latency matters.
+
+- **Definitions cost zero DB reads in steady state** — both caller and target reads are served from an in-process cache (`RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS`, default 30 s), and `/validate` already holds a warm DocumentDB connection pool.
+- **The only per-call DB work is the counter increments** — one indexed primary-key op per configured gate (typically two to four). On a co-located DocumentDB / same-region MongoDB with write concern `w:1`, each is low single-digit milliseconds.
+- **A slow store cannot hang the gateway** — the 250 ms per-op timeout bounds the worst case and fails open.
+- **Escape hatch:** if counter latency is ever unacceptable, the `RateLimiterBackend` interface allows a Redis/ElastiCache backend (sub-millisecond) with no change to the enforcement logic.
+
+The `mcpgw_rate_limit_backend_duration_ms` histogram measures the real per-op latency; watch its p99 against the timeout to decide when to tune windows or move to Redis.
+
+## Observability
+
+All labels are bounded (no per-user/per-server *name* labels, which would be unbounded — those live in the WARNING log and the status endpoint).
+
+| Metric | Type | Labels | Meaning |
+|--------|------|--------|---------|
+| `mcpgw_rate_limit_throttled_total` | Counter | `axis`, `entity_type`, `window_seconds` | Times an axis entity was throttled (a gate denied). "How many times did a caller / an mcp_server / an a2a_agent get rate-limited?" |
+| `mcpgw_rate_limit_checks_total` | Counter | `axis`, `entity_type`, `outcome` | Total gate checks (allow/deny) — the denominator for a throttle rate. |
+| `mcpgw_rate_limit_errors_total` | Counter | `axis` | Backend errors (fail-open events). |
+| `mcpgw_rate_limit_backend_duration_ms` | Histogram | `backend`, `op` | Per-op latency of the counter-store round trip. |
+
+Recommended alerts: sustained `mcpgw_rate_limit_errors_total` (limiter effectively off), and `mcpgw_rate_limit_backend_duration_ms` p99 approaching the timeout.
+
+## Configuration
+
+All five parameters are off-by-default-safe and wired across Docker Compose, Terraform, and Helm. See the [unified parameter reference](../unified-parameter-reference.md#group-32--rate-limiting-issue-295) for the per-surface names.
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `RATE_LIMITING_ENABLED` | `false` | Master switch. |
+| `RATE_LIMIT_BACKEND` | `documentdb` | Counter backend (only `documentdb` in v1). |
+| `RATE_LIMIT_FAIL_OPEN` | `true` | Global fail-open on backend error. |
+| `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `30` | In-process definitions cache TTL. |
+| `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `250` | Hard per-op counter timeout. |
+
+Both the `registry` and `auth-server` services read these; keep them in agreement.
+
+## Managing Limits (Admin API and CLI)
+
+Limit **definitions** are managed at runtime, not through env vars. All endpoints are admin-only.
+
+- `GET /api/rate-limits` — list all definitions.
+- `PUT /api/rate-limits/{id}` — create/update. The `_id` is derived from the body; the URL id must match exactly (a colon-bearing tool/skill name is never parsed out of the URL).
+- `DELETE /api/rate-limits/{id}` — delete.
+- `GET /api/rate-limits-status?identity=&entity_type=&name=` — introspect matching definitions.
+
+CLI equivalents:
+
+```bash
+# 100 requests/minute for the "developers" group, plus a 5000/day volume cap
+uv run python registry_management.py rate-limit-set \
+  --axis caller --entity-type group --name developers --max-requests 100 --window-seconds 60
+uv run python registry_management.py rate-limit-set \
+  --axis caller --entity-type group --name developers --max-requests 5000 --window-seconds 86400
+
+# 500 requests/minute aggregate to the "mcpgw" MCP server, across all callers
+uv run python registry_management.py rate-limit-set \
+  --axis target --entity-type mcp_server --name mcpgw --max-requests 500 --window-seconds 60
+
+uv run python registry_management.py rate-limit-list
+uv run python registry_management.py rate-limit-delete --id caller:group:developers:60
+```
+
+## Where the Code Lives
+
+| Path | Responsibility |
+|------|----------------|
+| `registry/rate_limiting/models.py` | `RateLimitDefinition`, `RateLimitDecision`, allowlists |
+| `registry/rate_limiting/backend.py` | `RateLimiterBackend` ABC + `IncrResult` (the `incr_if_allowed` contract) |
+| `registry/rate_limiting/documentdb_backend.py` | Fixed-window conditional-`$inc` counters, TTL index, latency histogram |
+| `registry/rate_limiting/definitions_repository.py` | Cached CRUD over `mcp_rate_limits` |
+| `registry/rate_limiting/limiter.py` | `RateLimiter.check()` — gate building, sequential enforcement |
+| `registry/api/rate_limit_routes.py` | Admin CRUD + status API |
+| `auth_server/rate_limiting_config.py` | Env-var constants + the `RateLimiter` singleton |
+| `auth_server/server.py` | `_classify_rate_limit_target` + `_enforce_rate_limit`, called in `/validate` |
+| `registry/observability/meters.py` | The four metrics |
+
+## Extending It
+
+- **A new target kind** (e.g. a database, a queue): add it to `TARGET_ENTITY_TYPES`, teach `_classify_rate_limit_target` to recognize its request shape, done. No schema change.
+- **Per-tool / per-skill limits:** already modeled (`mcp_tool`, `a2a_skill`); wiring is a later phase that adds a JSON-RPC-payload classifier. Before enabling, close the composite-`name` delimiter concern (validate that a raw name component contains no `:`, or store the counter key as separate indexed fields instead of a concatenated `_id`).
+- **A Redis backend:** implement `RateLimiterBackend` against Redis (an atomic Lua script for the conditional increment), select it via `RATE_LIMIT_BACKEND`. The enforcement logic does not change.
+- **Sliding window / token bucket:** a different algorithm is a new backend or a new limiter strategy; the fixed-window boundary-burst limitation is documented and acceptable for v1.

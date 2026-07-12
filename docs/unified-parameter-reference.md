@@ -791,6 +791,20 @@ These have no `.env` equivalent because they describe the infrastructure, not th
 
 ---
 
+## Group 32 — Rate Limiting (Issue #295)
+
+Application-level, identity/group/target-aware request limiting enforced at the auth-server `/validate` hop. This is complementary to (not a replacement for) the coarse per-IP nginx edge limiting. Off by default; limit **definitions** are managed at runtime via the admin API (`/api/rate-limits`) or `registry_management.py rate-limit-set`, not via these parameters. Applies to both the `registry` and `auth-server` services (both must agree). See [rate limiting design](design/rate-limiting.md).
+
+| Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose |
+|-----------|-----------------|-----------------------|----------------------|---------|
+| Enable rate limiting | `RATE_LIMITING_ENABLED` | `rate_limiting_enabled` | `registry.app.rateLimiting.enabled` / `auth-server.app.rateLimiting.enabled` | Master switch. Default `false` = no checks (no behavior change). |
+| Counter backend | `RATE_LIMIT_BACKEND` | `rate_limit_backend` | `*.app.rateLimiting.backend` | Counter store. Only `documentdb` is implemented in v1 (no new infrastructure); the backend interface allows a future Redis. |
+| Fail open on error | `RATE_LIMIT_FAIL_OPEN` | `rate_limit_fail_open` | `*.app.rateLimiting.failOpen` | Default `true`: on a counter-store error, allow rather than deny (availability guardrail). A per-limit `fail_closed` definition overrides to deny. |
+| Definitions cache TTL | `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `rate_limit_definitions_cache_ttl_seconds` | `*.app.rateLimiting.definitionsCacheTtlSeconds` | In-process cache TTL (seconds) for definition reads; steady-state per-call cost is zero DB reads for definitions. Default `30`. |
+| Backend op timeout | `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `rate_limit_backend_timeout_ms` | `*.app.rateLimiting.backendTimeoutMs` | Hard per-op timeout (ms) for each counter operation; a slow store fails fast into the fail-open/closed policy, never hanging `/validate`. Default `250`. |
+
+---
+
 ## Checklist for new parameters
 
 When you add a new configuration parameter:

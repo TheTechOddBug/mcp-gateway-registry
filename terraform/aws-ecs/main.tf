@@ -137,12 +137,17 @@ module "mcp_gateway" {
   # Cluster endpoint + credentials secret are gated on is_aws_documentdb so
   # that external-MongoDB (Atlas / self-managed) deployments do not require
   # the AWS DocumentDB resources to exist (issue #955).
-  documentdb_endpoint               = local.is_aws_documentdb ? aws_docdb_cluster.registry[0].endpoint : ""
-  documentdb_database               = var.documentdb_database
-  documentdb_namespace              = var.documentdb_namespace
-  documentdb_use_tls                = var.documentdb_use_tls
-  documentdb_use_iam                = var.documentdb_use_iam
-  documentdb_credentials_secret_arn = local.is_aws_documentdb ? aws_secretsmanager_secret.documentdb_credentials[0].arn : ""
+  documentdb_endpoint                      = local.is_aws_documentdb ? aws_docdb_cluster.registry[0].endpoint : ""
+  documentdb_database                      = var.documentdb_database
+  documentdb_namespace                     = var.documentdb_namespace
+  rate_limiting_enabled                    = var.rate_limiting_enabled
+  rate_limit_backend                       = var.rate_limit_backend
+  rate_limit_fail_open                     = var.rate_limit_fail_open
+  rate_limit_definitions_cache_ttl_seconds = var.rate_limit_definitions_cache_ttl_seconds
+  rate_limit_backend_timeout_ms            = var.rate_limit_backend_timeout_ms
+  documentdb_use_tls                       = var.documentdb_use_tls
+  documentdb_use_iam                       = var.documentdb_use_iam
+  documentdb_credentials_secret_arn        = local.is_aws_documentdb ? aws_secretsmanager_secret.documentdb_credentials[0].arn : ""
 
   # Optional full MongoDB connection string override (PR #947). See variable
   # docs in variables.tf. Leave both empty to use the DOCUMENTDB_* block above.

@@ -1252,7 +1252,13 @@ async def _enforce_rate_limit(
     (the limiter itself already fails open per-gate); rate limiting must never
     turn into a 500 on the auth path.
     """
-    from auth_server.rate_limiting_config import RATE_LIMITING_ENABLED, get_rate_limiter
+    # Dual import context (matches the observability/egress_obo pattern above):
+    # the deployed container runs server.py with /app as the module root (top-level
+    # import), while the repo-root/test context sees the auth_server package.
+    try:
+        from rate_limiting_config import RATE_LIMITING_ENABLED, get_rate_limiter
+    except ImportError:
+        from auth_server.rate_limiting_config import RATE_LIMITING_ENABLED, get_rate_limiter
 
     if not RATE_LIMITING_ENABLED:
         return

@@ -391,6 +391,26 @@ module "ecs_service_auth" {
           value = var.documentdb_namespace
         },
         {
+          name  = "RATE_LIMITING_ENABLED"
+          value = tostring(var.rate_limiting_enabled)
+        },
+        {
+          name  = "RATE_LIMIT_BACKEND"
+          value = var.rate_limit_backend
+        },
+        {
+          name  = "RATE_LIMIT_FAIL_OPEN"
+          value = tostring(var.rate_limit_fail_open)
+        },
+        {
+          name  = "RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS"
+          value = tostring(var.rate_limit_definitions_cache_ttl_seconds)
+        },
+        {
+          name  = "RATE_LIMIT_BACKEND_TIMEOUT_MS"
+          value = tostring(var.rate_limit_backend_timeout_ms)
+        },
+        {
           name  = "DOCUMENTDB_USE_TLS"
           value = tostring(var.documentdb_use_tls)
         },
@@ -1128,6 +1148,26 @@ module "ecs_service_registry" {
         {
           name  = "DOCUMENTDB_NAMESPACE"
           value = var.documentdb_namespace
+        },
+        {
+          name  = "RATE_LIMITING_ENABLED"
+          value = tostring(var.rate_limiting_enabled)
+        },
+        {
+          name  = "RATE_LIMIT_BACKEND"
+          value = var.rate_limit_backend
+        },
+        {
+          name  = "RATE_LIMIT_FAIL_OPEN"
+          value = tostring(var.rate_limit_fail_open)
+        },
+        {
+          name  = "RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS"
+          value = tostring(var.rate_limit_definitions_cache_ttl_seconds)
+        },
+        {
+          name  = "RATE_LIMIT_BACKEND_TIMEOUT_MS"
+          value = tostring(var.rate_limit_backend_timeout_ms)
         },
         {
           name  = "DOCUMENTDB_USE_TLS"
