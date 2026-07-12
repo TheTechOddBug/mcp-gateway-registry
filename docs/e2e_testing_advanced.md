@@ -4,14 +4,28 @@ Companion to [e2e_testing.md](e2e_testing.md). That guide covers the happy paths
 
 Run these **after** the base guide's Step 0, so the `rl-test-user` / `rl-test-m2m` principals and their token files already exist.
 
+> **Before you start, you MUST set and export these environment variables** (no defaults; the commands fail loudly if any is unset, so no URL or password is ever hardcoded in this repo):
+>
+> ```bash
+> export KC_URL=...                 # Keycloak base URL reachable from the host
+> export REG=...                    # gateway base URL (e.g. http://localhost)
+> export RL_TEST_USER_PASSWORD=...  # password for the rl-test-user test account
+> ```
+>
+> Plus the Keycloak admin credentials from your environment: `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_REALM` (e.g. `set -a; source .env; set +a`).
+
 ## Conventions
 
-Same as the base guide. From the repo root:
+Same as the base guide (which you must have run through Step 0). From the repo root, with the required env vars from above already exported:
 
 ```bash
-export REG=http://localhost
-export TOK=.token                                # admin token file
-export SRV=http://localhost/airegistry-tools/mcp
+# Fail loudly if a required input is missing (no defaults for URLs/password).
+: "${REG:?Set REG (gateway base URL)}"
+: "${KC_URL:?Set KC_URL (Keycloak base URL reachable from the host)}"
+: "${RL_TEST_USER_PASSWORD:?Set RL_TEST_USER_PASSWORD (test account password)}"
+
+export TOK=.token                          # admin token file
+export SRV="$REG/airegistry-tools/mcp"     # a confirmed data-plane MCP endpoint
 ```
 
 Reminders:

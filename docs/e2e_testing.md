@@ -4,15 +4,40 @@ A hands-on sequence to verify application-level rate limiting on a running gatew
 
 For failure-mode and correctness-invariant tests (concurrency/atomicity, window reset + `Retry-After`, deny-does-not-consume, caller-type classification, membership-vs-authz, admin bypass, data-plane-only scope, enable/disable, and fail-open/fail-closed), see the companion [e2e_testing_advanced.md](e2e_testing_advanced.md). Run it after Step 0 here.
 
+> **Before you start, you MUST set and export these environment variables** (no defaults; the commands fail loudly if any is unset, so no URL or password is ever hardcoded in this repo):
+>
+> ```bash
+> export KC_URL=...                 # Keycloak base URL reachable from the host
+> export REG=...                    # gateway base URL (e.g. http://localhost)
+> export RL_TEST_USER_PASSWORD=...  # password for the rl-test-user test account
+> ```
+>
+> Plus the Keycloak admin credentials from your environment: `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_REALM` (e.g. `set -a; source .env; set +a`). See [Conventions](#conventions) for the full guard block.
+
 ## Conventions
 
-Run from the repo root. All examples assume the local Docker stack and an admin token file at `./.token`.
+Run from the repo root. All examples assume an admin token file at `./.token`.
+
+**Required environment variables (the guide fails loudly if any is unset).** URLs and the test password are deliberately NOT hardcoded and have NO defaults, so a sensitive URL or password can never be accidentally committed from these docs. Set them in your shell for the session:
 
 ```bash
-export REG=http://localhost                      # gateway base URL
-export TOK=.token                                # admin token file
-# The confirmed-working data-plane MCP endpoint in this deployment:
-export SRV=http://localhost/airegistry-tools/mcp
+# --- Required inputs: no defaults, never commit these values ---
+export KC_URL=...                 # Keycloak base URL reachable FROM THE HOST
+                                  #   (e.g. http://localhost:8080 locally; a real
+                                  #   hostname for a remote Keycloak). NOTE: the
+                                  #   in-container name (http://keycloak:8080) is
+                                  #   NOT reachable from the host.
+export REG=...                    # gateway base URL (e.g. http://localhost)
+export RL_TEST_USER_PASSWORD=...  # password for the rl-test-user test account
+
+# Fail loudly if any required input is missing.
+: "${KC_URL:?Set KC_URL (Keycloak base URL reachable from the host)}"
+: "${REG:?Set REG (gateway base URL)}"
+: "${RL_TEST_USER_PASSWORD:?Set RL_TEST_USER_PASSWORD (test account password)}"
+
+# --- Derived / fixed ---
+export TOK=.token                          # admin token file
+export SRV="$REG/airegistry-tools/mcp"     # a confirmed data-plane MCP endpoint
 ```
 
 Two important reminders before you start:
@@ -34,54 +59,65 @@ You can drive the whole sequence from the UI instead of the CLI; the CLI is used
 
 ## Step 0 — Create the test principals (`rl-test-user` and `rl-test-m2m`)
 
-The whole suite runs against two dedicated Keycloak principals so you never test as admin (admins bypass caller limits). Create both with direct Keycloak admin-API `curl` calls. All commands read the Keycloak admin password (and other coordinates) from the repo `.env`.
+The whole suite runs against two dedicated Keycloak principals so you never test as admin (admins bypass caller limits). Create both with direct Keycloak admin-API `curl` calls.
+
+This uses the required env vars you exported in Conventions (`KC_URL`, `REG`, `RL_TEST_USER_PASSWORD`) plus the Keycloak admin credentials (`KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_REALM`), which come from the environment (e.g. `set -a; source .env; set +a`). Every value fails loudly if unset.
 
 ```bash
-# Load Keycloak coordinates from .env (KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_REALM)
-set -a; source .env; set +a
-export KC=http://localhost:8080                     # Keycloak admin API (in-container port)
+# Keycloak admin credentials + realm come from the environment (e.g. `.env`):
+#   set -a; source .env; set +a   # if not already exported
 export REALM="${KEYCLOAK_REALM:-mcp-gateway}"
 
+# Fail loudly if any required value is missing (URLs/password have no defaults).
+: "${KC_URL:?Set KC_URL (Keycloak base URL reachable from the host)}"
+: "${RL_TEST_USER_PASSWORD:?Set RL_TEST_USER_PASSWORD (test account password)}"
+: "${KEYCLOAK_ADMIN:?KEYCLOAK_ADMIN not set (expected from .env)}"
+: "${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD not set (expected from .env)}"
+
 # Admin API token (master realm, admin-cli public client)
-export ADMIN_TOKEN=$(curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
+export ADMIN_TOKEN=$(curl -s -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=password" -d "client_id=admin-cli" \
-  -d "username=$KEYCLOAK_ADMIN" -d "password=$KEYCLOAK_ADMIN_PASSWORD" | jq -r '.access_token')
+  -d "username=$KEYCLOAK_ADMIN" --data-urlencode "password=$KEYCLOAK_ADMIN_PASSWORD" | jq -r '.access_token')
 echo "admin token length: ${#ADMIN_TOKEN}"    # non-zero => good
 ```
 
 ### 0a. Human user `rl-test-user` (password grant)
 
 ```bash
+# Guard again in case this block is run on its own (set in the setup step above).
+: "${RL_TEST_USER_PASSWORD:?Set RL_TEST_USER_PASSWORD before running (e.g. export RL_TEST_USER_PASSWORD='<a-strong-password>')}"
+
 # Delete any pre-existing rl-test-user first for a clean slate. If it does not
 # exist the lookup returns null and the DELETE is skipped/404s -- that is fine.
 EXISTING_USER_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id // empty')
+  "$KC_URL/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id // empty')
 [ -n "$EXISTING_USER_ID" ] && curl -s -o /dev/null -w "delete_existing_user=%{http_code}\n" \
-  -X DELETE "$KC/admin/realms/$REALM/users/$EXISTING_USER_ID" \
+  -X DELETE "$KC_URL/admin/realms/$REALM/users/$EXISTING_USER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204 (or skipped if none existed)
 
-# Create the user with a permanent password (Demo123!)
-curl -s -o /dev/null -w "create_user=%{http_code}\n" -X POST "$KC/admin/realms/$REALM/users" \
+# Create the user with the password from $RL_TEST_USER_PASSWORD (jq injects it so
+# special characters are JSON-escaped safely).
+curl -s -o /dev/null -w "create_user=%{http_code}\n" -X POST "$KC_URL/admin/realms/$REALM/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{
-    "username":"rl-test-user",
-    "email":"rl-test-user@example.com",
-    "firstName":"RL","lastName":"TestUser",
-    "enabled":true, "emailVerified":true,
-    "credentials":[{"type":"password","value":"Demo123!","temporary":false}]
-  }'                                            # -> 201 (or 409 if it already exists)
+  -d "$(jq -n --arg pw "$RL_TEST_USER_PASSWORD" '{
+    username:"rl-test-user",
+    email:"rl-test-user@example.com",
+    firstName:"RL", lastName:"TestUser",
+    enabled:true, emailVerified:true,
+    credentials:[{type:"password", value:$pw, temporary:false}]
+  }')"                                          # -> 201 (or 409 if it already exists)
 
 # Resolve its id
 export RL_USER_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id')
 echo "rl-test-user id: $RL_USER_ID"
 
-# (Re)set the password to Demo123! if the user already existed
+# (Re)set the password if the user already existed.
 curl -s -o /dev/null -w "reset_password=%{http_code}\n" -X PUT \
-  "$KC/admin/realms/$REALM/users/$RL_USER_ID/reset-password" \
+  "$KC_URL/admin/realms/$REALM/users/$RL_USER_ID/reset-password" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"type":"password","value":"Demo123!","temporary":false}'      # -> 204
+  -d "$(jq -n --arg pw "$RL_TEST_USER_PASSWORD" '{type:"password", value:$pw, temporary:false}')"  # -> 204
 
 # Put the user in a group that grants MCP-server access so it can reach the data
 # plane (otherwise calls are denied with a genuine 403, not a throttle). The group
@@ -90,9 +126,9 @@ curl -s -o /dev/null -w "reset_password=%{http_code}\n" -X PUT \
 # whichever group your deployment maps to the servers you are testing.
 export ACCESS_GROUP="${ACCESS_GROUP:-read-all-register-new}"
 export GID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/groups" | jq -r ".[] | select(.name==\"$ACCESS_GROUP\") | .id")
+  "$KC_URL/admin/realms/$REALM/groups" | jq -r ".[] | select(.name==\"$ACCESS_GROUP\") | .id")
 curl -s -o /dev/null -w "join_group=%{http_code}\n" -X PUT \
-  "$KC/admin/realms/$REALM/users/$RL_USER_ID/groups/$GID" \
+  "$KC_URL/admin/realms/$REALM/users/$RL_USER_ID/groups/$GID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204
 ```
 
@@ -101,14 +137,17 @@ Get a token for `rl-test-user` via the password (direct access) grant on the `mc
 ```bash
 # The web client is confidential, so its secret is needed for the password grant.
 export WEB_UUID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients?clientId=mcp-gateway-web" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/clients?clientId=mcp-gateway-web" | jq -r '.[0].id')
 export WEB_SECRET=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients/$WEB_UUID/client-secret" | jq -r '.value')
+  "$KC_URL/admin/realms/$REALM/clients/$WEB_UUID/client-secret" | jq -r '.value')
 
-curl -s -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
+# Uses $RL_TEST_USER_PASSWORD (guarded above). --data-urlencode keeps special
+# characters intact and keeps the secret off the visible command line.
+curl -s -X POST "$KC_URL/realms/$REALM/protocol/openid-connect/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=password" -d "client_id=mcp-gateway-web" -d "client_secret=$WEB_SECRET" \
-  -d "username=rl-test-user" -d "password=Demo123!" -d "scope=openid email profile" \
+  -d "username=rl-test-user" --data-urlencode "password=$RL_TEST_USER_PASSWORD" \
+  -d "scope=openid email profile" \
   | jq -r '.access_token' > .token-rl-test-user
 echo "user token bytes: $(wc -c < .token-rl-test-user)"    # non-trivial => good
 ```
@@ -122,13 +161,13 @@ echo "user token bytes: $(wc -c < .token-rl-test-user)"    # non-trivial => good
 # client also removes its service-account user). If none exists the lookup returns
 # null and the DELETE is skipped -- that is fine.
 EXISTING_M2M_UUID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id // empty')
+  "$KC_URL/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id // empty')
 [ -n "$EXISTING_M2M_UUID" ] && curl -s -o /dev/null -w "delete_existing_m2m=%{http_code}\n" \
-  -X DELETE "$KC/admin/realms/$REALM/clients/$EXISTING_M2M_UUID" \
+  -X DELETE "$KC_URL/admin/realms/$REALM/clients/$EXISTING_M2M_UUID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204 (or skipped if none existed)
 
 # Create a confidential client with a service account (client_credentials only)
-curl -s -o /dev/null -w "create_m2m=%{http_code}\n" -X POST "$KC/admin/realms/$REALM/clients" \
+curl -s -o /dev/null -w "create_m2m=%{http_code}\n" -X POST "$KC_URL/admin/realms/$REALM/clients" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{
     "clientId":"rl-test-m2m",
@@ -142,9 +181,9 @@ curl -s -o /dev/null -w "create_m2m=%{http_code}\n" -X POST "$KC/admin/realms/$R
 
 # Resolve the client uuid + secret; capture the client_id string for memberships
 export M2M_UUID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id')
 export M2M_SECRET=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients/$M2M_UUID/client-secret" | jq -r '.value')
+  "$KC_URL/admin/realms/$REALM/clients/$M2M_UUID/client-secret" | jq -r '.value')
 export M2M_CLIENT_ID=rl-test-m2m
 echo "m2m secret bytes: ${#M2M_SECRET}"
 
@@ -152,16 +191,16 @@ echo "m2m secret bytes: ${#M2M_SECRET}"
 # service-account-rl-test-m2m; add it to the same access group ($GID from 0a,
 # e.g. read-all-register-new).
 export M2M_SA_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/users?username=service-account-rl-test-m2m" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/users?username=service-account-rl-test-m2m" | jq -r '.[0].id')
 curl -s -o /dev/null -w "m2m_join_group=%{http_code}\n" -X PUT \
-  "$KC/admin/realms/$REALM/users/$M2M_SA_ID/groups/$GID" \
+  "$KC_URL/admin/realms/$REALM/users/$M2M_SA_ID/groups/$GID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"       # -> 204
 ```
 
 Get a token for the M2M client and write it to its token file:
 
 ```bash
-curl -s -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
+curl -s -X POST "$KC_URL/realms/$REALM/protocol/openid-connect/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=client_credentials" -d "client_id=rl-test-m2m" -d "client_secret=$M2M_SECRET" \
   -d "scope=openid email profile" \
@@ -472,15 +511,15 @@ uv run python api/registry_management.py --token-file "$TOK" --registry-url "$RE
 # ...repeat for rl-test-strict / rl-agents
 
 # (Optional) delete the Keycloak test principals and local token files.
-# Reuses $KC / $REALM / $ADMIN_TOKEN from Step 0 (refresh ADMIN_TOKEN if expired).
+# Reuses $KC_URL / $REALM / $ADMIN_TOKEN from Step 0 (refresh ADMIN_TOKEN if expired).
 RL_USER_ID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/users?username=rl-test-user" | jq -r '.[0].id')
 curl -s -o /dev/null -w "del_user=%{http_code}\n" -X DELETE \
-  "$KC/admin/realms/$REALM/users/$RL_USER_ID" -H "Authorization: Bearer $ADMIN_TOKEN"
+  "$KC_URL/admin/realms/$REALM/users/$RL_USER_ID" -H "Authorization: Bearer $ADMIN_TOKEN"
 M2M_UUID=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "$KC/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id')
+  "$KC_URL/admin/realms/$REALM/clients?clientId=rl-test-m2m" | jq -r '.[0].id')
 curl -s -o /dev/null -w "del_m2m=%{http_code}\n" -X DELETE \
-  "$KC/admin/realms/$REALM/clients/$M2M_UUID" -H "Authorization: Bearer $ADMIN_TOKEN"
+  "$KC_URL/admin/realms/$REALM/clients/$M2M_UUID" -H "Authorization: Bearer $ADMIN_TOKEN"
 rm -f .token-rl-test-user .token-rl-test-m2m
 ```
 
