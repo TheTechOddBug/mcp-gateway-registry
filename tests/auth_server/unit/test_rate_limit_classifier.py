@@ -8,6 +8,52 @@ from registry.rate_limiting.models import RateLimitDecision
 
 
 @pytest.mark.unit
+class TestResolveRateLimitCaller:
+    """Caller classification must not treat a human's azp-derived client_id as an agent.
+
+    Every OIDC token carries azp (the OAuth client), which the provider copies into
+    validation_result['client_id']. A genuine machine token additionally has a
+    top-level client_id CLAIM. The resolver must key humans on username (client_id
+    None) and machines on their real client_id, so caller_type is correct.
+    """
+
+    def test_human_password_grant_is_user(self):
+        """A browser/password-grant token (azp only, no client_id claim) -> user."""
+        from auth_server.server import _resolve_rate_limit_caller
+
+        validation_result = {
+            "username": "rl-test-user",
+            "client_id": "mcp-gateway-web",  # azp-derived; must NOT make it an agent
+            "data": {"azp": "mcp-gateway-web", "preferred_username": "rl-test-user"},
+        }
+        username, client_id = _resolve_rate_limit_caller(validation_result)
+        assert username == "rl-test-user"
+        assert client_id is None  # dropped -> limiter takes the user branch
+
+    def test_m2m_client_credentials_is_agent(self):
+        """A client_credentials token (top-level client_id claim) -> agent."""
+        from auth_server.server import _resolve_rate_limit_caller
+
+        validation_result = {
+            "username": "service-account-rl-test-m2m",
+            "client_id": "rl-test-m2m",
+            "data": {"azp": "rl-test-m2m", "client_id": "rl-test-m2m"},
+        }
+        username, client_id = _resolve_rate_limit_caller(validation_result)
+        assert client_id == "rl-test-m2m"  # agent branch, keyed on the real client
+
+    def test_no_claims_falls_back_to_user(self):
+        """Missing data claims -> treated as a user keyed on username (no agent branch)."""
+        from auth_server.server import _resolve_rate_limit_caller
+
+        username, client_id = _resolve_rate_limit_caller(
+            {"username": "someone", "client_id": "mcp-gateway-web"}
+        )
+        assert username == "someone"
+        assert client_id is None
+
+
+@pytest.mark.unit
 class TestThrottlePassthrough:
     """The /validate throttle must surface as a 403 that nginx rewrites to 429.
 

@@ -1239,6 +1239,46 @@ def _classify_rate_limit_target(
     return None, None
 
 
+def _resolve_rate_limit_caller(
+    validation_result: dict,
+) -> tuple[str | None, str | None]:
+    """Resolve the (username, client_id) the rate limiter keys on.
+
+    The rate limiter classifies a caller as an AGENT when ``client_id`` is set,
+    else a USER, and keys the per-caller counter on that identity. But
+    ``validation_result['client_id']`` is NOT a reliable agent signal: for
+    Keycloak (and other OIDC providers) it is derived from the token's ``azp``
+    (authorized party = the OAuth client, e.g. ``mcp-gateway-web``), so a HUMAN
+    browser / password-grant token also carries a truthy ``client_id``. Using it
+    verbatim misclassifies every human as an agent (picking the group's agent
+    limit, and bucketing all web users under one shared client counter).
+
+    A genuine machine (``client_credentials``) token has no end user: OIDC then
+    emits a top-level ``client_id`` claim and a ``service-account-*`` subject,
+    and carries no ``preferred_username`` for a real person. We treat the caller
+    as an agent only when the token itself is machine-to-machine; otherwise it is
+    a user keyed on the username, and ``client_id`` is dropped so the agent branch
+    is not taken.
+
+    Returns (username, client_id) to pass to ``RateLimiter.check``: for a user,
+    ``(username, None)``; for an agent, ``(username_or_None, client_id)``.
+    """
+    username = validation_result.get("username")
+    claims = validation_result.get("data") or {}
+
+    # M2M signal: the OIDC provider put a distinct top-level client_id claim on
+    # the token (client_credentials), NOT merely the azp-derived client_id the
+    # provider copied into validation_result. Keycloak/Auth0 set claims.client_id
+    # only for client_credentials; browser/password-grant tokens carry azp only.
+    token_client_id = claims.get("client_id") if isinstance(claims, dict) else None
+    if token_client_id:
+        return username, token_client_id
+
+    # No machine identity on the token -> treat as a human user, keyed on username.
+    # Drop the azp-derived client_id so the limiter's user branch is taken.
+    return username, None
+
+
 async def _enforce_rate_limit(
     validation_result: dict,
     original_url: str | None,
@@ -1268,8 +1308,11 @@ async def _enforce_rate_limit(
     # collection keyed on these; the token's authz "groups" claim is deliberately
     # NOT passed here (no IdP emits rate-limit groups, and mixing them into authz
     # groups could change scopes).
-    username = validation_result.get("username")
-    client_id = validation_result.get("client_id")
+    # Resolve the caller identity the limiter keys on. client_id is set ONLY for a
+    # genuine machine (client_credentials) token, so a human is classified as a
+    # user -- see _resolve_rate_limit_caller for why validation_result['client_id']
+    # (azp-derived) cannot be used directly.
+    username, client_id = _resolve_rate_limit_caller(validation_result)
     if not username and not client_id:
         return
 
