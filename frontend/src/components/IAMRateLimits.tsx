@@ -188,7 +188,14 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
             <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Axis</label>
             <select
               value={formAxis}
-              onChange={(e) => setFormAxis(e.target.value as 'caller' | 'target')}
+              onChange={(e) => {
+                const axis = e.target.value as 'caller' | 'target';
+                setFormAxis(axis);
+                // Reset entity_type to a valid value for the chosen axis so a
+                // target definition never submits the caller's 'group' type.
+                setFormEntityType(axis === 'caller' ? 'group' : TARGET_ENTITY_TYPES[0]);
+                setFormName('');
+              }}
               disabled={!!editingId}
               className={inputBase}
             >
