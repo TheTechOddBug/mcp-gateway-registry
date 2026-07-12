@@ -299,6 +299,10 @@ spec:
               value: {{ .Values.app.rateLimiting.definitionsCacheTtlSeconds | default 30 | toString | quote }}
             - name: RATE_LIMIT_BACKEND_TIMEOUT_MS
               value: {{ .Values.app.rateLimiting.backendTimeoutMs | default 250 | toString | quote }}
+            - name: RATE_LIMIT_USER_FLOOR_PER_MIN
+              value: {{ .Values.app.rateLimiting.userFloorPerMin | default 20 | toString | quote }}
+            - name: RATE_LIMIT_AGENT_FLOOR_PER_MIN
+              value: {{ .Values.app.rateLimiting.agentFloorPerMin | default 10 | toString | quote }}
             {{- if .Values.app.registryApiKeysExistingSecret }}
             - name: REGISTRY_API_KEYS
               valueFrom:

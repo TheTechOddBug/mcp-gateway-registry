@@ -261,6 +261,10 @@ app:
     failOpen: true
     definitionsCacheTtlSeconds: 30
     backendTimeoutMs: 250
+    # Lockout-safeguard floors (config-time validation of group definitions on
+    # short windows). A group's user/agent limit must be >= its floor.
+    userFloorPerMin: 20
+    agentFloorPerMin: 10
   # Tool-level access control (issue #1026)
   mcpToolsListFilterEnabled: true # Registry-side awareness of the MCP tools/list filter (also read by auth-server)
   toolFilterAuditLogLevel: "INFO" # Audit log level for tool-prune events (DEBUG, INFO, WARNING)

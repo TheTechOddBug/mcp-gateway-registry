@@ -411,6 +411,14 @@ module "ecs_service_auth" {
           value = tostring(var.rate_limit_backend_timeout_ms)
         },
         {
+          name  = "RATE_LIMIT_USER_FLOOR_PER_MIN"
+          value = tostring(var.rate_limit_user_floor_per_min)
+        },
+        {
+          name  = "RATE_LIMIT_AGENT_FLOOR_PER_MIN"
+          value = tostring(var.rate_limit_agent_floor_per_min)
+        },
+        {
           name  = "DOCUMENTDB_USE_TLS"
           value = tostring(var.documentdb_use_tls)
         },

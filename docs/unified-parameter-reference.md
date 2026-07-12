@@ -802,6 +802,8 @@ Application-level, identity/group/target-aware request limiting enforced at the 
 | Fail open on error | `RATE_LIMIT_FAIL_OPEN` | `rate_limit_fail_open` | `*.app.rateLimiting.failOpen` | Default `true`: on a counter-store error, allow rather than deny (availability guardrail). A per-limit `fail_closed` definition overrides to deny. |
 | Definitions cache TTL | `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `rate_limit_definitions_cache_ttl_seconds` | `*.app.rateLimiting.definitionsCacheTtlSeconds` | In-process cache TTL (seconds) for definition reads; steady-state per-call cost is zero DB reads for definitions. Default `30`. |
 | Backend op timeout | `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `rate_limit_backend_timeout_ms` | `*.app.rateLimiting.backendTimeoutMs` | Hard per-op timeout (ms) for each counter operation; a slow store fails fast into the fail-open/closed policy, never hanging `/validate`. Default `250`. |
+| User floor (per min) | `RATE_LIMIT_USER_FLOOR_PER_MIN` | `rate_limit_user_floor_per_min` | `registry.app.rateLimiting.userFloorPerMin` | Lockout safeguard read by the **registry** at group-definition config time: on windows `<= 60s` a group's `user_max_requests` must be `>=` this floor, else the PUT is rejected. Config-only (no API). Default `20`. |
+| Agent floor (per min) | `RATE_LIMIT_AGENT_FLOOR_PER_MIN` | `rate_limit_agent_floor_per_min` | `registry.app.rateLimiting.agentFloorPerMin` | Same as above for a group's `agent_max_requests`. Config-only (no API). Default `10`. |
 
 ---
 

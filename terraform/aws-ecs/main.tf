@@ -145,6 +145,8 @@ module "mcp_gateway" {
   rate_limit_fail_open                     = var.rate_limit_fail_open
   rate_limit_definitions_cache_ttl_seconds = var.rate_limit_definitions_cache_ttl_seconds
   rate_limit_backend_timeout_ms            = var.rate_limit_backend_timeout_ms
+  rate_limit_user_floor_per_min            = var.rate_limit_user_floor_per_min
+  rate_limit_agent_floor_per_min           = var.rate_limit_agent_floor_per_min
   documentdb_use_tls                       = var.documentdb_use_tls
   documentdb_use_iam                       = var.documentdb_use_iam
   documentdb_credentials_secret_arn        = local.is_aws_documentdb ? aws_secretsmanager_secret.documentdb_credentials[0].arn : ""

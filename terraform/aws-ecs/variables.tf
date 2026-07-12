@@ -556,6 +556,18 @@ variable "rate_limit_backend_timeout_ms" {
   default     = 250
 }
 
+variable "rate_limit_user_floor_per_min" {
+  description = "Minimum per-minute user limit a group may set on short windows (lockout safeguard)"
+  type        = number
+  default     = 20
+}
+
+variable "rate_limit_agent_floor_per_min" {
+  description = "Minimum per-minute agent limit a group may set on short windows (lockout safeguard)"
+  type        = number
+  default     = 10
+}
+
 variable "documentdb_use_tls" {
   description = "Use TLS for DocumentDB connections"
   type        = bool
