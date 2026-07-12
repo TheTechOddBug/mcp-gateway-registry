@@ -384,15 +384,17 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
                 const id = definitionId(d);
                 return (
                   <tr key={id} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-2 pr-4">{d.axis}</td>
-                    <td className="py-2 pr-4">{d.entity_type}</td>
-                    <td className="py-2 pr-4 font-mono text-xs">{d.name}</td>
-                    <td className="py-2 pr-4">{limitSummary(d)}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{d.axis}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{d.entity_type}</td>
+                    <td className="py-2 pr-4 font-mono text-xs text-gray-900 dark:text-white">{d.name}</td>
+                    <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{limitSummary(d)}</td>
                     <td className="py-2 pr-4">
-                      <span className={d.enabled ? 'text-green-600' : 'text-gray-400'}>
+                      <span className={d.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}>
                         {d.enabled ? 'enabled' : 'disabled'}
                       </span>
-                      {d.fail_closed && <span className="ml-2 text-xs text-amber-600">fail-closed</span>}
+                      {d.fail_closed && (
+                        <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">fail-closed</span>
+                      )}
                     </td>
                     <td className="py-2 pr-4">
                       <div className="flex items-center gap-3">
