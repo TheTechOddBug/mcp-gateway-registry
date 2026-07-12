@@ -6098,12 +6098,10 @@ Examples:
         "--entity-type",
         required=True,
         dest="entity_type",
-        help="caller: 'group' | 'user' | 'client'; target: 'mcp_server' | 'a2a_agent'",
+        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent'",
     )
     rate_limit_set_parser.add_argument(
-        "--name",
-        required=True,
-        help="Group name, username, client_id, server path, or agent path",
+        "--name", required=True, help="Group name, server path, or agent path"
     )
     rate_limit_set_parser.add_argument(
         "--max-requests", required=True, type=int, dest="max_requests", help="Max requests per window"
@@ -6144,7 +6142,7 @@ Examples:
     rate_limit_get_parser.add_argument(
         "--id",
         required=True,
-        help="Definition id, e.g. 'caller:user:alice:60'",
+        help="Definition id, e.g. 'caller:group:developers:60'",
     )
 
     rate_limit_enable_parser = subparsers.add_parser(

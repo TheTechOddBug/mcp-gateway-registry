@@ -94,52 +94,24 @@ class RateLimiter:
         self._fail_open = fail_open
         self._backend_timeout_seconds = backend_timeout_seconds
 
-    async def _build_group_gates(
+    async def _build_caller_gates(
         self,
         identity: str,
         groups: list[str],
     ) -> list[_Gate]:
-        """Build one group gate per window, most-restrictive across the caller's groups.
+        """Build one caller gate per window, most-restrictive across the caller's groups.
 
         Group limits are enforced per caller: the counter subject is the caller's
-        identity, so each caller gets their own quota under the group's limit.
+        identity, so each caller gets their own quota under the group's limit. A
+        specific user or agent is subject to a group limit by being a MEMBER of that
+        group (its group shows up in the token via enrichment), not by naming the
+        user/client here.
         """
         group_defs = await self._definitions.list_caller_limits("group", groups)
         gates: list[_Gate] = []
         for defs_in_window in _by_window(group_defs).values():
             tightest = min(defs_in_window, key=lambda d: d.max_requests)
             gates.append(_Gate(AXIS_ABBREVIATION["caller"], identity, tightest))
-        return gates
-
-    async def _build_identity_gates(
-        self,
-        entity_type: str,
-        subject: str | None,
-    ) -> list[_Gate]:
-        """Build gates for a specific-identity caller kind ('user' or 'client').
-
-        The counter subject IS the named entity (username or client_id), so the
-        limit is that entity's own aggregate across all its calls.
-        """
-        if not subject:
-            return []
-        defs = await self._definitions.list_caller_limits(entity_type, [subject])
-        return [_Gate(AXIS_ABBREVIATION["caller"], subject, d) for d in defs]
-
-    async def _build_caller_gates(
-        self,
-        username: str | None,
-        client_id: str | None,
-        groups: list[str],
-    ) -> list[_Gate]:
-        """Build every caller-axis gate: group (per-caller), per-user, and per-client."""
-        # Per-caller counter subject for group limits: prefer client_id (agents),
-        # else username. Comes only from the validated token.
-        identity = client_id or username or ""
-        gates: list[_Gate] = []
-        gates.extend(await self._build_group_gates(identity, groups))
-        gates.extend(await self._build_identity_gates("user", username))
-        gates.extend(await self._build_identity_gates("client", client_id))
         return gates
 
     async def _build_target_gates(
@@ -159,23 +131,21 @@ class RateLimiter:
     async def check(
         self,
         *,
-        username: str | None,
-        client_id: str | None,
+        identity: str,
         groups: list[str],
         target_entity_type: str | None = None,
         target_name: str | None = None,
     ) -> RateLimitDecision:
         """Enforce every applicable gate; return the first denial or an aggregate allow.
 
-        Caller gates cover group membership (per-caller), the specific user, and the
-        specific agent/client. Gates are evaluated **sequentially, tightest-window-first**,
-        short-circuiting on the first denial so a request rejected by a burst gate never
-        increments a wider volume gate (deny-does-not-consume across windows).
+        Caller gates cover the caller's group memberships (per-caller). Gates are
+        evaluated **sequentially, tightest-window-first**, short-circuiting on the first
+        denial so a request rejected by a burst gate never increments a wider volume gate
+        (deny-does-not-consume across windows).
 
-        ``username``, ``client_id``, and ``groups`` MUST come from the validated token,
-        never a client header.
+        ``identity`` and ``groups`` MUST come from the validated token, never a client header.
         """
-        caller_gates = await self._build_caller_gates(username, client_id, groups)
+        caller_gates = await self._build_caller_gates(identity, groups)
         target_gates = await self._build_target_gates(target_entity_type, target_name)
         gates = caller_gates + target_gates
         if not gates:

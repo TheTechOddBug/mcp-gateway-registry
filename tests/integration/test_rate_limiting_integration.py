@@ -103,7 +103,7 @@ class TestCrossReplicaCorrectness:
         allowed = 0
         for i in range(20):
             limiter = lim_a if i % 2 else lim_b
-            decision = await limiter.check(username=identity, client_id=None, groups=["devs"])
+            decision = await limiter.check(identity=identity, groups=["devs"])
             if decision.allowed:
                 allowed += 1
 
@@ -132,7 +132,7 @@ class TestDenyDoesNotConsumeThroughRealBackend:
 
         allowed = 0
         for _ in range(30):
-            decision = await limiter.check(username=identity, client_id=None, groups=["devs"])
+            decision = await limiter.check(identity=identity, groups=["devs"])
             if decision.allowed:
                 allowed += 1
 

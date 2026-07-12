@@ -178,21 +178,21 @@ class TestGetAndToggle:
     """Tests for single-read GET and enable/disable toggle."""
 
     def test_get_present(self, client, mock_auth_admin, mock_repository):
-        """Reading an existing per-user definition returns it."""
+        """Reading an existing group definition returns it."""
         from registry.rate_limiting.models import RateLimitDefinition
 
         mock_repository.get_by_id.return_value = RateLimitDefinition(
-            axis="caller", entity_type="user", name="alice", max_requests=5, window_seconds=60
+            axis="caller", entity_type="group", name="developers", max_requests=5, window_seconds=60
         )
-        resp = client.get("/api/rate-limits/caller:user:alice:60")
+        resp = client.get("/api/rate-limits/caller:group:developers:60")
         assert resp.status_code == 200
-        assert resp.json()["entity_type"] == "user"
-        assert resp.json()["name"] == "alice"
+        assert resp.json()["entity_type"] == "group"
+        assert resp.json()["name"] == "developers"
 
     def test_get_absent_is_404(self, client, mock_auth_admin, mock_repository):
         """Reading a missing definition returns 404."""
         mock_repository.get_by_id.return_value = None
-        resp = client.get("/api/rate-limits/caller:user:ghost:60")
+        resp = client.get("/api/rate-limits/caller:group:ghost:60")
         assert resp.status_code == 404
 
     def test_disable_toggles_in_place(self, client, mock_auth_admin, mock_repository):
@@ -200,14 +200,14 @@ class TestGetAndToggle:
         from registry.rate_limiting.models import RateLimitDefinition
 
         mock_repository.set_enabled.return_value = RateLimitDefinition(
-            axis="caller",
-            entity_type="client",
-            name="agent-1",
+            axis="target",
+            entity_type="mcp_server",
+            name="mcpgw",
             max_requests=3,
             window_seconds=60,
             enabled=False,
         )
-        resp = client.post("/api/rate-limits-enabled/caller:client:agent-1:60?enabled=false")
+        resp = client.post("/api/rate-limits-enabled/target:mcp_server:mcpgw:60?enabled=false")
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
         mock_repository.set_enabled.assert_awaited_once()
@@ -215,7 +215,7 @@ class TestGetAndToggle:
     def test_enable_absent_is_404(self, client, mock_auth_admin, mock_repository):
         """Toggling a missing definition returns 404."""
         mock_repository.set_enabled.return_value = None
-        resp = client.post("/api/rate-limits-enabled/caller:user:ghost:60?enabled=true")
+        resp = client.post("/api/rate-limits-enabled/caller:group:ghost:60?enabled=true")
         assert resp.status_code == 404
 
     def test_get_requires_admin(self, client, mock_auth_regular, mock_repository):

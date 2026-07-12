@@ -25,7 +25,7 @@ This document describes the application-level rate limiting in the MCP Gateway R
 
 MCP tool calls and A2A agent calls pass through the gateway with authentication and authorization, but historically there was no cap on **how often** an authenticated caller could invoke them. A single user or agent could call a tool thousands of times a minute and overwhelm a backend MCP server, exhaust a downstream API quota, or run up cost.
 
-This feature adds **application-level, identity/group/target-aware** rate limiting: limits that are expressed in terms of *who* is calling (a group, a specific user, or a specific agent/client) and *what* they are calling (a specific MCP server or A2A agent), enforced at the one hop every call already crosses.
+This feature adds **application-level, identity/group/target-aware** rate limiting: limits that are expressed in terms of *who* is calling (via their group membership) and *what* they are calling (a specific MCP server or A2A agent), enforced at the one hop every call already crosses. A specific user or agent is limited by placing it in a rate-limited group.
 
 It is **not** a volumetric DoS control. That job belongs to the coarse per-IP limiting at the nginx edge (see the next section). The two are complementary layers.
 
@@ -56,7 +56,7 @@ This document covers **only the application-level layer**. The nginx edge limiti
                          1. resolve identity + groups + target (existing)
                          2. authorize (existing; fails closed)
                          3. RATE LIMIT (new): every applicable gate must pass
-                            ├─ caller gates:  group (per-caller) + user + client, per window
+                            ├─ caller gates:  group (per-caller), per window
                             └─ target gates:  (entity_type:name, per window)  [if defined]
                                │
                                ▼
@@ -79,11 +79,9 @@ Three design commitments shape everything else:
 
 A limit applies to one of two **axes**:
 
-- **Caller axis (Limit A):** limits who is calling, across *all* targets. It supports three entity types, all keyed on values resolved from the validated token (never a client header):
-  - `group` — a group the caller belongs to (name = group). Enforced **per caller** (each caller gets their own quota under the group's limit). If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
-  - `user` — a specific human user (name = username). That user's own aggregate.
-  - `client` — a specific agent / M2M client (name = `client_id` / `azp`). That agent's own aggregate.
-  A caller subject to several of these (e.g. a user, in a limited group, calling as a client) is bounded by **all** of them; the tightest effectively governs.
+- **Caller axis (Limit A):** a caller (a user or agent), across *all* targets, may not exceed N requests per window. Limits target a **group** (name = group), and the N comes from the caller's group memberships resolved from the validated token. Enforced **per caller** (each caller gets their own quota under the group's limit). If a caller is in several groups with limits at the same window, the **most restrictive** (smallest `max_requests`) wins.
+
+  A **specific user or agent** is rate-limited by being made a **member of a rate-limited group**, not by naming the user/client in a definition. Membership is managed through the IAM group APIs (`idp_user_groups` for users, `idp_m2m_clients` for agents) and surfaces in the token via group enrichment at `/validate`. This reuses the existing group/RBAC machinery instead of introducing a parallel per-identity limit dimension.
 - **Target axis (Limit B):** a target *entity*, across *all* callers combined, may not exceed N requests per window. Only enforced for targets that define a limit. This protects a weak backend from combined load.
 
 The target axis is **entity-type-generic**. v1 enforces two target kinds:
@@ -239,21 +237,37 @@ uv run python registry_management.py rate-limit-set \
 uv run python registry_management.py rate-limit-set \
   --axis caller --entity-type group --name developers --max-requests 5000 --window-seconds 86400
 
-# Limit a specific USER (by username) or a specific AGENT (by client_id)
-uv run python registry_management.py rate-limit-set \
-  --axis caller --entity-type user --name alice --max-requests 60 --window-seconds 60
-uv run python registry_management.py rate-limit-set \
-  --axis caller --entity-type client --name my-agent-client-id --max-requests 120 --window-seconds 60
-
 # 500 requests/minute aggregate to the "mcpgw" MCP server, across all callers
 uv run python registry_management.py rate-limit-set \
   --axis target --entity-type mcp_server --name mcpgw --max-requests 500 --window-seconds 60
 
 uv run python registry_management.py rate-limit-list
-uv run python registry_management.py rate-limit-get --id caller:user:alice:60
-uv run python registry_management.py rate-limit-disable --id caller:user:alice:60
-uv run python registry_management.py rate-limit-enable --id caller:user:alice:60
+uv run python registry_management.py rate-limit-get --id caller:group:developers:60
+uv run python registry_management.py rate-limit-disable --id caller:group:developers:60
+uv run python registry_management.py rate-limit-enable --id caller:group:developers:60
 uv run python registry_management.py rate-limit-delete --id caller:group:developers:60
+```
+
+To rate-limit a **specific user or agent**, create a group limit and add the user
+or agent to that group (the membership surfaces in the token via group enrichment
+at `/validate`):
+
+```bash
+# 1. Define the group's limit
+uv run python registry_management.py rate-limit-set \
+  --axis caller --entity-type group --name rate-limited-testers --max-requests 3 --window-seconds 60
+
+# 2a. Add a USER to the group (idp_user_groups)
+curl -X POST "$REGISTRY_URL/api/iam/user-groups" \
+  -H "X-Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"username": "alice", "groups": ["rate-limited-testers"]}'
+
+# 2b. ...or add an AGENT / client_id to the group (idp_m2m_clients)
+curl -X POST "$REGISTRY_URL/api/iam/m2m-clients" \
+  -H "X-Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"client_id": "my-agent-client-id", "groups": ["rate-limited-testers"]}'
+
+# 3. Re-authenticate so the new group appears in the token, then calls are limited.
 ```
 
 ## Where the Code Lives

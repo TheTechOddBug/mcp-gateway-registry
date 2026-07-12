@@ -34,7 +34,11 @@ class TestRateLimitDefinitionsGroup:
         """Each definition becomes one read-only ConfigField (key/label/value)."""
         defs = [
             RateLimitDefinition(
-                axis="caller", entity_type="user", name="alice", max_requests=5, window_seconds=60
+                axis="caller",
+                entity_type="group",
+                name="developers",
+                max_requests=5,
+                window_seconds=60,
             ),
             RateLimitDefinition(
                 axis="target",
@@ -52,13 +56,13 @@ class TestRateLimitDefinitionsGroup:
         assert len(group["fields"]) == 2
 
         by_key = {f["key"]: f for f in group["fields"]}
-        alice = by_key["caller:user:alice:60"]
-        assert alice["label"] == "caller:user:alice:60"
-        assert "5 req / 60s" in alice["value"]
-        assert "enabled" in alice["value"]
+        developers = by_key["caller:group:developers:60"]
+        assert developers["label"] == "caller:group:developers:60"
+        assert "5 req / 60s" in developers["value"]
+        assert "enabled" in developers["value"]
         # Read-only: not copyable, not masked.
-        assert alice["raw_value"] is None
-        assert alice["is_masked"] is False
+        assert developers["raw_value"] is None
+        assert developers["is_masked"] is False
 
         mcpgw = by_key["target:mcp_server:mcpgw:60"]
         assert "disabled" in mcpgw["value"]

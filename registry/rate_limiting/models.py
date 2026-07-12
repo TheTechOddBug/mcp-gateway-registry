@@ -26,15 +26,16 @@ logger = logging.getLogger(__name__)
 
 # Allowlisted entity types per axis. Extend these as new entity kinds gain a
 # gateway chokepoint. Unknown values are rejected in the validator (fail closed).
-#   Caller kinds (name from the validated token):
-#     "group"  -> a group the caller belongs to (from the token's groups claim)
-#     "user"   -> a specific human user (name = username)
-#     "client" -> a specific agent / M2M client (name = client_id / azp)
+#   Caller kind (name from the validated token's groups claim):
+#     "group" -> a group the caller belongs to. A specific user or agent is made
+#                subject to a group limit by being a MEMBER of that group (via the
+#                IAM membership APIs + token group enrichment), not by naming the
+#                user/client directly here.
 #   Target kinds:
 #     Coarse (name = path-derived):  "mcp_server", "a2a_agent"
 #     Fine   (name = "<parent>:<leaf>", from the JSON-RPC payload; later phase,
 #             NOT enforced in v1): "mcp_tool", "a2a_skill"
-CALLER_ENTITY_TYPES: frozenset[str] = frozenset({"group", "user", "client"})
+CALLER_ENTITY_TYPES: frozenset[str] = frozenset({"group"})
 TARGET_ENTITY_TYPES: frozenset[str] = frozenset(
     {"mcp_server", "a2a_agent", "mcp_tool", "a2a_skill"}
 )
@@ -55,8 +56,8 @@ MAX_WINDOW_SECONDS: int = 86400
 class RateLimitDefinition(BaseModel):
     """A rate-limit definition on one axis, for one entity type, at one window.
 
-    - ``axis="caller"``: aggregate limit on a caller dimension -- a group the
-      caller belongs to, a specific user, or a specific agent/client_id.
+    - ``axis="caller"``: aggregate limit on a group the caller belongs to. A
+      specific user or agent is limited by being a member of a limited group.
     - ``axis="target"``: aggregate limit on one target entity across all callers
       (v1 enforced: an MCP server or an A2A agent; tool/skill modeled but not
       wired).
@@ -68,12 +69,12 @@ class RateLimitDefinition(BaseModel):
     )
     entity_type: str = Field(
         ...,
-        description="caller: 'group' | 'user' | 'client'; target: 'mcp_server' | 'a2a_agent' | 'mcp_tool' | 'a2a_skill'",
+        description="caller: 'group'; target: 'mcp_server' | 'a2a_agent' | 'mcp_tool' | 'a2a_skill'",
     )
     name: str = Field(
         ...,
         min_length=1,
-        description="Group name, username, client_id, server path, or agent name this applies to",
+        description="Group name, server path, or agent name this applies to",
     )
     max_requests: int = Field(
         ...,
