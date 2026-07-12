@@ -1300,8 +1300,16 @@ async def _enforce_rate_limit(
         return
 
     if not decision.allowed:
+        # NOTE: /validate is nginx's internal auth_request subrequest, never a
+        # client-facing endpoint. nginx's auth_request module only forwards 401
+        # and 403 from the subrequest; any other status (including 429) is turned
+        # into a 500 at the parent location ("auth request unexpected status").
+        # So a throttle is signalled as a 403 carrying X-RateLimit-* headers (incl.
+        # the X-RateLimit-Throttled marker); the @forbidden_error named location in
+        # nginx captures those headers and rewrites the response into a real 429 +
+        # Retry-After for the client. Returning 429 here would surface as 500.
         raise HTTPException(
-            status_code=429,
+            status_code=403,
             detail={
                 "error": "rate_limit_exceeded",
                 "axis": decision.axis,

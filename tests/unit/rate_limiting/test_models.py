@@ -143,6 +143,10 @@ class TestRateLimitDecision:
             retry_after=30,
         )
         headers = d.headers()
+        # X-RateLimit-Throttled is the marker nginx auth_request uses to tell a
+        # throttle-403 apart from a genuine authorization 403 (issue #295): the
+        # throttle leaves /validate as a 403 and nginx rewrites it into a 429.
+        assert headers["X-RateLimit-Throttled"] == "1"
         assert headers["X-RateLimit-Limit"] == "5"
         assert headers["X-RateLimit-Remaining"] == "0"
         assert headers["X-RateLimit-Reset"] == "1000"

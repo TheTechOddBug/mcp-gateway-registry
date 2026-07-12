@@ -19,6 +19,15 @@ Two important reminders before you start:
 - **`registry_management.py` global flags go BEFORE the subcommand**: `... --token-file .token --registry-url http://localhost <subcommand> ...`. The test script `call_mcp_tool.py` is flat (flags anywhere).
 - **Admin is bypassed** on caller limits, and caller limits only apply to **data-plane** (MCP/A2A) calls, never `/api/*`. So to see a caller limit bite, test with a **non-admin** user or an M2M client, calling an **MCP server**.
 
+### CLI vs UI
+
+Every step below uses the CLI/API, but the same operations are available in the UI (admin only):
+
+- **Settings → IAM → Rate Limits** — create / edit / enable-disable / delete rate-limit definitions (group and target).
+- **Settings → IAM → Users** and **Settings → IAM → M2M Accounts** — a "Rate-limit Groups" column shows each user's / client's membership and lets you edit it via a multi-select of the defined groups.
+
+You can drive the whole sequence from the UI instead of the CLI; the CLI is used here because it is scriptable and copy-pasteable.
+
 ---
 
 ## Step 1 — Backwards compatibility (no config, no groups)
@@ -110,6 +119,8 @@ X-RateLimit-Remaining: 0
 X-RateLimit-Reset: <epoch>
 Retry-After: <seconds>
 ```
+
+> Note: internally the auth-server `/validate` subrequest returns a **403** with an `X-RateLimit-Throttled: 1` marker, because nginx `auth_request` forwards only 401/403 (a 429 there would become a 500). nginx's `@forbidden_error` location detects the marker and rewrites the response into the 429 shown above. If you ever see a **500** on a throttled call, the nginx config was rendered from a stale template that lacks the `$rl_*` captures / `@forbidden_error` branch: regenerate it (restart the registry) and confirm `grep rl_throttled /etc/nginx/conf.d/nginx_rev_proxy.conf` returns matches.
 
 ---
 

@@ -224,8 +224,17 @@ class RateLimitDecision(BaseModel):
         return cls(allowed=True, remaining=max(0, remaining))
 
     def headers(self) -> dict[str, str]:
-        """Build the ``X-RateLimit-*`` / ``Retry-After`` headers for a 429 response."""
+        """Build the ``X-RateLimit-*`` / ``Retry-After`` headers for a throttle response.
+
+        ``X-RateLimit-Throttled`` is a marker the nginx ``auth_request`` layer uses
+        to tell a throttle-403 apart from a genuine authorization 403: the throttle
+        response leaves ``/validate`` as a 403 (the only non-2xx status other than
+        401 that ``auth_request`` forwards), and nginx rewrites it back into a real
+        429 with these headers for the client. See the ``@forbidden_error`` named
+        location in the nginx templates.
+        """
         return {
+            "X-RateLimit-Throttled": "1",
             "X-RateLimit-Limit": str(self.limit if self.limit is not None else 0),
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": str(self.reset_epoch),

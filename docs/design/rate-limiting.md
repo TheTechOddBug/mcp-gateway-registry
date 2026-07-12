@@ -64,8 +64,15 @@ This document covers **only the application-level layer**. The nginx edge limiti
                                │              ├─ DocumentDBBackend  (v1)
                                │              └─ RedisBackend       (future)
                                ▼
-                         allow → 200 (existing)   |   deny → 429 (+ RateLimit headers)
+                         allow → 200 (existing)   |   deny → 403 + X-RateLimit-* headers
+                                                          │  (nginx rewrites to 429)
+                                                          ▼
+                                          client sees 429 + Retry-After
 ```
+
+### Why the throttle leaves `/validate` as a 403, not a 429
+
+`/validate` is only ever reached as nginx's `auth_request` subrequest, never directly by a client. nginx's `auth_request` module forwards **only** 401 and 403 from the subrequest to the parent location; any other status (including 429) is turned into a **500** at the parent ("auth request unexpected status: 429"). So a throttle is signalled as a **403** carrying the `X-RateLimit-*` headers plus an `X-RateLimit-Throttled: 1` marker. The data-plane location blocks capture those headers with `auth_request_set $rl_*`, and the shared `@forbidden_error` named location rewrites the response into a real **429 + Retry-After** when the marker is set (a genuine authorization 403, with the marker absent, falls through to the plain forbidden response). The `$rl_*` variables are declared at http scope via a `map` with an empty default, so control-plane and registry-only-mode locations that never capture them still resolve the references. See `docker/nginx_rev_proxy_*.conf` and `registry/core/nginx_service.py`.
 
 Enforcement lives in the auth-server `/validate` endpoint, **after** authorization and immediately before the success response is built. It is gated by `RATE_LIMITING_ENABLED` (default `false`), so an existing deployment sees no behavior change until an operator opts in.
 
@@ -143,7 +150,7 @@ On each `/validate` call, when `RATE_LIMITING_ENABLED`:
 2. **Target classification** maps the request to `(entity_type, name)`: an `/agent/...` path → `("a2a_agent", agent_path)`; otherwise a server path → `("mcp_server", server_name)`; neither → skip the target axis.
 3. **Gates are built.** Caller definitions (all windows for the caller's groups) are fetched in one cached query and grouped by window; within each window the most-restrictive wins. Target definitions (all windows for the classified entity) are fetched in one cached query. Each `(axis, window)` becomes a gate.
 4. **Gates are enforced sequentially, tightest-window-first**, stopping at the first denial.
-5. On denial, the auth-server raises `HTTPException(429)` with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `Connection: close`. The existing outer handler re-raises 4xx as-is, so the 429 flows through unchanged.
+5. On denial, the auth-server raises `HTTPException(403)` with `X-RateLimit-Throttled: 1`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `Connection: close`. The 403 (not 429) is deliberate: nginx `auth_request` forwards only 401/403 from the subrequest and would turn a 429 into a 500. The `@forbidden_error` nginx location detects the `X-RateLimit-Throttled` marker and rewrites the response into a real **429 + Retry-After** for the client (see "Why the throttle leaves `/validate` as a 403" above).
 
 ### Why sequential, tightest-window-first
 
