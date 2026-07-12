@@ -185,6 +185,31 @@ class TestRateLimiter:
         other = await _count_allowed(limiter, 4, username="bob", client_id=None)
         assert other == 4
 
+    async def test_throttle_log_carries_caller_identity(self, caplog):
+        """A throttle logs caller_type + username/client_id so it is attributable.
+
+        The identity is NOT a metric label (unbounded cardinality); the app log is
+        where an operator answers "which user/client got throttled".
+        """
+        import logging
+
+        backend = _FakeBackend()
+        limiter = _make_limiter(
+            backend,
+            caller_defs=[_caller("dev", 1, 60)],
+            memberships=_FakeMemberships(by_user={"alice": ["dev"]}),
+        )
+        with caplog.at_level(logging.WARNING, logger="registry.rate_limiting.limiter"):
+            # First call allowed, second throttled (limit 1/60s).
+            await _count_allowed(limiter, 2, username="alice", client_id=None)
+
+        throttle_lines = [r.getMessage() for r in caplog.records if "throttled" in r.getMessage()]
+        assert throttle_lines, "expected a throttle log line"
+        msg = throttle_lines[0]
+        assert "caller_type=user" in msg
+        assert "caller_username=alice" in msg
+        assert "caller_client_id=" in msg
+
     async def test_client_membership_resolves_groups(self):
         """An agent's rate-limit group resolves from its client_id membership."""
         backend = _FakeBackend()

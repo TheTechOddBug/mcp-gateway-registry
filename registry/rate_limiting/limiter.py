@@ -229,7 +229,7 @@ class RateLimiter:
 
         remaining_values: list[int] = []
         for gate in gates:
-            decision = await self._enforce(gate)
+            decision = await self._enforce(gate, caller_type, username, client_id)
             if not decision.allowed:
                 return decision
             remaining_values.append(decision.remaining)
@@ -239,8 +239,17 @@ class RateLimiter:
     async def _enforce(
         self,
         gate: _Gate,
+        caller_type: str,
+        caller_username: str | None,
+        caller_client_id: str | None,
     ) -> RateLimitDecision:
-        """Enforce a single gate: conditional increment, emit metrics, build the decision."""
+        """Enforce a single gate: conditional increment, emit metrics, build the decision.
+
+        ``caller_type`` / ``caller_username`` / ``caller_client_id`` come from the
+        validated token and are logged on a throttle so operators can answer
+        "which user or client got throttled" from the app logs (they are NOT
+        added as metric labels, which would be unbounded cardinality).
+        """
         labels: dict[str, str | int] = {
             "axis": gate.axis_abbr,
             "entity_type": gate.entity_type,
@@ -258,7 +267,12 @@ class RateLimiter:
                 timeout=self._backend_timeout_seconds,
             )
         except Exception as exc:
-            logger.warning(f"rate-limit backend error ({gate.counter_key()}): {exc}")
+            logger.warning(
+                f"rate-limit backend error ({gate.counter_key()}): {exc} "
+                f"caller_type={caller_type} "
+                f"caller_username={caller_username or ''} "
+                f"caller_client_id={caller_client_id or ''}"
+            )
             rate_limit_errors_total.add(1, {"axis": gate.axis_abbr})
             if gate.fail_closed or not self._fail_open:
                 return self._deny(gate)
@@ -268,10 +282,18 @@ class RateLimiter:
         rate_limit_checks_total.add(1, {**labels, "outcome": outcome})
         if not result.allowed:
             rate_limit_throttled_total.add(1, labels)
+            # Structured key=value fields so the throttle is attributable to a
+            # specific user / client_id in the app logs. caller_type tells whether
+            # this was a human (user) or an agent/M2M (client). caller_username /
+            # caller_client_id are the validated-token identity (one is empty).
+            # Metric labels stay low-cardinality (no identity) -- see labels above.
             logger.warning(
                 f"rate-limit throttled: axis={gate.axis_abbr} "
                 f"entity_type={gate.entity_type} name={gate.subject} "
-                f"limit={gate.max_requests}/{gate.window_seconds}s"
+                f"limit={gate.max_requests}/{gate.window_seconds}s "
+                f"caller_type={caller_type} "
+                f"caller_username={caller_username or ''} "
+                f"caller_client_id={caller_client_id or ''}"
             )
             return self._deny(gate)
         return RateLimitDecision.allow(remaining=gate.max_requests - result.current)
