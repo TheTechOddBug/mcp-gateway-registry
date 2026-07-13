@@ -1246,36 +1246,54 @@ def _resolve_rate_limit_caller(
 
     The rate limiter classifies a caller as an AGENT when ``client_id`` is set,
     else a USER, and keys the per-caller counter on that identity. But
-    ``validation_result['client_id']`` is NOT a reliable agent signal: for
-    Keycloak (and other OIDC providers) it is derived from the token's ``azp``
-    (authorized party = the OAuth client, e.g. ``mcp-gateway-web``), so a HUMAN
-    browser / password-grant token also carries a truthy ``client_id``. Using it
-    verbatim misclassifies every human as an agent (picking the group's agent
-    limit, and bucketing all web users under one shared client counter).
+    ``validation_result['client_id']`` is NOT a reliable agent signal, and the
+    right discriminator is **provider-specific**:
 
-    A genuine machine (``client_credentials``) token has no end user: OIDC then
-    emits a top-level ``client_id`` claim and a ``service-account-*`` subject,
-    and carries no ``preferred_username`` for a real person. We treat the caller
-    as an agent only when the token itself is machine-to-machine; otherwise it is
-    a user keyed on the username, and ``client_id`` is dropped so the agent branch
-    is not taken.
+    - Keycloak / Entra / Auth0: a user (browser / password-grant) token carries
+      the OAuth client only as ``azp`` (copied into ``validation_result``), while
+      a machine (``client_credentials``) token additionally carries a top-level
+      ``client_id`` **claim** and a ``service-account-*`` subject. So the agent
+      signal is a top-level ``client_id`` claim (or a ``service-account-*``
+      ``preferred_username``).
+    - Cognito: BOTH user access tokens and M2M tokens carry a ``client_id``
+      claim, so ``client_id`` cannot discriminate. A Cognito user access token
+      carries a ``username`` claim; a Cognito M2M (``client_credentials``) token
+      does not. So the agent signal on Cognito is the ABSENCE of ``username``.
+
+    Using ``client_id`` alone would misclassify every human as an agent (picking
+    the group's agent limit, and bucketing all web users under one shared client
+    counter) -- on Keycloak for password-grant tokens, and on Cognito for every
+    user access token.
 
     Returns (username, client_id) to pass to ``RateLimiter.check``: for a user,
-    ``(username, None)``; for an agent, ``(username_or_None, client_id)``.
+    ``(username, None)``; for an agent, ``(username_or_None, client_id)`` so the
+    limiter's agent branch is taken and keys on the client.
     """
     username = validation_result.get("username")
+    client_id = validation_result.get("client_id")
+    method = validation_result.get("method")
     claims = validation_result.get("data") or {}
+    if not isinstance(claims, dict):
+        claims = {}
 
-    # M2M signal: the OIDC provider put a distinct top-level client_id claim on
-    # the token (client_credentials), NOT merely the azp-derived client_id the
-    # provider copied into validation_result. Keycloak/Auth0 set claims.client_id
-    # only for client_credentials; browser/password-grant tokens carry azp only.
-    token_client_id = claims.get("client_id") if isinstance(claims, dict) else None
-    if token_client_id:
-        return username, token_client_id
+    token_client_id = claims.get("client_id")
 
-    # No machine identity on the token -> treat as a human user, keyed on username.
-    # Drop the azp-derived client_id so the limiter's user branch is taken.
+    if method == "cognito":
+        # Cognito: M2M (client_credentials) access token has no end-user
+        # ``username`` claim; a user access token always does.
+        is_machine = bool(token_client_id) and "username" not in claims
+    else:
+        # Keycloak / Entra / Auth0 (and any OIDC provider that copies azp into
+        # client_id): only a client_credentials token carries a top-level
+        # client_id claim or a service-account-* subject.
+        preferred = claims.get("preferred_username") or ""
+        is_machine = bool(token_client_id) or preferred.startswith("service-account-")
+
+    if is_machine:
+        return username, (token_client_id or client_id)
+
+    # Human user: key on username; drop the azp/client_id so the limiter's user
+    # branch is taken.
     return username, None
 
 

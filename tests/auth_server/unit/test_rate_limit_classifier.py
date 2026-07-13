@@ -52,6 +52,59 @@ class TestResolveRateLimitCaller:
         assert username == "someone"
         assert client_id is None
 
+    def test_cognito_user_access_token_is_user(self):
+        """Cognito user access token carries client_id AND username -> user.
+
+        On Cognito both user and M2M access tokens carry a client_id claim, so
+        the discriminator is the username claim (present only for a real user).
+        Keying on client_id here would misclassify every Cognito user as an agent.
+        """
+        from auth_server.server import _resolve_rate_limit_caller
+
+        validation_result = {
+            "method": "cognito",
+            "username": "74182448-f001-70bf-d6fa-062dabf0a2fa",
+            "client_id": "7nostc9as6v2qbd44ar8ku42k3",
+            "data": {
+                "token_use": "access",
+                "client_id": "7nostc9as6v2qbd44ar8ku42k3",
+                "username": "74182448-f001-70bf-d6fa-062dabf0a2fa",
+            },
+        }
+        username, client_id = _resolve_rate_limit_caller(validation_result)
+        assert username == "74182448-f001-70bf-d6fa-062dabf0a2fa"
+        assert client_id is None  # user branch, NOT keyed on the shared web client
+
+    def test_cognito_m2m_token_is_agent(self):
+        """Cognito client_credentials token has client_id but NO username -> agent."""
+        from auth_server.server import _resolve_rate_limit_caller
+
+        validation_result = {
+            "method": "cognito",
+            "username": None,
+            "client_id": "rl-test-m2m-client",
+            "data": {
+                "token_use": "access",
+                "client_id": "rl-test-m2m-client",
+                "scope": "rl-test-api/invoke",
+            },
+        }
+        username, client_id = _resolve_rate_limit_caller(validation_result)
+        assert client_id == "rl-test-m2m-client"  # agent branch, keyed on the client
+
+    def test_keycloak_service_account_subject_is_agent(self):
+        """A Keycloak service-account-* subject with no top-level client_id -> agent."""
+        from auth_server.server import _resolve_rate_limit_caller
+
+        validation_result = {
+            "method": "keycloak",
+            "username": "service-account-rl-test-m2m",
+            "client_id": "rl-test-m2m",
+            "data": {"preferred_username": "service-account-rl-test-m2m"},
+        }
+        username, client_id = _resolve_rate_limit_caller(validation_result)
+        assert client_id == "rl-test-m2m"  # agent branch
+
 
 @pytest.mark.unit
 class TestThrottlePassthrough:
