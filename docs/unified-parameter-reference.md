@@ -304,6 +304,7 @@ that server's Connect dialog:
 | Client secret **(secret)** | `COGNITO_CLIENT_SECRET` | — | `auth-server.cognito.clientSecret` | — |
 | Enabled | `COGNITO_ENABLED` | — | — | — |
 | Custom domain | `COGNITO_DOMAIN` | — | `auth-server.cognito.domain` | Optional. |
+| M2M client allowlist | `COGNITO_M2M_CLIENT_IDS` | `cognito_m2m_client_ids` | `auth-server.cognito.m2mClientIds` | Comma/space-separated allowlist of Cognito app-client ids whose machine (`client_credentials`) access tokens the gateway accepts (Cognito access tokens are not audience-bound, so the `client_id` claim is checked against this list). Default-empty = fail closed. Use `*` to accept ANY M2M client in the pool without listing each (machine/no-`username` tokens only; user logins stay restricted to the web + IDE clients) — for one M2M client per agent. Only use `*` when the pool is dedicated to the gateway. Required for Cognito agent/M2M callers, e.g. per-agent rate limiting. |
 | Region | `AWS_REGION` | `aws_region` | `auth-server.cognito.region` | — |
 
 ### 12c — Microsoft Entra ID

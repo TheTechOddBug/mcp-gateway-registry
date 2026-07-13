@@ -215,17 +215,28 @@ Recommended alerts: sustained `mcpgw_rate_limit_errors_total` (limiter effective
 
 ## Configuration
 
-All five parameters are off-by-default-safe and wired across Docker Compose, Terraform, and Helm. See the [unified parameter reference](../unified-parameter-reference.md#group-32--rate-limiting-issue-295) for the per-surface names.
+All parameters are off-by-default-safe and wired across Docker Compose, Terraform, and Helm. See the [unified parameter reference](../unified-parameter-reference.md#group-32--rate-limiting) for the per-surface names.
 
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `RATE_LIMITING_ENABLED` | `false` | Master switch. |
-| `RATE_LIMIT_BACKEND` | `documentdb` | Counter backend (only `documentdb` in v1). |
-| `RATE_LIMIT_FAIL_OPEN` | `true` | Global fail-open on backend error. |
-| `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `30` | In-process definitions cache TTL. |
-| `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `250` | Hard per-op counter timeout. |
+| Env var | Default | Read by | Purpose |
+|---------|---------|---------|---------|
+| `RATE_LIMITING_ENABLED` | `false` | both | Master switch. |
+| `RATE_LIMIT_BACKEND` | `documentdb` | both | Counter backend (only `documentdb` in v1). |
+| `RATE_LIMIT_FAIL_OPEN` | `true` | both | Global fail-open on backend error. |
+| `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `30` | both | In-process definitions cache TTL. |
+| `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `250` | both | Hard per-op counter timeout. |
+| `RATE_LIMIT_USER_FLOOR_PER_MIN` | `20` | registry | Config-time floor: a caller group's `user_max_requests` on a window `<= 60s` must be `>=` this, else the definition is rejected. Registry-only (validates definitions). |
+| `RATE_LIMIT_AGENT_FLOOR_PER_MIN` | `10` | registry | Same, for a group's `agent_max_requests`. Registry-only. |
 
-Both the `registry` and `auth-server` services read these; keep them in agreement.
+The first five are read by **both** the `registry` and `auth-server` services (keep them in agreement); the two floors are read by the **registry only** (it validates group definitions at config time). The auth-server enforces limits; the registry validates and stores them.
+
+**Provider note (Cognito agents):** agent/M2M rate limiting requires the caller's machine token to be accepted at `/validate`. On **Amazon Cognito**, a `client_credentials` app-client id must be allowlisted via `COGNITO_M2M_CLIENT_IDS` (or `*`), and the client mapped to registry groups via the M2M-clients store — see [docs/idp/cognito.md → Machine-to-machine (M2M / agent) clients](../idp/cognito.md#machine-to-machine-m2m--agent-clients). Keycloak/Okta/Auth0/PingFederate use their own `*_m2m_client_id` settings.
+
+## Testing
+
+Hands-on, copy-pasteable end-to-end guides (create principals, groups, and memberships, then watch limits trip):
+
+- [End-to-End Test Guide](../e2e_testing.md) — the happy-path walkthrough: create the test principals, group (caller) limits, response headers, metrics + logs, the floor safeguards, per-agent (M2M) limits, and target limits.
+- [Advanced / Edge-Case Test Guide](../e2e_testing_advanced.md) — failure modes and correctness invariants: concurrency/atomicity, window reset + `Retry-After`, deny-does-not-consume, caller-type classification, membership-vs-authz, admin bypass, data-plane-only scope, enable/disable, and fail-open/fail-closed.
 
 ## Managing Limits (Admin API and CLI)
 
