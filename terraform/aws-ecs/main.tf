@@ -176,11 +176,12 @@ module "mcp_gateway" {
   idp_user_group_fallback_enabled_providers = var.idp_user_group_fallback_enabled_providers
 
   # Amazon Cognito configuration
-  cognito_enabled       = var.cognito_enabled
-  cognito_user_pool_id  = var.cognito_user_pool_id
-  cognito_client_id     = var.cognito_client_id
-  cognito_client_secret = var.cognito_client_secret
-  cognito_domain        = var.cognito_domain
+  cognito_enabled        = var.cognito_enabled
+  cognito_user_pool_id   = var.cognito_user_pool_id
+  cognito_client_id      = var.cognito_client_id
+  cognito_client_secret  = var.cognito_client_secret
+  cognito_domain         = var.cognito_domain
+  cognito_m2m_client_ids = var.cognito_m2m_client_ids
 
   # Okta configuration
   okta_enabled               = var.okta_enabled

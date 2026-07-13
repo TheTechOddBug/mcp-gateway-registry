@@ -711,6 +711,12 @@ variable "cognito_domain" {
   default     = ""
 }
 
+variable "cognito_m2m_client_ids" {
+  description = "Optional comma/space-separated allowlist of Cognito app-client ids that mint machine (client_credentials) access tokens the gateway should accept. Use \"*\" to accept any M2M (no-username) client in the pool without listing each. Default-empty = fail closed (no M2M client accepted)."
+  type        = string
+  default     = ""
+}
+
 # =============================================================================
 # OKTA CONFIGURATION
 # =============================================================================

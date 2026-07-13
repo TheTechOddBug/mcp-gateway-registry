@@ -160,6 +160,10 @@ cognito:
   clientSecret: ""
   domain: "" # Optional: custom Cognito domain
   region: "us-east-1" # AWS region for the User Pool
+  # Optional comma/space-separated allowlist of Cognito app-client ids that mint
+  # machine (client_credentials) access tokens the gateway should accept. Empty =
+  # fail closed (no M2M client accepted).
+  m2mClientIds: ""
 # Per-user egress credential vault (third-party OBO support).
 # The auth-server only needs the feature flag + the internal vend URL (it calls
 # the registry's /_egress_internal vend endpoint) + the nginx marker secret; it

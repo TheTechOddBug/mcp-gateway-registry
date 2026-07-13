@@ -140,6 +140,13 @@ module "ecs_service_auth" {
           name  = "COGNITO_DOMAIN"
           value = var.cognito_domain
         },
+        # Cognito M2M (client_credentials) app-client id allowlist. Comma/space-
+        # separated; the auth-server accepts machine access tokens from these
+        # clients (their client_id claim). Default-empty = fail closed. Not a secret.
+        {
+          name  = "COGNITO_M2M_CLIENT_IDS"
+          value = var.cognito_m2m_client_ids
+        },
         # IDE OAuth login public client_id (PR #1224). The auth-server accepts
         # access tokens from this client (e.g. Cognito allowlist). Not a secret.
         {
