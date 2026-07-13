@@ -8,6 +8,7 @@ import {
 } from '@heroicons/react/24/outline';
 import {
   useRateLimitDefinitions,
+  useRateLimitMemberships,
   setRateLimitDefinition,
   deleteRateLimitDefinition,
   setRateLimitEnabled,
@@ -36,8 +37,23 @@ const inputBase =
   'w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-800 text-gray-900 ' +
   'dark:text-white border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500';
 
+// Small at-a-glance stat tile for the summary row.
+const StatTile: React.FC<{ label: string; value: number; hint?: string }> = ({
+  label,
+  value,
+  hint,
+}) => (
+  <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
+    <div className="text-2xl font-semibold text-gray-900 dark:text-white">{value}</div>
+    <div className="text-xs text-gray-500 dark:text-gray-400" title={hint}>{label}</div>
+  </div>
+);
+
 const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
   const { definitions, isLoading, error, refetch } = useRateLimitDefinitions();
+  // Memberships feed the "callers governed" summary tile (users + agents mapped
+  // into rate-limit groups). Read-only here; the editor lives on Users/M2M.
+  const { memberships } = useRateLimitMemberships();
   // Registered server + agent paths, for the target-name typeahead.
   const { servers, isLoading: serversLoading } = useServerList();
   const { agents, isLoading: agentsLoading } = useAgentList();
@@ -65,6 +81,26 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
       (d) => d.name.toLowerCase().includes(q) || d.entity_type.toLowerCase().includes(q),
     );
   }, [definitions, searchQuery]);
+
+  // High-level, at-a-glance config summary computed from the loaded definitions +
+  // memberships (no backend call). These are configuration counts, not live
+  // throttle counts (runtime throttle metrics live in Prometheus:
+  // mcpgw_rate_limit_throttled_total). See the Observability guide.
+  const summary = useMemo(() => {
+    const enabled = definitions.filter((d) => d.enabled);
+    const callerSubjects = new Set<string>();
+    for (const m of memberships) {
+      if (m.groups && m.groups.length > 0) callerSubjects.add(`${m.subject_type}:${m.subject}`);
+    }
+    return {
+      total: definitions.length,
+      enabled: enabled.length,
+      caller: definitions.filter((d) => d.axis === 'caller').length,
+      target: definitions.filter((d) => d.axis === 'target').length,
+      failClosed: definitions.filter((d) => d.fail_closed).length,
+      governed: callerSubjects.size,
+    };
+  }, [definitions, memberships]);
 
   // Typeahead options for the target name: registered server paths for
   // mcp_server, agent paths for a2a_agent. name shown as the label's description.
@@ -355,6 +391,17 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
           <PlusIcon className="h-4 w-4 mr-1" />
           New Rate Limit
         </button>
+      </div>
+
+      {/* High-level config summary (counts from definitions + memberships). These
+          are configuration counts, not live throttle counts. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatTile label="Total limits" value={summary.total} hint="All rate-limit definitions" />
+        <StatTile label="Enabled" value={summary.enabled} hint="Definitions currently enforced" />
+        <StatTile label="Caller (group)" value={summary.caller} hint="Per-caller group limits" />
+        <StatTile label="Target" value={summary.target} hint="Per MCP-server / A2A-agent limits" />
+        <StatTile label="Fail-closed" value={summary.failClosed} hint="Deny on backend error" />
+        <StatTile label="Callers governed" value={summary.governed} hint="Users/agents mapped into a rate-limit group" />
       </div>
 
       <div className="relative max-w-md">

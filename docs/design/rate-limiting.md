@@ -4,20 +4,107 @@ This document describes the application-level rate limiting in the MCP Gateway R
 
 ## Table of Contents
 
-1. [What This Is (and Is Not)](#what-this-is-and-is-not)
-2. [Two Layers of Rate Limiting](#two-layers-of-rate-limiting)
-3. [High-Level Design](#high-level-design)
-4. [The Two Axes and Windows](#the-two-axes-and-windows)
-5. [Data Model](#data-model)
-6. [The Enforcement Path](#the-enforcement-path)
-7. [Correctness Across Replicas](#correctness-across-replicas)
-8. [Failure Modes](#failure-modes)
-9. [Latency](#latency)
-10. [Observability](#observability)
-11. [Configuration](#configuration)
-12. [Managing Limits (Admin API and CLI)](#managing-limits-admin-api-and-cli)
-13. [Where the Code Lives](#where-the-code-lives)
-14. [Extending It](#extending-it)
+1. [Operational Guidance (start here)](#operational-guidance-start-here)
+2. [What This Is (and Is Not)](#what-this-is-and-is-not)
+3. [Two Layers of Rate Limiting](#two-layers-of-rate-limiting)
+4. [High-Level Design](#high-level-design)
+5. [The Two Axes and Windows](#the-two-axes-and-windows)
+6. [Data Model](#data-model)
+7. [The Enforcement Path](#the-enforcement-path)
+8. [Correctness Across Replicas](#correctness-across-replicas)
+9. [Failure Modes](#failure-modes)
+10. [Latency](#latency)
+11. [Observability](#observability)
+12. [Configuration](#configuration)
+13. [Managing Limits (Admin API and CLI)](#managing-limits-admin-api-and-cli)
+14. [Where the Code Lives](#where-the-code-lives)
+15. [Extending It](#extending-it)
+
+---
+
+## Operational Guidance (start here)
+
+**By default, rate limiting is completely off — every authenticated caller has unlimited access, exactly as before.** Nothing throttles until an operator opts in. Two things are *always* unlimited regardless of config: **admins** (they bypass all caller limits so an operator can never lock themselves out) and **control-plane `/api/*`** calls (the dashboard/login are never throttled). Rate limiting applies only to **data-plane** MCP/A2A calls by non-admin callers.
+
+```
+                    ┌─────────────────────────────────────────────┐
+                    │  DEFAULT: RATE_LIMITING_ENABLED=false         │
+                    │  → unlimited access for everyone (no change)  │
+                    └───────────────────────┬───────────────────────┘
+                                            │  operator opts in
+                                            ▼
+        ┌───────────────────────────────────────────────────────────────┐
+        │ 1. ENABLE enforcement across your deployment surface            │
+        │    Set the mandatory param on registry + auth-server:           │
+        │        RATE_LIMITING_ENABLED=true                               │
+        │    (per-surface names + optional tuning params → unified ref)   │
+        └───────────────────────────────┬───────────────────────────────┘
+                                        ▼
+        ┌───────────────────────────────────────────────────────────────┐
+        │ 2. CREATE a rate-limit group (a caller limit definition)        │
+        │        rate-limit-set --axis caller --entity-type group ...     │
+        └───────────────────────────────┬───────────────────────────────┘
+                                        ▼
+        ┌───────────────────────────────────────────────────────────────┐
+        │ 3. ADD callers to the group (membership, keyed on identity)     │
+        │    a user   → --subject-type user   --subject <username>        │
+        │    an agent → --subject-type client --subject <client_id>       │
+        └───────────────────────────────┬───────────────────────────────┘
+                                        ▼
+        ┌───────────────────────────────────────────────────────────────┐
+        │ 4. TEST it: burst calls as that caller and watch 429s           │
+        └───────────────────────────────────────────────────────────────┘
+```
+
+### Step 1 — Enable enforcement (mandatory param)
+
+Rate limiting is enabled by a **single mandatory parameter**, set on **both** the `registry` and `auth-server` services:
+
+```
+RATE_LIMITING_ENABLED=true
+```
+
+Everything else has a safe default (backend, fail-open, cache TTL, timeout, floors). For the per-surface names (Docker `.env`, Terraform `.tfvars`, Helm `values.yaml`) and the optional tuning parameters, see the [unified parameter reference → Group 32, Rate Limiting](../unified-parameter-reference.md#group-32--rate-limiting). For Cognito **agent/M2M** callers there is one extra provider step (`COGNITO_M2M_CLIENT_IDS`) — see [docs/idp/cognito.md](../idp/cognito.md#machine-to-machine-m2m--agent-clients).
+
+### Step 2 — Create a rate-limit group
+
+A group carries a per-window limit. It has two numbers — one for human users, one for agents — and you set whichever apply (at least one). On windows `<= 60s` a floor applies (user `>= 20/min`, agent `>= 10/min` by default), so pick values at or above it.
+
+```bash
+# A caller group "power-users": humans 60/min, agents 30/min
+uv run python api/registry_management.py --token-file .token --registry-url "$REG" \
+  rate-limit-set --axis caller --entity-type group --name power-users \
+  --user-max-requests 60 --agent-max-requests 30 --window-seconds 60
+```
+
+### Step 3 — Add an existing user and/or agent to the group
+
+Membership is keyed on the caller's identity from the validated token — a **username** for a human, a **client_id** for an agent — and is the ONLY source of a caller's rate-limit groups (decoupled from IdP/authz groups).
+
+```bash
+# Add an existing human user by username
+uv run python api/registry_management.py --token-file .token --registry-url "$REG" \
+  rate-limit-member-set --subject-type user --subject <username> --groups power-users
+
+# Add an existing agent by its client_id (M2M)
+uv run python api/registry_management.py --token-file .token --registry-url "$REG" \
+  rate-limit-member-set --subject-type client --subject <client_id> --groups power-users
+```
+
+(You can also manage all of the above from the UI: **Settings → IAM → Rate Limits**, and edit membership on **Users** / **M2M Accounts**.)
+
+### Step 4 — Test it
+
+Drive calls **as that caller** (their own token, not admin) against an MCP server and watch the limit trip:
+
+```bash
+uv run python tests/scripts/call_mcp_tool.py \
+  --server-url "$REG/<server>/mcp" --tool <tool> --tool-args '{}' \
+  --token-file <caller-token> --registry-url "$REG" --count <limit+5>
+# → the first N succeed (200), then HTTP 429 with X-RateLimit-* and Retry-After
+```
+
+For full end-to-end walkthroughs (including the response headers, metrics, floors, per-agent M2M, target limits, and failure modes), see the [Testing](#testing) guides below.
 
 ---
 
