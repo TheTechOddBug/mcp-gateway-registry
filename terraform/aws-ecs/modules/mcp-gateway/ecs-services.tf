@@ -410,14 +410,10 @@ module "ecs_service_auth" {
           name  = "RATE_LIMIT_BACKEND_TIMEOUT_MS"
           value = tostring(var.rate_limit_backend_timeout_ms)
         },
-        {
-          name  = "RATE_LIMIT_USER_FLOOR_PER_MIN"
-          value = tostring(var.rate_limit_user_floor_per_min)
-        },
-        {
-          name  = "RATE_LIMIT_AGENT_FLOOR_PER_MIN"
-          value = tostring(var.rate_limit_agent_floor_per_min)
-        },
+        # NOTE: the RATE_LIMIT_*_FLOOR_PER_MIN vars are intentionally NOT set on the
+        # auth-server -- only the registry reads them (it validates group definitions
+        # at config time). They are set on the registry container instead, matching
+        # the Helm chart (charts/registry only).
         {
           name  = "DOCUMENTDB_USE_TLS"
           value = tostring(var.documentdb_use_tls)
@@ -1176,6 +1172,17 @@ module "ecs_service_registry" {
         {
           name  = "RATE_LIMIT_BACKEND_TIMEOUT_MS"
           value = tostring(var.rate_limit_backend_timeout_ms)
+        },
+        # Floors are read by the REGISTRY (it validates group definitions at config
+        # time); the auth-server does not read them. Registry-only, matching the
+        # Helm chart (charts/registry only).
+        {
+          name  = "RATE_LIMIT_USER_FLOOR_PER_MIN"
+          value = tostring(var.rate_limit_user_floor_per_min)
+        },
+        {
+          name  = "RATE_LIMIT_AGENT_FLOOR_PER_MIN"
+          value = tostring(var.rate_limit_agent_floor_per_min)
         },
         {
           name  = "DOCUMENTDB_USE_TLS"
