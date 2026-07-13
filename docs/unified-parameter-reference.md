@@ -305,6 +305,7 @@ that server's Connect dialog:
 | Client secret **(secret)** | `COGNITO_CLIENT_SECRET` | — | `auth-server.cognito.clientSecret` | — |
 | Enabled | `COGNITO_ENABLED` | — | — | — |
 | Custom domain | `COGNITO_DOMAIN` | — | `auth-server.cognito.domain` | Optional. |
+| M2M client allowlist | `COGNITO_M2M_CLIENT_IDS` | `cognito_m2m_client_ids` | `auth-server.cognito.m2mClientIds` | Comma/space-separated allowlist of Cognito app-client ids whose machine (`client_credentials`) access tokens the gateway accepts (Cognito access tokens are not audience-bound, so the `client_id` claim is checked against this list). Default-empty = fail closed. Use `*` to accept ANY M2M client in the pool without listing each (machine/no-`username` tokens only; user logins stay restricted to the web + IDE clients) — for one M2M client per agent. Only use `*` when the pool is dedicated to the gateway. Required for Cognito agent/M2M callers, e.g. per-agent rate limiting. |
 | Region | `AWS_REGION` | `aws_region` | `auth-server.cognito.region` | — |
 
 ### 12c — Microsoft Entra ID
@@ -789,6 +790,22 @@ These have no `.env` equivalent because they describe the infrastructure, not th
 | Enable reverse-proxy | `A2A_REVERSE_PROXY_ENABLED` | `a2a_reverse_proxy_enabled` | `registry.app.a2aReverseProxyEnabled` | Opt-in. When `true`, each enabled agent gets nginx blocks that proxy its A2A traffic (agent card + JSON-RPC) through the gateway for centralized auth and per-agent access control. Default `false` = registry-only discovery, no proxy blocks. Also gated by `with-gateway` deployment mode; force-disabled in `registry-only`. See [A2A reverse-proxy mode](design/a2a-protocol-integration.md#reverse-proxy-mode-proxying-a2a-traffic). |
 | SSRF allowed hosts | `SSRF_ALLOWED_HOSTS` | `ssrf_allowed_hosts` | `registry.app.ssrfAllowedHosts` | Comma-separated exact hostnames or literal IPs that the gateway is permitted to proxy/health-check even though they resolve to private/internal addresses. Needed when agent backends live on internal networks (Docker service names, ECS Service Connect names, in-cluster ClusterIPs), which the SSRF guard blocks by default. Least-privilege: prefer naming hosts here over widening CIDRs. Empty = only public addresses allowed. |
 | SSRF allowed CIDRs | `SSRF_ALLOWED_CIDRS` | `ssrf_allowed_cidrs` | `registry.app.ssrfAllowedCidrs` | Comma-separated CIDR ranges to allow whole internal subnets (e.g. `172.18.0.0/16` for a Docker network, or the cluster service CIDR on EKS). Use only when you cannot enumerate hosts. Empty = no internal subnets allowed. |
+
+---
+
+## Group 32 — Rate Limiting
+
+Application-level, identity/group/target-aware request limiting enforced at the auth-server `/validate` hop. This is complementary to (not a replacement for) the coarse per-IP nginx edge limiting. Off by default; limit **definitions** are managed at runtime via the admin API (`/api/rate-limits`) or `registry_management.py rate-limit-set`, not via these parameters. Applies to both the `registry` and `auth-server` services (both must agree). See [rate limiting design](design/rate-limiting.md).
+
+| Parameter | Docker (`.env`) | Terraform (`.tfvars`) | Helm (`values.yaml`) | Purpose |
+|-----------|-----------------|-----------------------|----------------------|---------|
+| Enable rate limiting | `RATE_LIMITING_ENABLED` | `rate_limiting_enabled` | `registry.app.rateLimiting.enabled` / `auth-server.app.rateLimiting.enabled` | Master switch. Default `false` = no checks (no behavior change). |
+| Counter backend | `RATE_LIMIT_BACKEND` | `rate_limit_backend` | `*.app.rateLimiting.backend` | Counter store. Only `documentdb` is implemented in v1 (no new infrastructure); the backend interface allows a future Redis. |
+| Fail open on error | `RATE_LIMIT_FAIL_OPEN` | `rate_limit_fail_open` | `*.app.rateLimiting.failOpen` | Default `true`: on a counter-store error, allow rather than deny (availability guardrail). A per-limit `fail_closed` definition overrides to deny. |
+| Definitions cache TTL | `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `rate_limit_definitions_cache_ttl_seconds` | `*.app.rateLimiting.definitionsCacheTtlSeconds` | In-process cache TTL (seconds) for definition reads; steady-state per-call cost is zero DB reads for definitions. Default `30`. |
+| Backend op timeout | `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `rate_limit_backend_timeout_ms` | `*.app.rateLimiting.backendTimeoutMs` | Hard per-op timeout (ms) for each counter operation; a slow store fails fast into the fail-open/closed policy, never hanging `/validate`. Default `250`. |
+| User floor (per min) | `RATE_LIMIT_USER_FLOOR_PER_MIN` | `rate_limit_user_floor_per_min` | `registry.app.rateLimiting.userFloorPerMin` | Lockout safeguard read by the **registry** at group-definition config time: on windows `<= 60s` a group's `user_max_requests` must be `>=` this floor, else the PUT is rejected. Config-only (no API). Default `20`. |
+| Agent floor (per min) | `RATE_LIMIT_AGENT_FLOOR_PER_MIN` | `rate_limit_agent_floor_per_min` | `registry.app.rateLimiting.agentFloorPerMin` | Same as above for a group's `agent_max_requests`. Config-only (no API). Default `10`. |
 
 ---
 

@@ -45,6 +45,7 @@ from registry.api.management_routes import router as management_router
 from registry.api.okta_m2m_routes import router as okta_m2m_router
 from registry.api.peer_management_routes import router as peer_management_router
 from registry.api.public_record_routes import router as public_record_router
+from registry.api.rate_limit_routes import router as rate_limit_router
 from registry.api.registry_management_routes import router as registry_management_router
 from registry.api.registry_routes import router as registry_router
 from registry.api.search_routes import router as search_router
@@ -1170,6 +1171,8 @@ app.include_router(auth0_m2m_router, prefix="/api", tags=["Auth0 M2M"])
 # Does not require IdP Admin API token. Gated by feature flag.
 if settings.m2m_direct_registration_enabled:
     app.include_router(m2m_management_router, prefix="/api", tags=["M2M Management"])
+
+app.include_router(rate_limit_router, prefix="/api", tags=["Rate Limiting"])
 
 # Direct user-to-group fallback registration API (issue #1127). The router
 # already declares its full /api/iam/user-groups prefix and tag, so include
