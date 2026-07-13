@@ -42,10 +42,10 @@ from registry.api.internal_routes import router as internal_router
 from registry.api.log_routes import router as log_router
 from registry.api.m2m_management_routes import router as m2m_management_router
 from registry.api.management_routes import router as management_router
-from registry.api.rate_limit_routes import router as rate_limit_router
 from registry.api.okta_m2m_routes import router as okta_m2m_router
 from registry.api.peer_management_routes import router as peer_management_router
 from registry.api.public_record_routes import router as public_record_router
+from registry.api.rate_limit_routes import router as rate_limit_router
 from registry.api.registry_management_routes import router as registry_management_router
 from registry.api.registry_routes import router as registry_router
 from registry.api.search_routes import router as search_router
