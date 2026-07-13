@@ -791,7 +791,7 @@ These have no `.env` equivalent because they describe the infrastructure, not th
 
 ---
 
-## Group 32 — Rate Limiting (Issue #295)
+## Group 32 — Rate Limiting
 
 Application-level, identity/group/target-aware request limiting enforced at the auth-server `/validate` hop. This is complementary to (not a replacement for) the coarse per-IP nginx edge limiting. Off by default; limit **definitions** are managed at runtime via the admin API (`/api/rate-limits`) or `registry_management.py rate-limit-set`, not via these parameters. Applies to both the `registry` and `auth-server` services (both must agree). See [rate limiting design](design/rate-limiting.md).
 
