@@ -592,7 +592,7 @@ async def get_skill_content(
     if not _SKILL_NAME_PATTERN.match(skill_name):
         return {
             "skill_name": skill_name,
-            "error": ("skill_name must be a single identifier matching ^[a-z0-9]+(-[a-z0-9]+)*$"),
+            "error": (r"skill_name must be a single identifier matching ^[a-z0-9]+(-[a-z0-9]+)*\Z"),
             "status": "failed",
         }
 
