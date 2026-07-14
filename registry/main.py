@@ -22,7 +22,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from registry.api.agent_routes import router as agent_router
@@ -1369,6 +1369,7 @@ def _build_cached_index_html() -> str | None:
     # Rewrite absolute asset references to include ROOT_PATH
     html_content = html_content.replace('="/static/', f'="{prefix}/static/')
     html_content = html_content.replace('="/favicon.ico"', f'="{prefix}/favicon.ico"')
+    html_content = html_content.replace('="/rum.js"', f'="{prefix}/rum.js"')
 
     # Inject <base> tag if not already present (for React Router relative links)
     if "<base" not in html_content:
@@ -1377,6 +1378,27 @@ def _build_cached_index_html() -> str | None:
         html_content = html_content.replace("<head>", f"<head>\n    {base_tag}")
 
     return html_content
+
+
+@app.get("/rum.js")
+async def serve_rum_js():
+    """Serve the customer RUM snippet as JavaScript.
+
+    Registered unconditionally (not gated on the frontend build directory) so
+    the route exists in every deployment mode. The container entrypoint writes
+    the file (empty stub when unconfigured); if it is missing, we return an
+    empty stub inline so the request never 404s or falls through to the SPA
+    catch-all. Public, like other static assets.
+    """
+    headers = {"Cache-Control": "public, max-age=300"}
+    rum_path = FRONTEND_BUILD_PATH / "rum.js"
+    if not rum_path.exists():
+        return Response(
+            content="// no RUM snippet configured\n",
+            media_type="application/javascript",
+            headers=headers,
+        )
+    return FileResponse(rum_path, media_type="application/javascript", headers=headers)
 
 
 if FRONTEND_BUILD_PATH.exists():
