@@ -524,6 +524,50 @@ variable "documentdb_namespace" {
   default     = "default"
 }
 
+# Rate Limiting (issue #295). Application-level, identity/target-aware limits
+# enforced at the auth-server /validate hop. Off by default.
+variable "rate_limiting_enabled" {
+  description = "Master switch for application-level rate limiting"
+  type        = bool
+  default     = false
+}
+
+variable "rate_limit_backend" {
+  description = "Rate-limit counter backend (only 'documentdb' is implemented in v1)"
+  type        = string
+  default     = "documentdb"
+}
+
+variable "rate_limit_fail_open" {
+  description = "Global fail-open on rate-limit backend error (per-limit fail_closed overrides)"
+  type        = bool
+  default     = true
+}
+
+variable "rate_limit_definitions_cache_ttl_seconds" {
+  description = "In-process cache TTL (seconds) for rate-limit definition reads"
+  type        = number
+  default     = 30
+}
+
+variable "rate_limit_backend_timeout_ms" {
+  description = "Hard per-op timeout (ms) for each rate-limit counter operation"
+  type        = number
+  default     = 250
+}
+
+variable "rate_limit_user_floor_per_min" {
+  description = "Minimum per-minute user limit a group may set on short windows (lockout safeguard)"
+  type        = number
+  default     = 20
+}
+
+variable "rate_limit_agent_floor_per_min" {
+  description = "Minimum per-minute agent limit a group may set on short windows (lockout safeguard)"
+  type        = number
+  default     = 10
+}
+
 variable "documentdb_use_tls" {
   description = "Use TLS for DocumentDB connections"
   type        = bool
@@ -550,6 +594,30 @@ variable "mongodb_connection_string" {
 
 variable "mongodb_connection_string_secret_arn" {
   description = "Optional Secrets Manager ARN for the full MongoDB connection string. Preferred over mongodb_connection_string when the URI contains credentials."
+  type        = string
+  default     = ""
+}
+
+# Base64-encoded HTML snippet served as /rum.js for frontend Real User
+# Monitoring (RUM). Empty disables RUM. Prefer registry_rum_snippet_secret_arn
+# when the snippet carries a vendor token, to avoid storing secrets in
+# Terraform state (mirrors the mongodb_connection_string plaintext-or-secret
+# pattern).
+variable "registry_rum_snippet_b64" {
+  description = "Optional base64-encoded HTML snippet served as /rum.js for frontend RUM (plain text). Empty disables RUM. Prefer registry_rum_snippet_secret_arn when the snippet contains a vendor token."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "registry_rum_snippet_secret_arn" {
+  description = "Optional Secrets Manager ARN for the base64-encoded RUM snippet. Preferred over registry_rum_snippet_b64 when the snippet contains a vendor token."
+  type        = string
+  default     = ""
+}
+
+variable "registry_rum_allowed_hosts" {
+  description = "Optional comma-separated allowlist of hosts the RUM snippet may reference (script src and beacon). When set, a snippet referencing any host not on the list is rejected at startup (fail closed). Empty disables the check."
   type        = string
   default     = ""
 }
@@ -710,6 +778,12 @@ variable "cognito_client_secret" {
 
 variable "cognito_domain" {
   description = "Optional Cognito hosted UI domain prefix or custom domain. Leave empty to derive it from the User Pool ID (e.g. https://<pool-id-without-underscore>.auth.<region>.amazoncognito.com)."
+  type        = string
+  default     = ""
+}
+
+variable "cognito_m2m_client_ids" {
+  description = "Optional comma/space-separated allowlist of Cognito app-client ids that mint machine (client_credentials) access tokens the gateway should accept (COGNITO_M2M_CLIENT_IDS). Default-empty = fail closed."
   type        = string
   default     = ""
 }
@@ -1186,6 +1260,25 @@ variable "aws_registry_federation_enabled" {
   description = "Enable AWS Agent Registry federation."
   type        = bool
   default     = false
+}
+
+variable "aws_registry_federation_assume_role_arns" {
+  description = <<-EOT
+    IAM role ARNs the registry task may assume for cross-account AWS Agent
+    Registry federation. Leave empty (the default) to disable cross-account
+    access: the sts:AssumeRole grant is omitted entirely and only same-account
+    federation works. Fail-closed: an unset list grants no cross-account trust.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for arn in var.aws_registry_federation_assume_role_arns :
+      can(regex("^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$", arn))
+    ])
+    error_message = "Each entry must be a full IAM role ARN (arn:aws:iam::<account-id>:role/<name>)."
+  }
 }
 
 # =============================================================================
@@ -1810,6 +1903,17 @@ variable "ide_oauth_callback_port" {
   EOT
   type        = number
   default     = 0
+}
+
+variable "ide_connect_scope" {
+  description = <<-EOT
+    Optional install scope for the Claude Code Connect snippet: local, project,
+    or user. When set, the generated `claude mcp add` command emits
+    `--scope <value>`. Empty (default) omits the flag. Display-only; passed
+    through to the mcp_gateway module.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "registry_extra_env" {

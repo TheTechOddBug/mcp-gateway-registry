@@ -511,6 +511,11 @@ For a custom OIDC provider:
 }
 ```
 
+> For a fully worked, verified custom-OIDC example against an Amazon Bedrock
+> AgentCore Gateway (Cognito + Claude Code), including the separate 3LO app
+> client and the common scope-formatting pitfall, see the
+> [FAQ: How do I use a 3LO (per-user OAuth) AgentCore Gateway with the registry?](faq/agentcore-3lo-per-user-oauth.md).
+
 - `custom_scope_separator` (default `" "`) and `custom_token_auth_style`
   (`post_body` default, or `basic_header`) tune the wire format for providers
   that deviate from the common case.

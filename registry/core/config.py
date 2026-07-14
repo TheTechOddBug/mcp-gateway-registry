@@ -161,6 +161,16 @@ class Settings(BaseSettings):
     # docs/unified-parameter-reference.md (Group 4) for details.
     bind_host: str = "0.0.0.0"  # nosec B104 - bind to all IPv4 interfaces inside container
 
+    # Frontend Real User Monitoring (RUM) hook
+    rum_snippet_b64: str = Field(
+        default="",
+        description="Base64-encoded HTML snippet injected as /rum.js for Real User Monitoring (RUM). Empty disables RUM (default). May contain a vendor access token, so treat as sensitive.",
+    )
+    rum_allowed_hosts: str = Field(
+        default="",
+        description="Comma-separated allowlist of hosts the RUM snippet may reference (script src and beacon endpoints). If set, the snippet is rejected (fail closed) when it references any host not on the list. Empty disables the check.",
+    )
+
     # Auth settings
     secret_key: str = ""
     session_cookie_name: str = "mcp_gateway_session"
@@ -234,6 +244,19 @@ class Settings(BaseSettings):
         ),
         ge=0,
         le=65535,
+    )
+    ide_connect_scope: str = Field(
+        default="",
+        description=(
+            "Optional scope for the Claude Code Connect snippet. When set, the "
+            "generated `claude mcp add` command emits `--scope <value>` (e.g. "
+            "`user` to install the server for every project instead of only the "
+            "current directory, or `project` to share it via .mcp.json). Empty "
+            "(default) omits the flag entirely, preserving Claude Code's own "
+            "default (`local`) and the historical snippet. Only affects the "
+            "displayed Claude Code snippet — no effect on Cursor/Codex configs "
+            "or on gateway behaviour."
+        ),
     )
 
     # Registration webhook settings (Issue #742)
@@ -1028,6 +1051,28 @@ class Settings(BaseSettings):
         ),
     )
 
+    @field_validator("ide_connect_scope", mode="before")
+    @classmethod
+    def _validate_ide_connect_scope(cls, v: str | None) -> str:
+        # Constrain to Claude Code's known scopes so the value can never inject
+        # arbitrary tokens into the displayed `claude mcp add` snippet. Anything
+        # else (including a typo) is dropped back to "" -> flag omitted.
+        if v is None:
+            return ""
+        v_lower = str(v).strip().lower()
+        if v_lower == "":
+            return ""
+        if v_lower not in {"local", "project", "user"}:
+            import logging as _logging
+
+            display = v_lower[:16] + ("..." if len(v_lower) > 16 else "")
+            _logging.getLogger(__name__).warning(
+                f"IDE_CONNECT_SCOPE={display!r} is not a valid Claude Code scope "
+                "(local|project|user); ignoring"
+            )
+            return ""
+        return v_lower
+
     @field_validator("mcp_cloud_provider")
     @classmethod
     def _validate_cloud_provider(cls, v: str | None) -> str | None:
@@ -1450,6 +1495,48 @@ class Settings(BaseSettings):
 
     # DocumentDB Namespace (for multi-tenancy support)
     documentdb_namespace: str = "default"
+
+    # Rate limiting (issue #295). Application-level, identity/group/target-aware
+    # limits enforced at the auth-server /validate hop. Mirrored here for the
+    # registry-side admin API and the System Config page. Enforcement itself
+    # reads these from the auth-server module-level constants.
+    rate_limiting_enabled: bool = Field(
+        default=False,
+        description="Master switch for application-level rate limiting.",
+    )
+    rate_limit_backend: str = Field(
+        default="documentdb",
+        description="Rate-limit counter backend (only 'documentdb' is implemented in v1).",
+    )
+    rate_limit_fail_open: bool = Field(
+        default=True,
+        description="Global fail-open on rate-limit backend error (per-limit fail_closed overrides).",
+    )
+    rate_limit_definitions_cache_ttl_seconds: int = Field(
+        default=30,
+        ge=1,
+        description="In-process cache TTL (seconds) for rate-limit definition reads.",
+    )
+    rate_limit_backend_timeout_ms: int = Field(
+        default=250,
+        ge=1,
+        description="Hard per-op timeout (ms) for each rate-limit counter operation.",
+    )
+    # Lockout safeguard: minimum per-minute limit a GROUP definition may set for a
+    # human user / an agent, enforced at config time on short windows (<= 60s). A
+    # group definition below its caller-type floor is REJECTED. Config-only (no API
+    # to read/reset), so an operator cannot accidentally throttle interactive users
+    # into a lockout. A group that wants a tighter cap must set exactly the floor.
+    rate_limit_user_floor_per_min: int = Field(
+        default=20,
+        ge=1,
+        description="Minimum per-minute user limit a group may set (short windows). Config-only.",
+    )
+    rate_limit_agent_floor_per_min: int = Field(
+        default=10,
+        ge=1,
+        description="Minimum per-minute agent limit a group may set (short windows). Config-only.",
+    )
 
     # Agent batch API (issue #956)
     batch_max_operations_per_job: int = Field(
