@@ -405,10 +405,10 @@ Detail for Hop 4. Web ACL: `mcp-gateway-keycloak-waf`. Request: POST `/realms/mc
 flowchart TD
     A["DCR POST arrives<br/>path: /realms/mcp-gateway/clients-registrations/openid-connect<br/>body: redirect_uris=[http://localhost:1234/callback]"] --> P1
 
-    P1["Priority 1: CommonRuleSet<br/>scope-down: NOT starts_with '/realms/*/clients-registrations/'"]
+    P1["Priority 1: CommonRuleSet<br/>scope-down: NOT starts_with '/realms/mcp-gateway/clients-registrations/'"]
     P1 -->|"path DOES start with DCR prefix<br/>→ scope-down does not match<br/>→ rule skipped entirely"| P2
 
-    P2["Priority 2: CommonRuleSetForDcr<br/>scope-down: starts_with '/realms/*/clients-registrations/'<br/>→ matches, managed group evaluates"]
+    P2["Priority 2: CommonRuleSetForDcr<br/>scope-down: starts_with '/realms/mcp-gateway/clients-registrations/'<br/>→ matches, managed group evaluates"]
 
     P2 --> S1["BadBots_HEADER, NoUserAgent, SizeRestrictions_*,<br/>RestrictedExtensions_*, XSS_*, SQLi_*, LFI_*<br/>→ no match"]
     S1 --> S2{"EC2MetaDataSSRF_BODY<br/>regex hits 'localhost'"}
@@ -422,20 +422,17 @@ flowchart TD
     P5 --> DA["defaultAction: Allow"]
     DA --> KC["Request reaches Keycloak"]
 
-    S2 -.->|"OVERRIDE: Count preserves flow<br/>(was Block, would have terminated here)"| BLK1["what would have happened<br/>before the override"]
-    S4 -.->|"if body had 127.0.0.1<br/>→ OVERRIDE: Count<br/>→ still passes through"| S5
-
     classDef pass fill:#d4f4dd,stroke:#2d7a3e,color:#000
     classDef count fill:#fff3c4,stroke:#8a6b00,color:#000
     classDef skip fill:#e8e8e8,stroke:#666,color:#000
-    classDef hypothetical fill:#f0d4ff,stroke:#6b2d7a,color:#000
     class KC,DA,S1,S5,P3,P4,P5 pass
     class S2,S3,S4 count
     class P1 skip
-    class BLK1 hypothetical
 ```
 
-Legend: grey = rule skipped (scope-down did not match), yellow = matched-but-Count, green = pass, purple = counterfactual reference. Both `EC2MetaDataSSRF_BODY` and `GenericRFI_BODY` are Count-only on the DCR path, so bodies containing `localhost`, `127.0.0.1`, or `169.254.169.254` all pass here — and only here.
+Legend: grey = rule skipped (scope-down did not match), yellow = matched-but-Count, green = pass. Both `EC2MetaDataSSRF_BODY` and `GenericRFI_BODY` are Count-only on the DCR path, so bodies containing `localhost`, `127.0.0.1`, or `169.254.169.254` all pass here — and only here.
+
+**Counterfactual (before this refactor):** with `EC2MetaDataSSRF_BODY` at Block, evaluation would have terminated at S2 with an HTML 403 page. With the sub-rule at Count-but-Block-scoped-globally (the earlier iteration of this PR), `GenericRFI_BODY` at S4 would have terminated with the same 403 for `127.0.0.1` / `169.254.169.254` bodies.
 
 **On any other path** (registry API, `/oauth2/*`, MCP endpoint, etc.), Rule 1's scope-down matches and runs the same managed group at full Block, so `EC2MetaDataSSRF_BODY` and `GenericRFI_BODY` still terminate on those tokens.
 
