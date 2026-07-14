@@ -189,6 +189,11 @@ registry:
   session:
     cookieSecure: false
     cookieDomain: ""
+    # Exact-match allowlist of OAuth login/logout redirect URIs (open-redirect
+    # hardening). Comma-separated absolute URLs. Empty falls back to the weaker
+    # cookie-domain heuristic; set it to harden. Example:
+    # "https://registry.example.com/,https://registry.example.com/login"
+    oauth2AllowedRedirectUris: ""
     oauthStoreTokensInSession: false
 
   # UI tabs

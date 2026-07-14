@@ -1278,6 +1278,7 @@ async def register_service(
     oauth_client_id: Annotated[str | None, Form()] = None,
     append_mcp_path: Annotated[bool | None, Form()] = None,
     user_context: Annotated[dict, Depends(enhanced_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Register a new service (requires register_service UI permission).
 
@@ -2966,7 +2967,11 @@ async def get_service_tools(
 
 
 @router.post("/refresh/{service_path:path}")
-async def refresh_service(service_path: str, user_context: Annotated[dict, Depends(enhanced_auth)]):
+async def refresh_service(
+    service_path: str,
+    user_context: Annotated[dict, Depends(enhanced_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
+):
     """Refresh service health and tool information (requires health_check_service permission)."""
     from ..auth.dependencies import user_has_ui_permission_for_service
     from ..health.service import health_service
@@ -3380,7 +3385,9 @@ async def internal_list_groups(
 
 @router.post("/tokens/generate")
 async def generate_user_token(
-    request: Request, user_context: Annotated[dict, Depends(enhanced_auth)]
+    request: Request,
+    user_context: Annotated[dict, Depends(enhanced_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Generate a JWT token for the authenticated user.
@@ -3788,6 +3795,7 @@ async def register_service_api(
     allowed_groups: Annotated[str | None, Form()] = None,
     oauth_client_id: Annotated[str | None, Form()] = None,
     append_mcp_path: Annotated[bool | None, Form()] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Register a service via JWT Bearer Token authentication (External API).
 
@@ -4246,6 +4254,7 @@ async def update_server_auth_credential(
     server_path: str,
     body: AuthCredentialUpdateRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Update the authentication credential for a registered server.
@@ -4398,6 +4407,7 @@ async def toggle_service_api(
     path: Annotated[str, Form()],
     new_state: Annotated[bool, Form()],
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Toggle a service's enabled/disabled state via JWT authentication (External API).
@@ -4538,6 +4548,7 @@ async def remove_service_api(
     request: Request,
     path: Annotated[str, Form()],
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Remove a service via JWT Bearer Token authentication (External API).
@@ -4738,6 +4749,7 @@ async def add_server_to_groups_api(
     server_name: Annotated[str, Form()],
     group_names: Annotated[str, Form()],
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Add a service to scope groups via JWT authentication (External API).
@@ -4780,6 +4792,7 @@ async def remove_server_from_groups_api(
     server_name: Annotated[str, Form()],
     group_names: Annotated[str, Form()],
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Remove a service from scope groups via JWT authentication (External API).
@@ -4896,6 +4909,7 @@ async def create_group_api(
     description: Annotated[str, Form()] = "",
     create_in_idp: Annotated[bool, Form()] = False,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Create a new scope group via JWT authentication (External API).
@@ -5027,6 +5041,7 @@ async def delete_group_api(
     delete_from_keycloak: Annotated[bool, Form()] = True,
     force: Annotated[bool, Form()] = False,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Delete a scope group via JWT authentication (External API).
@@ -5177,6 +5192,7 @@ async def get_group_api(
 async def import_group_definition(
     request: Request,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Import a complete group definition via JSON (External API).
@@ -5350,6 +5366,7 @@ async def rate_server(
     path: str,
     rating_request: RatingRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Save integer ratings to server."""
     # Set audit action for server rating
@@ -5516,6 +5533,7 @@ async def get_server_security_scan(
 async def rescan_server(
     path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Trigger a manual security scan for a server.
@@ -5662,6 +5680,7 @@ async def remove_server_version(
     service_path: str,
     version: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Remove a version from a server.
@@ -5727,6 +5746,7 @@ async def set_default_version(
     service_path: str,
     version_data: SetDefaultVersion,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Set the default (latest) version for a server.
@@ -5938,6 +5958,7 @@ async def update_server_endpoint(
     response: Response,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Replace a registered server's mutable metadata.
 
@@ -6112,6 +6133,7 @@ async def patch_server_endpoint(
     response: Response,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Apply an RFC 7396 JSON Merge Patch to a server's metadata.
 

@@ -386,6 +386,12 @@ variable "session_cookie_domain" {
   default     = ""
 }
 
+variable "oauth2_allowed_redirect_uris" {
+  description = "Comma-separated exact-match allowlist of OAuth login/logout redirect URIs (open-redirect hardening). When set, an absolute redirect_uri is accepted only if it exactly matches an entry; relative paths are always allowed. Empty falls back to the weaker cookie-domain heuristic."
+  type        = string
+  default     = ""
+}
+
 variable "trusted_proxy_hops" {
   description = "Number of trusted reverse-proxy hops in front of the app. The audit client IP is taken from the Nth-from-the-right X-Forwarded-For entry, never the client-controlled left-most one. Default 1 (the bundled nginx). Raise it when additional trusted proxies (e.g. ALB + CloudFront) sit in front."
   type        = number

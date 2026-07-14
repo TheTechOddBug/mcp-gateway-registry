@@ -407,6 +407,10 @@ services:
       - TRUSTED_PROXY_HOPS=${TRUSTED_PROXY_HOPS:-1}
       - TRUSTED_EXTERNAL_HOSTS=${TRUSTED_EXTERNAL_HOSTS:-}
       - SECRET_KEY=${SECRET_KEY}
+      # Exact-match allowlist of OAuth login/logout redirect URIs (comma-separated
+      # absolute URLs). Empty (default) falls back to the weaker cookie-domain
+      # heuristic; set it to harden against open-redirect via a controlled subdomain.
+      - OAUTH2_ALLOWED_REDIRECT_URIS=${OAUTH2_ALLOWED_REDIRECT_URIS:-}
       # Per-user egress credential vault: auth-server only needs the feature flag,
       # the internal vend URL, and the nginx marker secret (it does NOT touch the
       # secret store, so no SECRET_STORE/AWS/OPENBAO vars here).

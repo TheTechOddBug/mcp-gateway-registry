@@ -318,6 +318,27 @@ sanitizer that isn't called) is equivalent to no check.
   the inbound `Host` against an allowlist (or a configured external URL) before
   using it to build an OAuth `redirect_uri` or any external URL; fail closed to
   the configured host on an unexpected `Host`.
+- **Validate an OAuth login/logout `redirect_uri` against an EXACT-MATCH
+  allowlist of registered callbacks, not a domain-suffix / subdomain match.** A
+  "same-origin OR within `SESSION_COOKIE_DOMAIN`" check admits any host inside
+  the cookie domain — including an attacker-controlled subdomain
+  (`evil.example.com` under `.example.com`) — which is an open redirect. Read a
+  configured allowlist of full absolute URIs (normalize scheme+host+port+path)
+  and, when it is set, permit an absolute redirect ONLY if it exactly matches an
+  entry; check it BEFORE any suffix fallback. Relative-path redirects (no
+  scheme/host) are same-origin by construction and stay allowed. Keep the
+  suffix behavior only as an unset-allowlist fallback for backward compat, and
+  document the allowlist as the hardened path. Apply the same check to BOTH the
+  login-success redirect and the logout `redirect_uri`. Fail closed: an absolute
+  URI that is neither relative nor allowlisted nor (fallback) within-domain is
+  rejected to a safe default (`/login` or `/`).
+- **The session cookie's `SameSite` must stay `Lax` for OAuth login to work.**
+  The cookie is set on the OAuth callback response, which is reached via a
+  top-level cross-site navigation from the IdP; a `Strict` cookie is not sent on
+  that navigation, so the browser drops it and login silently fails. `Strict` is
+  NOT a valid "hardening" here — CSRF is defended separately by the CSRF token,
+  not by `SameSite=Strict`. Leave a comment at the `set_cookie` site so a future
+  reader does not "tighten" it and break login.
 - **Bind the OAuth2/OIDC authorization-code flow to the specific login.** A valid
   signature is necessary but not sufficient — a correctly-signed id_token minted
   for a different login can be replayed/injected. Send a per-login `nonce` on the
@@ -534,7 +555,17 @@ the drift between copies is the hole.
 - **State-changing endpoint CSRF → `registry/auth/csrf.py`.** Add
   `Depends(verify_csrf_token_flexible)` (or `verify_csrf_token_header_only`) to
   every mutating route. Don't invent per-router CSRF logic; match the dependency
-  every other router uses.
+  every other router uses. **Apply it UNIFORMLY across the ENTIRE session-auth
+  mutation family, not just the reported route** — a per-route dependency is
+  trivial to forget on a new endpoint, so grep the whole family (every
+  `@router.(post|put|patch|delete)` handler that depends on the session-cookie
+  auth dependency — `enhanced_auth` AND `nginx_proxied_auth`, which falls back to
+  the cookie — and mutates state) and close every gap. `verify_csrf_token_flexible`
+  correctly NO-OPS for non-cookie (Bearer/CLI) callers, so it is safe to add to a
+  route even if some callers are non-browser. It reads the token from the
+  `X-CSRF-Token` header OR a `csrf_token` form field, so a JSON-body route works
+  fine via the header. Skip only routes authed purely by `validate_internal_auth`
+  / internal-token (not browser/cookie surfaces).
 - **Internal service-to-service auth → `registry/auth/internal.py`.**
   `generate_internal_token()` to mint, `validate_internal_auth` /
   `validate_internal_session_secret` as the route dependency. Internal tokens are

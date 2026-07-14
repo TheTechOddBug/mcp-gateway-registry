@@ -925,6 +925,93 @@ def mask_token(token: str) -> str:
     return "***MASKED***"
 
 
+def _normalize_redirect_uri(url: str) -> str:
+    """Normalize an absolute redirect URI for exact-match comparison.
+
+    Lower-cases the scheme and host, drops a default port, and strips a
+    trailing slash from the path so that cosmetically different but equivalent
+    URIs compare equal. Query and fragment are preserved as-is because they can
+    be security-relevant. Returns the input unchanged when it is not an
+    absolute http(s) URL (nothing to normalize).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return url
+    host = parsed.hostname.lower()
+    default_port = 443 if parsed.scheme == "https" else 80
+    if parsed.port and parsed.port != default_port:
+        netloc = f"{host}:{parsed.port}"
+    else:
+        netloc = host
+    path = parsed.path.rstrip("/")
+    normalized = f"{parsed.scheme.lower()}://{netloc}{path}"
+    if parsed.query:
+        normalized = f"{normalized}?{parsed.query}"
+    if parsed.fragment:
+        normalized = f"{normalized}#{parsed.fragment}"
+    return normalized
+
+
+def _get_allowed_redirect_uris() -> set[str]:
+    """Return the configured exact-match redirect URI allowlist.
+
+    Read from OAUTH2_ALLOWED_REDIRECT_URIS (comma-separated absolute URIs).
+    Each entry is normalized so comparison is stable. An empty/unset value
+    yields an empty set, which signals the caller to fall back to the weaker
+    cookie-domain heuristic (documented as the non-hardened mode).
+    """
+    raw = os.environ.get("OAUTH2_ALLOWED_REDIRECT_URIS", "").strip()
+    if not raw:
+        return set()
+    return {_normalize_redirect_uri(entry.strip()) for entry in raw.split(",") if entry.strip()}
+
+
+def _is_redirect_uri_allowed(
+    url: str,
+    request: Request | None = None,
+) -> bool:
+    """Decide whether a login/logout redirect target is safe.
+
+    Precedence (fail closed):
+      1. Relative URLs (no scheme and no netloc) are always safe -- they are
+         same-origin by construction.
+      2. Non-http(s) absolute URLs are always rejected.
+      3. If an exact-match allowlist is configured
+         (OAUTH2_ALLOWED_REDIRECT_URIS), the absolute URL is permitted ONLY
+         when it exactly matches a normalized allowlist entry. This is the
+         hardened path: a subdomain of the cookie domain that is not on the
+         list is rejected.
+      4. If no allowlist is configured, fall back to the legacy cookie-domain
+         heuristic for backward compatibility. This is the weaker mode;
+         configuring the allowlist is the recommended posture.
+    """
+    if not url:
+        return False
+    # A backslash is not a valid path separator, but some legacy browsers
+    # rewrite it to "/" before following a redirect, turning "/\evil.com" into
+    # the protocol-relative "//evil.com" (an off-site redirect). urlparse treats
+    # it as a relative path, so reject it explicitly before the same-origin
+    # shortcut below (fail closed).
+    if "\\" in url:
+        return False
+    parsed = urlparse(url)
+    if not parsed.scheme and not parsed.netloc:
+        # Reject protocol-relative ("//evil.com"): urlparse may leave it in the
+        # path, but a browser follows it off-site.
+        if url.startswith("//"):
+            return False
+        return True
+    if parsed.scheme not in ("http", "https"):
+        return False
+
+    allowlist = _get_allowed_redirect_uris()
+    if allowlist:
+        return _normalize_redirect_uri(url) in allowlist
+
+    cookie_domain = os.environ.get("SESSION_COOKIE_DOMAIN", "").strip()
+    return _is_redirect_within_cookie_domain(url, cookie_domain, request)
+
+
 def _is_redirect_within_cookie_domain(
     url: str,
     cookie_domain: str,
@@ -5326,14 +5413,12 @@ async def oauth2_callback(
             "redirect_uri", OAUTH2_CONFIG.get("registry", {}).get("success_redirect", "/")
         )
         # Validate redirect_url to prevent open redirect attacks. Relative URLs
-        # are always safe; absolute URLs must be same-origin with the inbound
-        # request or within SESSION_COOKIE_DOMAIN when that is configured.
-        cookie_domain = os.environ.get("SESSION_COOKIE_DOMAIN", "").strip()
-        redirect_parsed = urlparse(redirect_url)
-        redirect_is_safe = (
-            not redirect_parsed.scheme and not redirect_parsed.netloc
-        ) or _is_redirect_within_cookie_domain(redirect_url, cookie_domain, request)
-        if not redirect_is_safe:
+        # are always safe. Absolute URLs must exactly match a registered entry
+        # in the OAUTH2_ALLOWED_REDIRECT_URIS allowlist when it is configured
+        # (the hardened path). When the allowlist is unset, this falls back to
+        # the weaker same-origin / cookie-domain heuristic for backward
+        # compatibility. Fail closed: anything else is rejected to a safe path.
+        if not _is_redirect_uri_allowed(redirect_url, request):
             logger.warning(f"Blocked unsafe redirect URL: {redirect_url}, falling back to /")
             redirect_url = "/"
         response = RedirectResponse(url=redirect_url, status_code=302)
@@ -5350,6 +5435,12 @@ async def oauth2_callback(
         # Secure Set-Cookie sent over plain HTTP.
         cookie_secure_config = OAUTH2_CONFIG.get("session", {}).get("secure", True)
         cookie_secure = cookie_secure_config and is_https
+        # SameSite MUST remain "lax" for the OAuth login flow. The session
+        # cookie is set on the callback response, which is reached via a
+        # top-level cross-site navigation from the IdP. A "strict" cookie is
+        # NOT sent on such cross-site navigations, so the browser would drop it
+        # and login would silently fail. Do not "harden" this to Strict; CSRF
+        # is defended separately by the CSRF token, not by SameSite=Strict.
         cookie_samesite = OAUTH2_CONFIG.get("session", {}).get("samesite", "lax")
         cookie_domain = OAUTH2_CONFIG.get("session", {}).get("domain", "")
 
@@ -5515,16 +5606,17 @@ async def oauth2_logout(
         if provider not in OAUTH2_CONFIG.get("providers", {}):
             raise HTTPException(status_code=404, detail=f"Provider {provider} not found")
 
-        # Reject absolute redirect_uri that escapes the
-        # deployment's cookie domain before forwarding it to the IdP. The IdP's
-        # post_logout_redirect_uri allow-list is the authoritative check, but
+        # Validate an absolute redirect_uri before forwarding it to the IdP.
+        # When OAUTH2_ALLOWED_REDIRECT_URIS is configured, the URI must exactly
+        # match a registered entry (hardened path); otherwise this falls back
+        # to the weaker cookie-domain heuristic. The IdP's
+        # post_logout_redirect_uri allow-list remains the authoritative check;
         # this guards against misconfigured IdP clients and makes the intent
-        # explicit at our boundary.
+        # explicit at our boundary. Relative URIs are same-origin and allowed.
         if redirect_uri:
             parsed = urlparse(redirect_uri)
             if parsed.scheme or parsed.netloc:
-                cookie_domain = os.environ.get("SESSION_COOKIE_DOMAIN", "").strip()
-                if not _is_redirect_within_cookie_domain(redirect_uri, cookie_domain, request):
+                if not _is_redirect_uri_allowed(redirect_uri, request):
                     logger.warning(
                         f"Blocked unsafe logout redirect_uri for {provider}: {redirect_uri}"
                     )

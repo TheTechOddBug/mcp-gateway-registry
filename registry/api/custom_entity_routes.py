@@ -22,6 +22,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ..audit.context import set_audit_action
+from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
 from ..schemas.custom_entity_models import (
     CustomEntityCreate,
@@ -120,6 +121,7 @@ async def create_custom_entity(
     body: CustomEntityCreate,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     type: str = TYPE_PARAM,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> CustomEntityRecord:
     """Create a record of the given custom type."""
     service = _get_service()
@@ -155,6 +157,7 @@ async def update_custom_entity(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     type: str = TYPE_PARAM,
     uuid: str = UUID_PARAM,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> CustomEntityRecord:
     """Update a record (owner or admin only; partial-update semantics)."""
     service = _get_service()
@@ -188,6 +191,7 @@ async def delete_custom_entity(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     type: str = TYPE_PARAM,
     uuid: str = UUID_PARAM,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> None:
     """Delete a record (owner or admin only)."""
     service = _get_service()
@@ -213,6 +217,7 @@ async def rate_custom_entity(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     type: str = TYPE_PARAM,
     uuid: str = UUID_PARAM,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Add or update the caller's 1-5 rating on a record they can view."""
     service = _get_service()

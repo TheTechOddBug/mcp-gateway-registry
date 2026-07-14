@@ -948,6 +948,7 @@ async def register_agent(
     http_request: Request,
     request: AgentRegistrationRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Register a new A2A agent in the registry.
@@ -1431,6 +1432,7 @@ async def list_agents(
 async def check_agent_health(
     path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Perform a health check against an A2A agent.
 
@@ -1501,6 +1503,7 @@ async def rate_agent(
     path: str,
     rating_request: RatingRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Save integer ratings to agent card."""
     # Set audit action for agent rating
@@ -1744,6 +1747,7 @@ async def get_agent_security_scan(
 async def rescan_agent(
     path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Trigger a manual security scan for an A2A agent.
@@ -1842,6 +1846,7 @@ async def submit_agent_batch(
     body: AgentBatchRequest,
     response: Response,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Submit an asynchronous batch of agent register/patch/replace/delete ops.
 
@@ -1921,6 +1926,7 @@ async def pull_agent_card(
     path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     dry_run: bool = Query(True, description="Preview changes without applying"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Pull the latest A2A agent card from the remote endpoint.
 
@@ -2186,6 +2192,7 @@ async def update_agent(
     path: str,
     request: AgentRegistrationRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Update an existing agent card.
@@ -2356,6 +2363,7 @@ async def patch_agent(
     response: Response,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Apply an RFC 7396 JSON Merge Patch to an agent card.
 
@@ -2529,6 +2537,7 @@ async def delete_agent(
     request: Request,
     path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """
     Delete an agent from the registry.
