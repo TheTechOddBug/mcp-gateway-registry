@@ -376,7 +376,7 @@ async def configure_egress_auth(
     server_path: str,
     body: EgressConfigRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
-    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Configure (or disable) per-user egress OAuth on a server. Admin only.
 
@@ -601,7 +601,7 @@ async def initiate_consent(
     request: Request,
     body: InitiateRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
-    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Begin the OAuth consent for the current user; returns the authorize URL."""
     _feature_enabled_or_404()
@@ -739,7 +739,7 @@ async def disconnect(
     provider: str,
     server_path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
-    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Delete the current user's vault entry for (provider, server_path)."""
     _feature_enabled_or_404()

@@ -21,6 +21,7 @@ import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -952,7 +953,28 @@ def _normalize_redirect_uri(url: str) -> str:
     return normalized
 
 
-def _get_allowed_redirect_uris() -> set[str]:
+@lru_cache(maxsize=8)
+def _parse_allowed_redirect_uris(raw: str) -> frozenset[str]:
+    """Parse+normalize a raw allowlist string into a frozenset (cached by input).
+
+    Keyed on the raw string so repeated calls with the same value skip
+    re-parsing. Because ``_get_allowed_redirect_uris`` re-reads the environment
+    on every call and passes the current value as the cache key, a runtime
+    change to OAUTH2_ALLOWED_REDIRECT_URIS is a cache miss that recomputes from
+    the new value -- the stale entry is never looked up again, so no explicit
+    cache invalidation (``cache_clear``) is needed. ``maxsize`` only bounds the
+    number of distinct raw strings ever seen (one in practice). An empty/blank
+    string yields an empty set.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return frozenset()
+    return frozenset(
+        _normalize_redirect_uri(entry.strip()) for entry in stripped.split(",") if entry.strip()
+    )
+
+
+def _get_allowed_redirect_uris() -> frozenset[str]:
     """Return the configured exact-match redirect URI allowlist.
 
     Read from OAUTH2_ALLOWED_REDIRECT_URIS (comma-separated absolute URIs).
@@ -960,10 +982,7 @@ def _get_allowed_redirect_uris() -> set[str]:
     yields an empty set, which signals the caller to fall back to the weaker
     cookie-domain heuristic (documented as the non-hardened mode).
     """
-    raw = os.environ.get("OAUTH2_ALLOWED_REDIRECT_URIS", "").strip()
-    if not raw:
-        return set()
-    return {_normalize_redirect_uri(entry.strip()) for entry in raw.split(",") if entry.strip()}
+    return _parse_allowed_redirect_uris(os.environ.get("OAUTH2_ALLOWED_REDIRECT_URIS", ""))
 
 
 def _is_redirect_uri_allowed(
