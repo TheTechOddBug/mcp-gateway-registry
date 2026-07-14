@@ -43,9 +43,9 @@ _ENABLED_FILTER: dict[str, Any] = {"enabled": {"$ne": False}}
 # clients that carry no group claim, but write access to that collection is a
 # privileged-group injection vector. We do not silently trust it: when
 # enrichment adds one of these groups we emit a WARNING-level audit line so the
-# grant is attributable and reviewable. Keep in sync with the auth server's
-# admin markers (``_A2A_ADMIN_MARKERS``).
-_PRIVILEGED_GROUPS: frozenset[str] = frozenset({"mcp-registry-admin", "registry-admins"})
+# grant is attributable and reviewable. Sourced from the shared single source of
+# truth so this cannot drift from the auth server's admin markers.
+from registry.auth.privileged_constants import ADMIN_GROUP_MARKERS as _PRIVILEGED_GROUPS
 
 # Sentinel client_id assigned to self-signed *user* tokens (see the auth
 # server's self-signed validation path). It is not a real M2M client id, so a

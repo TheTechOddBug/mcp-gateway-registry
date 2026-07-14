@@ -2384,8 +2384,9 @@ def _get_a2a_agent_path(
 # broad server grant -- so an MCP server scope never gates agent invoke. The set
 # matches the registry's own admin determination (registry/auth/dependencies.py
 # _user_is_admin): both the "mcp-registry-admin" scope and the "registry-admins"
-# bootstrap group/scope count as admin.
-_A2A_ADMIN_MARKERS: frozenset[str] = frozenset({"mcp-registry-admin", "registry-admins"})
+# bootstrap group/scope count as admin. Sourced from the shared single source of
+# truth so this cannot drift from the other layers that gate on admin groups.
+from registry.auth.privileged_constants import ADMIN_GROUP_MARKERS as _A2A_ADMIN_MARKERS
 
 
 async def validate_a2a_agent_access(
