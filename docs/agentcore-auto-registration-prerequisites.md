@@ -307,3 +307,4 @@ Before running `python -m cli.agentcore sync`, verify:
 
 - [Auto-Registration CLI Usage](agentcore.md#auto-registration) — CLI commands, environment variables, and troubleshooting
 - [AgentCore Gateway Integration Guide](agentcore.md) — Manual gateway registration walkthrough
+- [FAQ: 3LO (Per-User OAuth) AgentCore Gateways](agentcore-3lo-oauth-faq.md): making an OAuth-backed gateway call as the individual end user instead of a shared M2M credential
