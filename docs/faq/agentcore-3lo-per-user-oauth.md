@@ -174,7 +174,7 @@ aws cognito-idp admin-create-user --region us-east-1 \
   --user-pool-id us-east-1_XXXXXXXXX \
   --username geotest \
   --user-attributes Name=email,Value=geotest@example.com Name=email_verified,Value=true \
-  --temporary-password 'GeoTemp#2026!' \
+  --temporary-password '<TemporaryPassword>' \
   --message-action SUPPRESS
 ```
 
