@@ -124,6 +124,9 @@ export class WafRules extends Construct {
 function _buildWafRules(): wafv2.CfnWebACL.RuleProperty[] {
   return [
     // Rule 1: AWS Managed Rules - Common Rule Set
+    // EC2MetaDataSSRF_BODY excluded: blocks legitimate OAuth DCR bodies that
+    // contain "localhost"/"127.0.0.1" as redirect_uri (false positive; the DCR
+    // is against Keycloak on a different host and cannot exfiltrate metadata).
     {
       name: 'AWSManagedRulesCommonRuleSet',
       priority: 1,
@@ -132,6 +135,12 @@ function _buildWafRules(): wafv2.CfnWebACL.RuleProperty[] {
         managedRuleGroupStatement: {
           name: 'AWSManagedRulesCommonRuleSet',
           vendorName: 'AWS',
+          ruleActionOverrides: [
+            { name: 'EC2MetaDataSSRF_BODY', actionToUse: { count: {} } },
+            { name: 'EC2MetaDataSSRF_COOKIE', actionToUse: { count: {} } },
+            { name: 'EC2MetaDataSSRF_URIPATH', actionToUse: { count: {} } },
+            { name: 'EC2MetaDataSSRF_QUERYARGUMENTS', actionToUse: { count: {} } },
+          ],
         },
       },
       visibilityConfig: {
@@ -174,7 +183,10 @@ function _buildWafRules(): wafv2.CfnWebACL.RuleProperty[] {
         sampledRequestsEnabled: true,
       },
     },
-    // Rule 4: Global rate limiting (2000 req / 5 min total)
+    // Rule 4: Global rate limiting (2000 req / 5 min total across all clients).
+    // WAF requires a scopeDownStatement when aggregateKeyType=CONSTANT. Match-all
+    // achieved via byte_match on URI path containing "/" — every HTTP request
+    // has a URI, so all traffic counts toward the global bucket.
     {
       name: 'GlobalRateLimitRule',
       priority: 4,
@@ -183,6 +195,14 @@ function _buildWafRules(): wafv2.CfnWebACL.RuleProperty[] {
         rateBasedStatement: {
           limit: GLOBAL_RATE_LIMIT,
           aggregateKeyType: 'CONSTANT',
+          scopeDownStatement: {
+            byteMatchStatement: {
+              fieldToMatch: { uriPath: {} },
+              positionalConstraint: 'CONTAINS',
+              searchString: '/',
+              textTransformations: [{ priority: 0, type: 'NONE' }],
+            },
+          },
         },
       },
       visibilityConfig: {
@@ -265,7 +285,7 @@ function _createWafLogging(
     logDestinationConfigs: [logGroup.logGroupArn],
     redactedFields: [
       {
-        singleHeader: { name: 'authorization' },
+        singleHeader: { Name: 'authorization' },
       },
     ],
   });
