@@ -351,3 +351,26 @@ class TestOpenBaoTransientRetry:
         with pytest.raises(SecretStoreError):
             await store.put_token("oauth2", "alice", "github", "/github-mcp", _token())
         assert calls["n"] == 1  # raised immediately, no retry
+
+    async def test_write_retries_on_transient_error_type(self):
+        # The other transient tests match by MESSAGE (e.g. "local node not
+        # active"); this one matches by EXCEPTION TYPE NAME. hvac/urllib3 raise
+        # typed errors (ConnectionError, ReadTimeout, ...) whose str() may carry
+        # no recognizable phrase, so _is_transient_error must classify them by
+        # class name alone -- otherwise a leader-election blip surfacing as a bare
+        # ConnectionError would fall straight through as a hard failure.
+        store, kv = self._store()
+        real_write = kv.create_or_update_secret
+        calls = {"n": 0}
+
+        def flaky_write(path, secret, mount_point):
+            calls["n"] += 1
+            if calls["n"] < 2:  # a bare typed transport error, no telltale text
+                raise ConnectionError()
+            return real_write(path, secret, mount_point)
+
+        kv.create_or_update_secret = flaky_write
+        await store.put_token("oauth2", "alice", "github", "/github-mcp", _token("a1"))
+        assert calls["n"] == 2
+        got = await store.get_token("oauth2", "alice", "github", "/github-mcp")
+        assert got is not None and got.access_token == "a1"
