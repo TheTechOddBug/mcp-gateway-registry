@@ -10,6 +10,9 @@ from pydantic import BaseModel, Field
 
 from ..audit import set_audit_action
 from ..auth.dependencies import nginx_proxied_auth
+from ..auth.dependencies import (
+    user_can_list_custom_entity_type as _user_can_list_custom_entity_type,
+)
 from ..auth.tool_filter import filter_tools_for_user, tool_allowed_for_user
 from ..constants import DeploymentType
 from ..core.config import DeploymentMode, RegistryMode, settings
@@ -848,9 +851,21 @@ async def semantic_search(
     # agreement: off = feature invisible, existing records dormant.
     custom_results = raw_results.get("custom", []) if settings.custom_entity_types_enabled else []
     filtered_custom: list[CustomEntitySearchResult] = []
+    # Type-level gate first: a caller with no list_<type>_entity sees no
+    # records of that type. A disallowed type is dropped before the per-record visibility check.
+    # Cache the decision per type so a many-hit type is only evaluated once.
+    type_allowed_cache: dict[str, bool] = {}
     for record in custom_results:
         record_path = record.get("path", "")
         if not record_path:
+            continue
+
+        entity_type = record.get("entity_type", "")
+        allowed = type_allowed_cache.get(entity_type)
+        if allowed is None:
+            allowed = _user_can_list_custom_entity_type(entity_type, user_context)
+            type_allowed_cache[entity_type] = allowed
+        if not allowed:
             continue
 
         visibility = record.get("visibility", "private")

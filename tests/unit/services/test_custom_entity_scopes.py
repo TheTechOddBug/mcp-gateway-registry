@@ -1,0 +1,126 @@
+"""Unit tests for per-type custom-entity scope naming and provisioning.
+
+Covers the naming single-source-of-truth (custom_entity_scopes), the
+admin-derivation exclusion predicate (privileged_constants), and the mint /
+cleanup service helpers (scope_service) including the fatal-on-failure contract.
+"""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from registry.auth.privileged_constants import is_admin_conferring_action
+from registry.services import scope_service
+from registry.services.custom_entity_scopes import (
+    all_entity_scopes,
+    entity_scope,
+    is_per_type_entity_scope,
+)
+from registry.services.scope_service import (
+    ADMIN_GROUP_NAME,
+    ScopeMintError,
+    cleanup_custom_type_scopes,
+    mint_custom_type_scopes,
+)
+
+
+@pytest.mark.unit
+class TestNaming:
+    def test_entity_scope_format(self):
+        assert entity_scope("create", "dataset") == "create_dataset_entity"
+        assert entity_scope("list", "n8n_workflow") == "list_n8n_workflow_entity"
+
+    def test_all_entity_scopes_full_set(self):
+        scopes = all_entity_scopes("dataset")
+        assert scopes == {
+            "list_dataset_entity": ["all"],
+            "create_dataset_entity": ["all"],
+            "modify_dataset_entity": ["all"],
+            "delete_dataset_entity": ["all"],
+        }
+
+    def test_is_per_type_entity_scope_mutating_only(self):
+        assert is_per_type_entity_scope("create_dataset_entity") is True
+        assert is_per_type_entity_scope("modify_dataset_entity") is True
+        assert is_per_type_entity_scope("delete_dataset_entity") is True
+        # list_ is read-only; not a "mutating per-type entity scope".
+        assert is_per_type_entity_scope("list_dataset_entity") is False
+        # Non-entity actions are not per-type entity scopes.
+        assert is_per_type_entity_scope("register_service") is False
+        assert is_per_type_entity_scope("create_virtual_server") is False
+
+
+@pytest.mark.unit
+class TestAdminConferringExclusion:
+    """The boundary predicate: entity mutation scopes are non-conferring."""
+
+    def test_real_admin_actions_confer(self):
+        assert is_admin_conferring_action("register_service") is True
+        assert is_admin_conferring_action("create_virtual_server") is True
+        assert is_admin_conferring_action("delete_agent") is True
+
+    def test_read_only_never_confers(self):
+        assert is_admin_conferring_action("list_service") is False
+        assert is_admin_conferring_action("get_agent") is False
+        assert is_admin_conferring_action("list_dataset_entity") is False
+
+    def test_per_type_mutation_scopes_excluded(self):
+        assert is_admin_conferring_action("create_dataset_entity") is False
+        assert is_admin_conferring_action("modify_dataset_entity") is False
+        assert is_admin_conferring_action("delete_dataset_entity") is False
+
+    def test_every_minted_scope_is_non_conferring(self):
+        # No scope the feature mints may ever confer admin.
+        for action in all_entity_scopes("dataset"):
+            assert is_admin_conferring_action(action) is False
+
+
+@pytest.mark.unit
+class TestMintAndCleanup:
+    @pytest.mark.asyncio
+    async def test_mint_persists_full_scope_set(self):
+        repo = AsyncMock()
+        repo.merge_ui_permissions = AsyncMock(return_value=True)
+        with patch.object(scope_service, "get_scope_repository", return_value=repo):
+            result = await mint_custom_type_scopes("dataset")
+        assert result is True
+        repo.merge_ui_permissions.assert_awaited_once_with(
+            ADMIN_GROUP_NAME, all_entity_scopes("dataset")
+        )
+
+    @pytest.mark.asyncio
+    async def test_mint_raises_when_group_missing(self):
+        repo = AsyncMock()
+        repo.merge_ui_permissions = AsyncMock(return_value=False)
+        with patch.object(scope_service, "get_scope_repository", return_value=repo):
+            with pytest.raises(ScopeMintError):
+                await mint_custom_type_scopes("dataset")
+
+    @pytest.mark.asyncio
+    async def test_mint_raises_when_repo_errors(self):
+        repo = AsyncMock()
+        repo.merge_ui_permissions = AsyncMock(side_effect=RuntimeError("db down"))
+        with patch.object(scope_service, "get_scope_repository", return_value=repo):
+            with pytest.raises(ScopeMintError):
+                await mint_custom_type_scopes("dataset")
+
+    @pytest.mark.asyncio
+    async def test_cleanup_sweeps_all_groups(self):
+        repo = AsyncMock()
+        repo.remove_ui_permission_keys_from_all_groups = AsyncMock(return_value=2)
+        with patch.object(scope_service, "get_scope_repository", return_value=repo):
+            modified = await cleanup_custom_type_scopes("dataset")
+        assert modified == 2
+        repo.remove_ui_permission_keys_from_all_groups.assert_awaited_once_with(
+            list(all_entity_scopes("dataset").keys())
+        )
+
+    @pytest.mark.asyncio
+    async def test_cleanup_non_fatal_on_error(self):
+        repo = AsyncMock()
+        repo.remove_ui_permission_keys_from_all_groups = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+        with patch.object(scope_service, "get_scope_repository", return_value=repo):
+            modified = await cleanup_custom_type_scopes("dataset")
+        assert modified == 0  # swallowed, not raised
