@@ -10,7 +10,7 @@ from .access_resolver import (
     get_user_accessible_tools,  # noqa: F401 - re-exported for external callers
     resolve_scope_access,
 )
-from .privileged_constants import ADMIN_ACTION_PREFIXES
+from .privileged_constants import ADMIN_ACTION_PREFIXES, is_admin_conferring_action
 from .proxied_token import (
     _api_auth_request_enabled,
     verify_registry_ui_token,
@@ -287,6 +287,34 @@ def get_accessible_agents_for_user(user_ui_permissions: dict[str, list[str]]) ->
     return list_permissions
 
 
+def user_can_list_custom_entity_type(
+    type_name: str,
+    user_context: dict,
+) -> bool:
+    """Return True if the caller may see records of a custom type.
+
+    Type-level discovery gate for custom entities, mirroring the
+    ``list_service`` / ``list_agents`` projection: admin sees all types, a
+    non-admin must hold ``list_<type>_entity`` (or "all") in their
+    ui_permissions. Fails closed on a missing ui_permissions dict.
+
+    Args:
+        type_name: The custom type name.
+        user_context: The authenticated request context.
+
+    Returns:
+        True if the caller may list/search this type's records, False otherwise.
+    """
+    from ..services.custom_entity_scopes import entity_scope
+
+    if user_context.get("is_admin", False):
+        return True
+    ui_permissions = user_context.get("ui_permissions") or {}
+    return user_has_ui_permission_for_service(
+        entity_scope("list", type_name), type_name, ui_permissions
+    )
+
+
 async def get_servers_for_scope(scope: str) -> list[str]:
     """
     Get list of server names that a scope provides access to - queries repository directly.
@@ -356,7 +384,11 @@ def _user_is_admin(
 
     Mutating actions are identified by prefix: register_, modify_, toggle_,
     delete_, publish_, create_. Read-only actions (list_, get_, health_check_)
-    do not grant admin status.
+    do not grant admin status. Per-type custom-entity mutation scopes
+    (create_/modify_/delete_<type>_entity) are also excluded via
+    is_admin_conferring_action: they gate one custom type's records, not
+    registry administration, so granting a non-admin group such a scope for
+    "all" resources does not silently promote it to admin.
 
     See GitHub issue #663 for the motivation behind this design.
 
@@ -368,7 +400,7 @@ def _user_is_admin(
         True if user has admin-level management permissions, False otherwise.
     """
     for action, resources in ui_permissions.items():
-        if action.startswith(_ADMIN_ACTION_PREFIXES) and "all" in resources:
+        if is_admin_conferring_action(action) and "all" in resources:
             logger.debug(f"Admin check: action '{action}' with 'all' grants admin status")
             return True
 

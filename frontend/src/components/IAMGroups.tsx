@@ -24,6 +24,7 @@ import {
 } from '../hooks/useIAM';
 import { useServerList, useServerTools } from '../hooks/useToolCatalog';
 import { useAgentList } from '../hooks/useAgentList';
+import { useRegistryConfig } from '../hooks/useRegistryConfig';
 import DeleteConfirmation from './DeleteConfirmation';
 import SearchableSelect from './SearchableSelect';
 import ListStateBoundary from './iam/ListStateBoundary';
@@ -55,6 +56,37 @@ const UI_PERMISSION_KEYS = [
   { key: 'modify_agent', label: 'Modify Agent' },
   { key: 'delete_agent', label: 'Delete Agent' },
 ];
+
+// ─── Per-type custom-entity ui_permissions ────────
+// Each admin-defined custom type mints list/create/modify/delete_<type>_entity
+// scopes. These are enumerated from the current type set (via /api/config) so an
+// admin can grant them proactively, before any record of the type exists. The
+// keys mirror registry/services/custom_entity_scopes.entity_scope() exactly.
+const ENTITY_SCOPE_ACTIONS: { action: string; verb: string }[] = [
+  { action: 'list', verb: 'List' },
+  { action: 'create', verb: 'Create' },
+  { action: 'modify', verb: 'Modify' },
+  { action: 'delete', verb: 'Delete' },
+];
+
+interface EntityScopeGroup {
+  typeName: string;
+  displayName: string;
+  keys: { key: string; label: string }[];
+}
+
+function buildEntityScopeGroups(
+  customTypes: { name: string; display_name: string }[],
+): EntityScopeGroup[] {
+  return customTypes.map((t) => ({
+    typeName: t.name,
+    displayName: t.display_name || t.name,
+    keys: ENTITY_SCOPE_ACTIONS.map(({ action, verb }) => ({
+      key: `${action}_${t.name}_entity`,
+      label: `${verb} ${t.display_name || t.name}`,
+    })),
+  }));
+}
 
 const COMMON_METHODS = [
   'initialize',
@@ -329,6 +361,17 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
   const { groups, isLoading, error, refetch } = useIAMGroups();
   const { servers: availableServers, isLoading: serversLoading } = useServerList();
   const { agents: availableAgents, isLoading: agentsLoading } = useAgentList();
+  const { config } = useRegistryConfig();
+
+  // Dynamic per-type entity scope keys, enabled only when the custom-types
+  // feature is on. Enumerated from the current type set so admins can grant
+  // before any record exists. Memoized so the render sites are stable.
+  const customTypesEnabled = config?.features?.custom_types ?? false;
+  const entityScopeGroups = useMemo(
+    () =>
+      customTypesEnabled ? buildEntityScopeGroups(config?.custom_types ?? []) : [],
+    [customTypesEnabled, config?.custom_types],
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [view, setView] = useState<View>('list');
 
@@ -917,22 +960,47 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
             </span>
           </button>
           {showUiPermissions && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
-              {UI_PERMISSION_KEYS.map(({ key, label }) => (
-                <div key={key}>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                  <input
-                    type="text"
-                    value={uiPermissions[key] || ''}
-                    onChange={(e) => setPermValue(key, e.target.value)}
-                    placeholder="e.g. all or currenttime, mcpgw"
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                               bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                               focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
+                {UI_PERMISSION_KEYS.map(({ key, label }) => (
+                  <div key={key}>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                    <input
+                      type="text"
+                      value={uiPermissions[key] || ''}
+                      onChange={(e) => setPermValue(key, e.target.value)}
+                      placeholder="e.g. all or currenttime, mcpgw"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                 bg-white dark:bg-gray-900 text-gray-900 dark:text-white
+                                 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                ))}
+              </div>
+              {entityScopeGroups.map((group) => (
+                <div key={group.typeName} className="pl-6 space-y-2">
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                    Custom Type: {group.displayName}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {group.keys.map(({ key, label }) => (
+                      <div key={key}>
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                        <input
+                          type="text"
+                          value={uiPermissions[key] || ''}
+                          onChange={(e) => setPermValue(key, e.target.value)}
+                          placeholder="e.g. all or a comma-separated list"
+                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                     bg-white dark:bg-gray-900 text-gray-900 dark:text-white
+                                     focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
-            </div>
+            </>
           )}
         </div>
 
@@ -1235,22 +1303,47 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
                 </span>
               </button>
               {showUiPermissions && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
-                  {UI_PERMISSION_KEYS.map(({ key, label }) => (
-                    <div key={key}>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                      <input
-                        type="text"
-                        value={uiPermissions[key] || ''}
-                        onChange={(e) => setPermValue(key, e.target.value)}
-                        placeholder="e.g. all or currenttime, mcpgw"
-                        className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                                   bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                                   focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      />
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
+                    {UI_PERMISSION_KEYS.map(({ key, label }) => (
+                      <div key={key}>
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                        <input
+                          type="text"
+                          value={uiPermissions[key] || ''}
+                          onChange={(e) => setPermValue(key, e.target.value)}
+                          placeholder="e.g. all or currenttime, mcpgw"
+                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                     bg-white dark:bg-gray-900 text-gray-900 dark:text-white
+                                     focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {entityScopeGroups.map((group) => (
+                    <div key={group.typeName} className="pl-6 space-y-2">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                        Custom Type: {group.displayName}
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {group.keys.map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                            <input
+                              type="text"
+                              value={uiPermissions[key] || ''}
+                              onChange={(e) => setPermValue(key, e.target.value)}
+                              placeholder="e.g. all or a comma-separated list"
+                              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
+                                         bg-white dark:bg-gray-900 text-gray-900 dark:text-white
+                                         focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
-                </div>
+                </>
               )}
             </div>
 

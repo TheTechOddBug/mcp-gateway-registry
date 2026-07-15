@@ -11,6 +11,7 @@ from ...auth.privileged_constants import (
     ADMIN_ACTION_PREFIXES,
     PRIVILEGED_GRANTS,
     PRIVILEGED_SCOPE_NAMES,
+    is_admin_conferring_action,
 )
 from ..interfaces import ScopeRepositoryBase
 from .client import get_collection_name, get_documentdb_client
@@ -48,10 +49,13 @@ def _grants_admin(
 ) -> bool:
     """Return True if ui_permissions would confer admin privileges.
 
-    Admin is conferred by any mutating UI action (see
-    _PRIVILEGED_ACTION_PREFIXES) granted with "all" access. This is the same
-    rule _user_is_admin uses to derive admin status per request, so a group
-    carrying such permissions promotes its members to admin.
+    Admin is conferred by any mutating UI action granted with "all" access,
+    EXCEPT per-type custom-entity scopes (create_/modify_/delete_<type>_entity),
+    which is_admin_conferring_action excludes. This is the same rule
+    _user_is_admin uses to derive admin status per request (both defer to the
+    shared is_admin_conferring_action so the write guard and the admin check
+    cannot drift), so a group carrying such permissions promotes its members
+    to admin.
 
     Args:
         ui_permissions: Dict mapping UI actions to lists of allowed resources.
@@ -62,9 +66,7 @@ def _grants_admin(
     if not ui_permissions:
         return False
     for action, resources in ui_permissions.items():
-        if action.startswith(_PRIVILEGED_ACTION_PREFIXES) and (
-            _PRIVILEGED_GRANTS & set(resources or [])
-        ):
+        if is_admin_conferring_action(action) and (_PRIVILEGED_GRANTS & set(resources or [])):
             return True
     return False
 
@@ -709,6 +711,126 @@ class DocumentDBScopeRepository(ScopeRepositoryBase):
                 f"Failed to remove server from UI scopes in DocumentDB: {e}", exc_info=True
             )
             return False
+
+    async def merge_ui_permissions(
+        self,
+        group_name: str,
+        ui_permissions: dict[str, list[str]],
+    ) -> bool:
+        """Merge ui_permission keys into a group's ui_permissions ($set per key)."""
+        if not ui_permissions:
+            return False
+        try:
+            collection = await self._get_collection()
+
+            set_fields: dict[str, Any] = {
+                f"ui_permissions.{key}": value for key, value in ui_permissions.items()
+            }
+            set_fields["updated_at"] = datetime.utcnow()
+
+            result = await collection.update_one(
+                {"_id": group_name},
+                {"$set": set_fields},
+            )
+
+            if result.matched_count == 0:
+                logger.error(f"Group '{group_name}' not found")
+                return False
+
+            # Keep the in-memory cache aligned so a subsequent read reflects the merge.
+            cached = self._scopes_cache.setdefault("UI-Scopes", {}).setdefault(group_name, {})
+            cached.update(ui_permissions)
+
+            logger.info(
+                "Merged %d ui_permission key(s) into group '%s': %s",
+                len(ui_permissions),
+                group_name,
+                sorted(ui_permissions.keys()),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to merge ui_permissions in DocumentDB: {e}", exc_info=True)
+            return False
+
+    async def remove_ui_permission_keys(
+        self,
+        group_name: str,
+        permission_keys: list[str],
+    ) -> bool:
+        """Unset ui_permission keys from a single group."""
+        if not permission_keys:
+            return False
+        try:
+            collection = await self._get_collection()
+
+            unset_fields = {f"ui_permissions.{key}": "" for key in permission_keys}
+            result = await collection.update_one(
+                {"_id": group_name},
+                {
+                    "$unset": unset_fields,
+                    "$set": {"updated_at": datetime.utcnow()},
+                },
+            )
+
+            if result.matched_count == 0:
+                logger.error(f"Group '{group_name}' not found")
+                return False
+
+            cached = self._scopes_cache.get("UI-Scopes", {}).get(group_name)
+            if isinstance(cached, dict):
+                for key in permission_keys:
+                    cached.pop(key, None)
+
+            logger.info(
+                "Removed %d ui_permission key(s) from group '%s': %s",
+                len(permission_keys),
+                group_name,
+                sorted(permission_keys),
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove ui_permission keys in DocumentDB: {e}", exc_info=True)
+            return False
+
+    async def remove_ui_permission_keys_from_all_groups(
+        self,
+        permission_keys: list[str],
+    ) -> int:
+        """Unset ui_permission keys from every group that holds any of them."""
+        if not permission_keys:
+            return 0
+        try:
+            collection = await self._get_collection()
+
+            unset_fields = {f"ui_permissions.{key}": "" for key in permission_keys}
+            # Only touch groups that actually carry at least one of the keys.
+            match_filter = {
+                "$or": [{f"ui_permissions.{key}": {"$exists": True}} for key in permission_keys]
+            }
+            result = await collection.update_many(
+                match_filter,
+                {
+                    "$unset": unset_fields,
+                    "$set": {"updated_at": datetime.utcnow()},
+                },
+            )
+
+            ui_cache = self._scopes_cache.get("UI-Scopes", {})
+            for cached in ui_cache.values():
+                if isinstance(cached, dict):
+                    for key in permission_keys:
+                        cached.pop(key, None)
+
+            logger.info(
+                "Swept %d ui_permission key(s) from %d group(s): %s",
+                len(permission_keys),
+                result.modified_count,
+                sorted(permission_keys),
+            )
+            return result.modified_count
+        except Exception as e:
+            logger.error(f"Failed to sweep ui_permission keys in DocumentDB: {e}", exc_info=True)
+            return 0
 
     async def add_group_mapping(
         self,

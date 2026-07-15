@@ -22,7 +22,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ..audit.context import set_audit_action
-from ..auth.dependencies import nginx_proxied_auth
+from ..auth.dependencies import nginx_proxied_auth, user_has_ui_permission_for_service
 from ..schemas.custom_entity_models import (
     CustomEntityCreate,
     CustomEntityRecord,
@@ -34,6 +34,7 @@ from ..services.custom_entity_errors import (
     CustomTypeRecordCapError,
     UnknownCustomTypeError,
 )
+from ..services.custom_entity_scopes import entity_scope
 from ..services.custom_entity_service import CustomEntityService
 
 # Configure logging
@@ -68,6 +69,81 @@ def _get_service() -> CustomEntityService:
     return get_custom_entity_service()
 
 
+def _has_type_scope(
+    action: str,
+    type_name: str,
+    user_context: dict,
+) -> bool:
+    """Return True if the caller holds the per-type scope, or is admin.
+
+    Admin is the catch-all bypass (matching server/agent routes). Otherwise the
+    caller must hold ``<action>_<type>_entity`` for this type (or "all") in their
+    ui_permissions. Fails closed: a missing/absent ui_permissions dict denies.
+
+    Args:
+        action: One of list/create/modify/delete.
+        type_name: The custom type being accessed.
+        user_context: The authenticated request context.
+
+    Returns:
+        True if access is permitted, False otherwise.
+    """
+    if user_context.get("is_admin", False):
+        return True
+    ui_permissions = user_context.get("ui_permissions") or {}
+    return user_has_ui_permission_for_service(
+        entity_scope(action, type_name), type_name, ui_permissions
+    )
+
+
+def _require_view_scope(
+    type_name: str,
+    user_context: dict,
+) -> None:
+    """Raise 404 (hide the type's existence) if the caller lacks the list scope.
+
+    Read gate for list/get/search/rating: holding no ``list_<type>_entity`` hides
+    even PUBLIC records (full parity with ``list_service``), so a non-holder is
+    told the type does not exist rather than that access is denied.
+    """
+    if not _has_type_scope("list", type_name, user_context):
+        logger.info(
+            "User %s denied list access to custom type %s (no list scope) -> 404",
+            user_context.get("username"),
+            type_name,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown custom type: {type_name}",
+        )
+
+
+def _require_mutate_scope(
+    action: str,
+    type_name: str,
+    user_context: dict,
+) -> None:
+    """Raise 403 if the caller lacks the ``<action>_<type>_entity`` scope.
+
+    Mutation gate for create/modify/delete. Unlike the read gate, existence is
+    not concealed (the caller can already see the type via the list scope), so a
+    non-holder gets a 403.
+    """
+    if not _has_type_scope(action, type_name, user_context):
+        logger.warning(
+            "User %s denied %s on custom type %s (no %s_%s_entity scope) -> 403",
+            user_context.get("username"),
+            action,
+            type_name,
+            action,
+            type_name,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You do not have permission to {action} {type_name} records",
+        )
+
+
 @router.get("/{type}", summary="List records of a custom type")
 async def list_custom_entities(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
@@ -76,6 +152,7 @@ async def list_custom_entities(
     limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
 ) -> dict:
     """List records of a type, filtered to those the caller may see."""
+    _require_view_scope(type, user_context)
     service = _get_service()
     try:
         items, total = await service.list_records(type, skip, limit, user_context)
@@ -101,6 +178,7 @@ async def get_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> CustomEntityRecord:
     """Get a single record by type and uuid (404 if not viewable)."""
+    _require_view_scope(type, user_context)
     service = _get_service()
     path = f"/{type}/{uuid}"
     try:
@@ -122,6 +200,7 @@ async def create_custom_entity(
     type: str = TYPE_PARAM,
 ) -> CustomEntityRecord:
     """Create a record of the given custom type."""
+    _require_mutate_scope("create", type, user_context)
     service = _get_service()
     owner = user_context.get("username")  # server-derived, never from body
     try:
@@ -157,6 +236,8 @@ async def update_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> CustomEntityRecord:
     """Update a record (owner or admin only; partial-update semantics)."""
+    # Type-level gate first; the service still enforces per-record owner-or-admin.
+    _require_mutate_scope("modify", type, user_context)
     service = _get_service()
     path = f"/{type}/{uuid}"
     try:
@@ -190,6 +271,8 @@ async def delete_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> None:
     """Delete a record (owner or admin only)."""
+    # Type-level gate first; the service still enforces per-record owner-or-admin.
+    _require_mutate_scope("delete", type, user_context)
     service = _get_service()
     path = f"/{type}/{uuid}"
     try:
@@ -215,6 +298,7 @@ async def rate_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> dict:
     """Add or update the caller's 1-5 rating on a record they can view."""
+    _require_view_scope(type, user_context)
     service = _get_service()
     path = f"/{type}/{uuid}"
     set_audit_action(
@@ -243,6 +327,7 @@ async def get_custom_entity_rating(
     uuid: str = UUID_PARAM,
 ) -> dict:
     """Return {num_stars, rating_details} for a record the caller can view."""
+    _require_view_scope(type, user_context)
     service = _get_service()
     path = f"/{type}/{uuid}"
     try:
