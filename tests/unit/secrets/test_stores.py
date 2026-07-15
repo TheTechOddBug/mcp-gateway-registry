@@ -312,8 +312,7 @@ class TestOpenBaoTransientRetry:
             calls["n"] += 1
             if calls["n"] < 2:
                 raise Exception(
-                    "HTTPConnectionPool: Max retries exceeded ... [Errno 111] "
-                    "Connection refused"
+                    "HTTPConnectionPool: Max retries exceeded ... [Errno 111] Connection refused"
                 )
             return real_read(path, mount_point, raise_on_deleted_version)
 

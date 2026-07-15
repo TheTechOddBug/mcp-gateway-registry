@@ -145,11 +145,7 @@ class OpenBaoStore(SecretStoreBase):
                 return await asyncio.to_thread(fn)
             except Exception as exc:
                 # 1) expired token: re-login once, then keep going.
-                if (
-                    not reauthed
-                    and self._reauthenticate is not None
-                    and _is_auth_expiry_error(exc)
-                ):
+                if not reauthed and self._reauthenticate is not None and _is_auth_expiry_error(exc):
                     logger.warning(
                         "OpenBao token rejected (%s); re-authenticating and retrying", exc
                     )

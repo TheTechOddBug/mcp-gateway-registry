@@ -717,9 +717,7 @@ async def egress_callback(
         # them with a silent "0 tools" and no signal to retry. Surface a clear,
         # retryable error instead. Detail to logs only (may wrap internal store
         # addresses). 503 == transient/backing-store issue, please retry.
-        logger.error(
-            "egress callback: code exchange ok but secret store write failed: %s", exc
-        )
+        logger.error("egress callback: code exchange ok but secret store write failed: %s", exc)
         return HTMLResponse(
             "<h3>Connection not saved.</h3>"
             "<p>We couldn't store your connection because of a temporary storage "
