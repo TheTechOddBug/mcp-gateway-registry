@@ -28,7 +28,7 @@ from registry.egress_auth.schemas import (
     StoredToken,
 )
 from registry.egress_auth.state_codec import InvalidState, decode_state, encode_state
-from registry.secrets.interfaces import SecretStoreBase
+from registry.secrets.interfaces import SecretStoreBase, SecretStoreError
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +331,7 @@ class EgressAuthService:
         user_id: str,
         server_path: str,
         egress_oauth: dict,
+        legacy_user_id: str | None = None,
     ) -> str | None:
         """Vend a valid access token, refreshing if near expiry. None on miss.
 
@@ -338,12 +339,32 @@ class EgressAuthService:
         connection, the connection is dead (refresh_failed), the caller is not a
         per-user principal, or the stored client_id no longer matches (rotated
         provider app -> force re-consent).
+
+        ``legacy_user_id`` enables a one-hop legacy-key fallback + migrate-on-read:
+        the egress vault principal id moved from the login username/email to the
+        canonical OIDC ``sub`` (so the browser-consent and bearer-vend paths agree
+        across providers). Connections vaulted before that cutover live under the
+        OLD key, so a lookup by the canonical ``user_id`` misses and the user sees
+        "0 tools" despite a valid stored token -- until they re-consent. When the
+        canonical lookup misses we look under ``legacy_user_id`` once; on a hit we
+        migrate the entry to the canonical key (see ``_migrate_legacy_entry``) so
+        every later vend/refresh and the consent/list paths key on one id, then
+        serve it. Pass the pre-cutover id (the username/email); ``None`` or a value
+        equal to ``user_id`` disables the fallback.
         """
         if not is_per_user_auth_method(auth_method):
             return None
 
         provider = egress_oauth["provider"]
         token = await self._store.get_token(auth_method, user_id, provider, server_path)
+
+        if token is None and legacy_user_id and legacy_user_id != user_id:
+            legacy = await self._store.get_token(auth_method, legacy_user_id, provider, server_path)
+            if legacy is not None:
+                token = await self._migrate_legacy_entry(
+                    auth_method, legacy_user_id, user_id, provider, server_path, legacy
+                )
+
         if token is None or token.status == "refresh_failed":
             return None
 
@@ -361,6 +382,53 @@ class EgressAuthService:
                 auth_method, user_id, server_path, egress_oauth, token
             )
         return token.access_token if token else None
+
+    async def _migrate_legacy_entry(
+        self,
+        auth_method: str,
+        legacy_user_id: str,
+        user_id: str,
+        provider: str,
+        server_path: str,
+        token: StoredToken,
+    ) -> StoredToken:
+        """Move a legacy-principal vault entry to the canonical egress id.
+
+        Copy-then-delete, both best-effort so a transient store blip never denies
+        the user a token they legitimately hold: if the copy fails we still return
+        the legacy token to serve THIS request and the next vend retries the move;
+        if the delete fails the canonical copy already exists, so the leftover
+        legacy entry is a harmless orphan (later vends hit the canonical key first
+        and never re-read it). Idempotent under concurrent vends -- a second writer
+        just re-writes the same value.
+        """
+        try:
+            await self._store.put_token(auth_method, user_id, provider, server_path, token)
+        except SecretStoreError as exc:
+            logger.warning(
+                "egress legacy-migrate: copy to canonical id failed for %s%s (%s); "
+                "serving legacy token, will retry next vend",
+                provider,
+                server_path,
+                exc,
+            )
+            return token
+        try:
+            await self._store.delete_token(auth_method, legacy_user_id, provider, server_path)
+        except SecretStoreError as exc:
+            logger.warning(
+                "egress legacy-migrate: delete of legacy entry failed for %s%s (%s); "
+                "harmless orphan (canonical copy exists)",
+                provider,
+                server_path,
+                exc,
+            )
+        logger.info(
+            "egress legacy-migrate: moved %s%s from legacy principal to canonical egress id",
+            provider,
+            server_path,
+        )
+        return token
 
     async def _refresh_single_flight(
         self,
@@ -424,12 +492,21 @@ class EgressAuthService:
         self,
         auth_method: str,
         user_id: str,
+        legacy_user_id: str | None = None,
     ) -> list[EgressConnection]:
-        """List the principal's connections (tokens stripped)."""
+        """List the principal's connections (tokens stripped).
+
+        ``legacy_user_id`` merges any not-yet-migrated pre-cutover entries (see
+        ``get_valid_token``) so the UI shows every connection regardless of which
+        principal id it is keyed under; canonical entries win on collision. The
+        vend path is what actually migrates them, so this read does not write.
+        """
         if not is_per_user_auth_method(auth_method):
             return []
         out: list[EgressConnection] = []
+        seen: set[tuple[str, str]] = set()
         for provider, server_path, token in await self._store.list_for_user(auth_method, user_id):
+            seen.add((provider, server_path))
             out.append(
                 EgressConnection(
                     provider=provider,
@@ -440,6 +517,22 @@ class EgressAuthService:
                     last_refreshed_at=token.last_refreshed_at,
                 )
             )
+        if legacy_user_id and legacy_user_id != user_id:
+            for provider, server_path, token in await self._store.list_for_user(
+                auth_method, legacy_user_id
+            ):
+                if (provider, server_path) in seen:
+                    continue
+                out.append(
+                    EgressConnection(
+                        provider=provider,
+                        server_path=server_path,
+                        scopes=token.scopes,
+                        expires_at=token.expires_at,
+                        status=token.status,
+                        last_refreshed_at=token.last_refreshed_at,
+                    )
+                )
         return out
 
     async def disconnect(
@@ -448,6 +541,14 @@ class EgressAuthService:
         user_id: str,
         provider: str,
         server_path: str,
+        legacy_user_id: str | None = None,
     ) -> None:
-        """Delete the vault entry (idempotent). Provider-side revoke is a future follow-on."""
+        """Delete the vault entry (idempotent). Provider-side revoke is a future follow-on.
+
+        Deletes under BOTH the canonical and (if given) the legacy principal id so
+        a disconnect issued before the entry was vend-migrated still revokes the
+        pre-cutover copy (see ``get_valid_token``). Both deletes are idempotent.
+        """
         await self._store.delete_token(auth_method, user_id, provider, server_path)
+        if legacy_user_id and legacy_user_id != user_id:
+            await self._store.delete_token(auth_method, legacy_user_id, provider, server_path)
