@@ -362,6 +362,17 @@ class TestLegacyPrincipalFallback:
             )
             is None
         )
+        # Distinct legacy id but nothing stored under it either -> clean miss.
+        assert (
+            await svc.get_valid_token(
+                "oauth2",
+                self._CANON,
+                "/github-mcp",
+                egress_oauth,
+                legacy_user_id=self._LEGACY,
+            )
+            is None
+        )
 
     async def test_migration_copy_failure_still_serves_legacy(self, svc, egress_oauth, monkeypatch):
         from registry.secrets.interfaces import SecretStoreError
@@ -387,6 +398,40 @@ class TestLegacyPrincipalFallback:
         )
         # Served despite the failed copy; legacy entry retained for the next retry.
         assert tok == "LEGACY"
+        assert (
+            await svc._store.get_token("oauth2", self._LEGACY, "github", "/github-mcp") is not None
+        )
+
+    async def test_migration_delete_failure_serves_and_leaves_orphan(
+        self, svc, egress_oauth, monkeypatch
+    ):
+        from registry.secrets.interfaces import SecretStoreError
+
+        await svc._store.put_token(
+            "oauth2",
+            self._LEGACY,
+            "github",
+            "/github-mcp",
+            StoredToken(access_token="LEGACY", client_id="Iv1.testclient"),
+        )
+
+        async def boom_delete(*a, **k):
+            raise SecretStoreError("vault temporarily unavailable")
+
+        monkeypatch.setattr(svc._store, "delete_token", boom_delete)
+        tok = await svc.get_valid_token(
+            "oauth2",
+            self._CANON,
+            "/github-mcp",
+            egress_oauth,
+            legacy_user_id=self._LEGACY,
+        )
+        # Copy succeeded so the token is served; the failed delete leaves the
+        # legacy entry as a harmless orphan (canonical copy now wins on read).
+        assert tok == "LEGACY"
+        assert (
+            await svc._store.get_token("oauth2", self._CANON, "github", "/github-mcp") is not None
+        )
         assert (
             await svc._store.get_token("oauth2", self._LEGACY, "github", "/github-mcp") is not None
         )
