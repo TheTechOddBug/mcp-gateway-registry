@@ -40,6 +40,7 @@ from registry.egress_auth.providers import list_provider_names, resolve_provider
 from registry.egress_auth.service import EgressAuthError, is_per_user_auth_method
 from registry.exceptions import UrlValidationError
 from registry.repositories.factory import get_server_repository
+from registry.secrets.interfaces import SecretStoreError
 from registry.services.server_service import server_service
 from registry.utils.credential_encryption import encrypt_credential
 from registry.utils.url_guard import PROXY_PROFILE, validate_url
@@ -706,6 +707,24 @@ async def egress_callback(
         return HTMLResponse(
             "<h3>Connection failed. Please close this tab and try connecting again.</h3>",
             status_code=400,
+        )
+    except SecretStoreError as exc:
+        # The code exchange SUCCEEDED but persisting the token to the secret store
+        # (Vault/OpenBao) failed — the store already retried transient blips (HA
+        # leader election / pod restart), so landing here means the write did not
+        # persist. Critically, DO NOT fall through to the success page: that would
+        # tell the user they are "Connected" while no token was vaulted, leaving
+        # them with a silent "0 tools" and no signal to retry. Surface a clear,
+        # retryable error instead. Detail to logs only (may wrap internal store
+        # addresses). 503 == transient/backing-store issue, please retry.
+        logger.error(
+            "egress callback: code exchange ok but secret store write failed: %s", exc
+        )
+        return HTMLResponse(
+            "<h3>Connection not saved.</h3>"
+            "<p>We couldn't store your connection because of a temporary storage "
+            "issue. Please close this tab and try connecting again in a minute.</p>",
+            status_code=503,
         )
 
     # The egress consent is the web Connected-Accounts / MCP URL-mode elicitation
