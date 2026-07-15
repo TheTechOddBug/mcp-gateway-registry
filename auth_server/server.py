@@ -281,16 +281,25 @@ def _canonical_egress_user(validation_result: dict) -> str:
     client's bearer access token (lacks it) would otherwise key differently.
 
     Resolution (first hit wins):
-      1. ``data.sub`` -- the raw IdP subject. Bearer paths expose the verified
+      1. ``data.egress_user`` -- the explicit canonical egress id stamped onto a
+         gateway-issued self-signed USER token (see ``generate_user_token``). That
+         token's ``sub`` is the login username -- NOT the OIDC sub -- so without
+         this claim a Cursor/Claude bearer minted from a browser login would key
+         the vault on the username while the cookie-consent path keyed on the OIDC
+         sub, and the vend would miss the vaulted token ("0 tools"). Checked FIRST
+         so it wins over the self-signed token's username ``sub``.
+      2. ``data.sub`` -- the raw IdP subject. Bearer paths expose the verified
          claims here; the cookie path carries the sub persisted into the session
          at login (see create_session ``subject``).
-      2. top-level ``sub`` -- direct-token paths that surface it there.
-      3. ``username`` -- fallback for callers with no sub (keeps pre-existing
+      3. ``data.subject`` -- the cookie session's persisted OIDC sub.
+      4. top-level ``sub`` -- direct-token paths that surface it there.
+      5. ``username`` -- fallback for callers with no sub (keeps pre-existing
          non-OIDC behavior unchanged; only OIDC callers change bucket).
     """
     data = validation_result.get("data") or {}
     return (
-        data.get("sub")
+        data.get("egress_user")
+        or data.get("sub")
         or data.get("subject")
         or validation_result.get("sub")
         or validation_result.get("username")
@@ -3984,7 +3993,7 @@ def _validate_context_group_scope_shape(
 
 async def _reconcile_context_against_session(
     user_context: dict[str, Any],
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], str]:
     """Reconcile a mint request's groups/scopes against the authoritative session.
 
     The mint endpoint receives the caller-supplied ``user_context`` in the
@@ -4003,7 +4012,12 @@ async def _reconcile_context_against_session(
     internal signing key.
 
     Returns:
-        Tuple ``(groups, scopes)`` to stamp into the token.
+        Tuple ``(groups, scopes, subject)`` to stamp into the token. ``subject``
+        is the session's canonical OIDC ``sub`` (persisted at login), stamped as
+        the token's ``egress_user`` claim so the vend keys the egress vault on the
+        SAME id the browser-consent path wrote (see ``_canonical_egress_user``).
+        Empty when there is no session-backed source or the session predates
+        subject persistence.
 
     Raises:
         HTTPException: 403 if the body claims a privileged group the resolved
@@ -4016,7 +4030,10 @@ async def _reconcile_context_against_session(
     if not session_id:
         # No authoritative session-backed source for this caller. Trust boundary
         # is the internal-JWT gate + validate_scope_subset; use the body as-is.
-        return body_groups, body_scopes
+        # A non-session caller may still assert its canonical egress id in the
+        # body (explicit trust boundary); absent that there is no OIDC sub to key.
+        body_subject = user_context.get("egress_user") or user_context.get("subject") or ""
+        return body_groups, body_scopes, body_subject
 
     from session_store import resolve_session
 
@@ -4054,7 +4071,10 @@ async def _reconcile_context_against_session(
     else:
         reconciled_groups = session_groups
     reconciled_scopes = await map_groups_to_scopes(reconciled_groups)
-    return reconciled_groups, reconciled_scopes
+    # The session's OIDC sub is the authoritative canonical egress id; the vend
+    # and the browser-consent path must key the vault on this one value.
+    session_subject = session_data.get("subject") or ""
+    return reconciled_groups, reconciled_scopes, session_subject
 
 
 @internal_router.post("/tokens", response_model=GenerateTokenResponse)
@@ -4179,7 +4199,9 @@ async def generate_user_token(
         # session store when a session_id is present, so a forged body cannot
         # inject groups/scopes the session never granted. When no session_id is
         # present the body is used as-is (explicit, documented trust boundary).
-        user_groups, reconciled_scopes = await _reconcile_context_against_session(user_context)
+        user_groups, reconciled_scopes, egress_user = await _reconcile_context_against_session(
+            user_context
+        )
         # Re-narrow the requested scopes to what the reconciled context allows so
         # a session-backed mint can never exceed the session's granted scopes.
         requested_scopes = [s for s in requested_scopes if s in set(reconciled_scopes)]
@@ -4233,6 +4255,15 @@ async def generate_user_token(
                     TokenKind.RESOURCE.value if request.resource else TokenKind.USER.value
                 ),
             }
+
+            # Canonical egress vault id (the session's OIDC sub). This token's
+            # ``sub`` is the login username, which is NOT what the egress vault
+            # keys on; stamp the OIDC sub as ``egress_user`` so a bearer minted
+            # here vends against the SAME id the browser-consent path wrote (see
+            # _canonical_egress_user). Omitted when there is no OIDC sub (non-
+            # session / legacy callers) -- the vend then falls back to username.
+            if egress_user:
+                jwt_claims["egress_user"] = egress_user
 
             # For resource-bound tokens, add resource_type and resource_id
             # claims. Authorization that the user can reach this resource is
