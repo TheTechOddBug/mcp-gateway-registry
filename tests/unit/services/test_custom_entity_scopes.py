@@ -15,6 +15,8 @@ from registry.services.custom_entity_scopes import (
     all_entity_scopes,
     entity_scope,
     is_per_type_entity_scope,
+    list_grant_allows_type,
+    list_grant_record_paths,
 )
 from registry.services.scope_service import (
     ADMIN_GROUP_NAME,
@@ -48,6 +50,44 @@ class TestNaming:
         # Non-entity actions are not per-type entity scopes.
         assert is_per_type_entity_scope("register_service") is False
         assert is_per_type_entity_scope("create_virtual_server") is False
+
+
+@pytest.mark.unit
+class TestListGrantTiers:
+    """The list_<type>_entity grant is interpreted in three tiers."""
+
+    def test_all_opens_whole_type(self):
+        assert list_grant_allows_type("n8n", ["all"]) is True
+
+    def test_bare_type_name_opens_whole_type(self):
+        # Backward-compatible with the original per-type semantics.
+        assert list_grant_allows_type("n8n", ["n8n"]) is True
+
+    def test_record_path_does_not_open_whole_type(self):
+        # A record-scoped grant is NOT whole-type: it must not surface every
+        # (public) record — only the named record via list_grant_record_paths.
+        grant = ["/n8n/6aac5d9c-c002-4761-b614-58c21c4adb9a"]
+        assert list_grant_allows_type("n8n", grant) is False
+
+    def test_empty_grant_opens_nothing(self):
+        assert list_grant_allows_type("n8n", []) is False
+
+    def test_record_paths_extracted_for_type_only(self):
+        grant = [
+            "/n8n/1111aaaa-c002-4761-b614-58c21c4adb9a",
+            "/n8n/2222bbbb-c002-4761-b614-58c21c4adb9a",
+            "/policy/3333cccc-c002-4761-b614-58c21c4adb9a",  # other type
+            "all",  # whole-type token, not a path
+        ]
+        paths = list_grant_record_paths("n8n", grant)
+        assert paths == [
+            "/n8n/1111aaaa-c002-4761-b614-58c21c4adb9a",
+            "/n8n/2222bbbb-c002-4761-b614-58c21c4adb9a",
+        ]
+
+    def test_record_paths_empty_for_whole_type_grant(self):
+        assert list_grant_record_paths("n8n", ["all"]) == []
+        assert list_grant_record_paths("n8n", ["n8n"]) == []
 
 
 @pytest.mark.unit

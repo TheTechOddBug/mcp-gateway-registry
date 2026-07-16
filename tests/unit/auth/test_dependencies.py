@@ -1640,7 +1640,7 @@ class TestAuthPathsAgreeOnIsAdmin:
 @pytest.mark.unit
 @pytest.mark.auth
 class TestUserCanListCustomEntityType:
-    """Type-level discovery gate for custom entities (D3, search parity)."""
+    """Discovery gate for custom entities (search parity)."""
 
     def test_admin_sees_all_types(self):
         ctx = {"is_admin": True, "ui_permissions": {}}
@@ -1660,6 +1660,37 @@ class TestUserCanListCustomEntityType:
     def test_scoped_to_specific_type_name(self):
         ctx = {"is_admin": False, "ui_permissions": {"list_dataset_entity": ["dataset"]}}
         assert user_can_list_custom_entity_type("dataset", ctx) is True
+
+    # --- per-record grant tier ---
+
+    def test_record_grant_reachable_as_discovery_precheck(self):
+        # record_path=None: a specific-record grant makes the TYPE reachable
+        # (so the collection/search isn't 404'd) even without whole-type access.
+        ctx = {
+            "is_admin": False,
+            "ui_permissions": {"list_dataset_entity": ["/dataset/abc"]},
+        }
+        assert user_can_list_custom_entity_type("dataset", ctx) is True
+
+    def test_record_grant_allows_only_that_record(self):
+        ctx = {
+            "is_admin": False,
+            "ui_permissions": {"list_dataset_entity": ["/dataset/abc"]},
+        }
+        assert user_can_list_custom_entity_type("dataset", ctx, "/dataset/abc") is True
+        # A DIFFERENT record of the same type is not granted — this is the
+        # "one grant must not open every record" guarantee.
+        assert user_can_list_custom_entity_type("dataset", ctx, "/dataset/xyz") is False
+
+    def test_whole_type_grant_allows_any_record(self):
+        ctx = {"is_admin": False, "ui_permissions": {"list_dataset_entity": ["all"]}}
+        assert user_can_list_custom_entity_type("dataset", ctx, "/dataset/anything") is True
+
+    def test_no_grant_denies_specific_record(self):
+        assert (
+            user_can_list_custom_entity_type("dataset", {"is_admin": False}, "/dataset/abc")
+            is False
+        )
 
 
 class TestUserIsAdmin:
