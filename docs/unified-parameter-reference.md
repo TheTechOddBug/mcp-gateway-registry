@@ -571,6 +571,7 @@ Weights must sum to 1.0 ± 0.001 or the registry process refuses to start (valid
 | MCPGW base URL | `MCPGW_BASE_URL` | — | — | OAuth redirect URIs. |
 | Bind host | `HOST` | — | — | `127.0.0.1` vs `0.0.0.0`. |
 | Registry URL | — | — | `mcpgw.app.registryUrl` | Where MCPGW talks to registry. |
+| HTTP allowed hosts | `MCPGW_HTTP_ALLOWED_HOSTS` | via `mcpgw_extra_env` | via `mcpgw.extraEnv` | Host allowlist for FastMCP's DNS-rebinding protection on the streamable-http transport. Default `mcpgw-server` matches the service name the registry front door uses on every surface (Docker Compose service, ECS Service Connect `dns_name`, Kubernetes Service), so the built-in `airegistry-tools` server stays healthy with no config. Comma-separated to add hosts; `*` disables host/origin protection entirely (discouraged). No first-class Terraform/Helm parameter — inject via the generic extra-env mechanism (Group 29) only if you front mcpgw under a non-standard name. Not a reserved name, so `extraEnv`/`mcpgw_extra_env` accept it. Added in 1.27.1 (PR #1497). |
 
 ---
 
