@@ -11,15 +11,15 @@ from pydantic import BaseModel, Field
 from ..audit import set_audit_action
 from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.dependencies import nginx_proxied_auth
-from ..auth.dependencies import (
-    user_can_list_custom_entity_type as _user_can_list_custom_entity_type,
-)
 from ..auth.tool_filter import filter_tools_for_user, tool_allowed_for_user
 from ..constants import DeploymentType
 from ..core.config import DeploymentMode, RegistryMode, settings
 from ..repositories.factory import get_search_repository
 from ..repositories.interfaces import SearchRepositoryBase
 from ..services.agent_service import agent_service
+from ..services.custom_entity_scopes import entity_scope as _entity_scope
+from ..services.custom_entity_scopes import list_grant_allows_type as _list_grant_allows_type
+from ..services.custom_entity_scopes import list_grant_record_paths as _list_grant_record_paths
 from ..services.server_service import server_service
 from ..services.virtual_server_service import get_virtual_server_service
 
@@ -860,21 +860,33 @@ async def semantic_search(
     # agreement: off = feature invisible, existing records dormant.
     custom_results = raw_results.get("custom", []) if settings.custom_entity_types_enabled else []
     filtered_custom: list[CustomEntitySearchResult] = []
-    # Type-level gate first: a caller with no list_<type>_entity sees no
-    # records of that type. A disallowed type is dropped before the per-record visibility check.
-    # Cache the decision per type so a many-hit type is only evaluated once.
-    type_allowed_cache: dict[str, bool] = {}
+    # Discovery check first (per-record aware): the list_<type>_entity grant may
+    # open the whole type ("all"/type name) or only specific record paths. Resolve
+    # the grant ONCE per type into (whole, paths) — the grant is constant per type,
+    # so this avoids re-reading ui_permissions and re-extracting paths on every
+    # hit. Each hit then passes discovery iff the type is whole-open OR its own
+    # path is in the granted set (so granting one record surfaces only that
+    # record, never every public record of the type). Runs before the per-record
+    # visibility check.
+    is_admin = bool(user_context.get("is_admin", False))
+    ui_permissions = user_context.get("ui_permissions") or {}
+    # entity_type -> (whole_type_open, granted_record_paths)
+    discovery_cache: dict[str, tuple[bool, set[str]]] = {}
     for record in custom_results:
         record_path = record.get("path", "")
         if not record_path:
             continue
 
         entity_type = record.get("entity_type", "")
-        allowed = type_allowed_cache.get(entity_type)
-        if allowed is None:
-            allowed = _user_can_list_custom_entity_type(entity_type, user_context)
-            type_allowed_cache[entity_type] = allowed
-        if not allowed:
+        decision = discovery_cache.get(entity_type)
+        if decision is None:
+            granted = ui_permissions.get(_entity_scope("list", entity_type)) or []
+            whole = is_admin or _list_grant_allows_type(entity_type, granted)
+            paths = set() if whole else set(_list_grant_record_paths(entity_type, granted))
+            decision = (whole, paths)
+            discovery_cache[entity_type] = decision
+        whole_open, granted_paths = decision
+        if not whole_open and record_path not in granted_paths:
             continue
 
         visibility = record.get("visibility", "private")

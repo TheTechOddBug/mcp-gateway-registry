@@ -1,6 +1,7 @@
 import React from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import SearchableSelect, { SelectOption } from '../SearchableSelect';
+import CustomTypeListPicker from './CustomTypeListPicker';
 
 /**
  * Shared UI-permission editor for the IAM group create + edit forms.
@@ -280,15 +281,13 @@ const UiPermissionEditor: React.FC<UiPermissionEditorProps> = ({
             <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
               Custom Type: {group.displayName}
             </p>
-            <DiscoveryMultiSelect
-              scopeKey={listKey}
-              label={`List ${group.displayName}`}
+            {/* list_<type>_entity is per-record aware: an "All" toggle plus a
+                picker of the type's actual records (name shown, path stored),
+                so an admin can grant the whole type or specific records. */}
+            <CustomTypeListPicker
+              typeName={group.typeName}
+              displayName={group.displayName}
               value={uiPermissions[listKey] || ''}
-              // Custom-entity records aren't enumerated here (grants are often
-              // proactive, before any record exists), so only the All toggle +
-              // free-text add are offered.
-              options={[]}
-              focusColor={focusColor}
               onChange={(csv) => setPermValue(listKey, csv)}
             />
             <div className="grid grid-cols-3 gap-2">

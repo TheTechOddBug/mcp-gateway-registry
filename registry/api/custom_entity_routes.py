@@ -35,6 +35,11 @@ from ..services.custom_entity_errors import (
     CustomTypeRecordCapError,
     UnknownCustomTypeError,
 )
+from ..services.custom_entity_scopes import (
+    entity_scope,
+    list_grant_allows_type,
+    list_grant_record_paths,
+)
 from ..services.custom_entity_service import CustomEntityService
 
 # Configure logging
@@ -74,14 +79,16 @@ def _has_type_scope(
     type_name: str,
     user_context: dict,
 ) -> bool:
-    """Return True if the caller holds the per-type scope, or is admin.
+    """Return True if the caller holds the per-type MUTATION scope, or is admin.
 
-    Admin is the catch-all bypass (matching server/agent routes). Otherwise the
-    caller must hold ``<action>_<type>_entity`` for this type (or "all") in their
-    ui_permissions. Fails closed: a missing/absent ui_permissions dict denies.
+    Used for the mutation actions (create/modify/delete), which stay type-level:
+    the caller must hold ``<action>_<type>_entity`` for this type (or "all").
+    Admin is the catch-all bypass. Fails closed on a missing ui_permissions dict.
+    The read/list gate is per-record aware and lives in ``_require_view_scope`` /
+    ``user_can_list_custom_entity_type`` instead.
 
     Args:
-        action: One of list/create/modify/delete.
+        action: One of create/modify/delete.
         type_name: The custom type being accessed.
         user_context: The authenticated request context.
 
@@ -96,18 +103,29 @@ def _has_type_scope(
 def _require_view_scope(
     type_name: str,
     user_context: dict,
+    record_path: str | None = None,
 ) -> None:
-    """Raise 404 (hide the type's existence) if the caller lacks the list scope.
+    """Raise 404 (hide existence) if the caller lacks list access.
 
-    Read gate for list/get/search/rating: holding no ``list_<type>_entity`` hides
-    even PUBLIC records (full parity with ``list_service``), so a non-holder is
-    told the type does not exist rather than that access is denied.
+    Read gate for list/get/search/rating. The ``list_<type>_entity`` grant is
+    per-record aware (parity with ``list_agents``): ``"all"``/type-name open the
+    whole type; a record path opens just that record.
+
+    - On the COLLECTION list (``record_path=None``): passes if the caller can see
+      ANY record of the type (whole-type OR at least one granted record), so a
+      record-scoped grant does NOT 404 the type — the list then filters to the
+      granted records. Holding nothing 404s (hides existence, incl. public).
+    - On a SINGLE record (``record_path`` given): passes only if the grant covers
+      that specific record; otherwise 404 (indistinguishable from not-found).
     """
-    if not _has_type_scope("list", type_name, user_context):
+    from ..auth.dependencies import user_can_list_custom_entity_type
+
+    if not user_can_list_custom_entity_type(type_name, user_context, record_path):
         logger.info(
-            "User %s denied list access to custom type %s (no list scope) -> 404",
+            "User %s denied list access to custom type %s (record=%s) -> 404",
             user_context.get("username"),
             type_name,
+            record_path or "<collection>",
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -141,6 +159,29 @@ def _require_mutate_scope(
         )
 
 
+def _list_restrict_paths(
+    type_name: str,
+    user_context: dict,
+) -> list[str] | None:
+    """Return the record-path restriction for the collection list.
+
+    - ``None`` — whole-type access (admin, or a ``"all"``/type-name grant): the
+      list is bounded only by per-record visibility.
+    - ``list[str]`` — the caller holds only specific records of this type; the
+      list must be restricted to those paths (intersected with the per-record
+      visibility filter).
+
+    Assumes ``_require_view_scope`` already passed, so a non-whole-type caller
+    holds at least one record path here.
+    """
+    if user_context.get("is_admin", False):
+        return None
+    granted = (user_context.get("ui_permissions") or {}).get(entity_scope("list", type_name)) or []
+    if list_grant_allows_type(type_name, granted):
+        return None
+    return list_grant_record_paths(type_name, granted)
+
+
 @router.get("/{type}", summary="List records of a custom type")
 async def list_custom_entities(
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
@@ -150,9 +191,17 @@ async def list_custom_entities(
 ) -> dict:
     """List records of a type, filtered to those the caller may see."""
     _require_view_scope(type, user_context)
+    # SECURITY: restrict_paths MUST be derived from _list_restrict_paths and
+    # passed to list_records. _require_view_scope passes a record-scoped caller
+    # (they hold at least one record path), so a whole-type read here would leak
+    # every record. _list_restrict_paths returns None only for whole-type/admin;
+    # a non-admin without the scope yields [] -> empty $in -> no records.
+    restrict_paths = _list_restrict_paths(type, user_context)
     service = _get_service()
     try:
-        items, total = await service.list_records(type, skip, limit, user_context)
+        items, total = await service.list_records(
+            type, skip, limit, user_context, restrict_paths=restrict_paths
+        )
     except UnknownCustomTypeError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -175,9 +224,9 @@ async def get_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> CustomEntityRecord:
     """Get a single record by type and uuid (404 if not viewable)."""
-    _require_view_scope(type, user_context)
-    service = _get_service()
     path = f"/{type}/{uuid}"
+    _require_view_scope(type, user_context, record_path=path)
+    service = _get_service()
     try:
         return await service.get_record(path, user_context)
     except CustomEntityNotFoundError as e:
@@ -295,9 +344,9 @@ async def rate_custom_entity(
     uuid: str = UUID_PARAM,
 ) -> dict:
     """Add or update the caller's 1-5 rating on a record they can view."""
-    _require_view_scope(type, user_context)
-    service = _get_service()
     path = f"/{type}/{uuid}"
+    _require_view_scope(type, user_context, record_path=path)
+    service = _get_service()
     set_audit_action(
         http_request,
         "rate",
@@ -324,9 +373,9 @@ async def get_custom_entity_rating(
     uuid: str = UUID_PARAM,
 ) -> dict:
     """Return {num_stars, rating_details} for a record the caller can view."""
-    _require_view_scope(type, user_context)
-    service = _get_service()
     path = f"/{type}/{uuid}"
+    _require_view_scope(type, user_context, record_path=path)
+    service = _get_service()
     try:
         return await service.get_rating(path, user_context)
     except CustomEntityNotFoundError as e:
