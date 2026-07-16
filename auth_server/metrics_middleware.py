@@ -61,6 +61,7 @@ _MCP_TRANSPORT_ENDPOINTS: frozenset[str] = frozenset({"mcp", "sse", "messages"})
 # REGISTRY_ROOT_PATH prefix is stripped.
 _CONTROL_PLANE_FIRST_SEGMENTS: frozenset[str] = frozenset({"api", "static", "oauth2"})
 
+
 # Target-kind classification for the routing metric. Each rule recognizes a
 # routed DATA-PLANE target by its URL shape, checked in order (most specific
 # first). Anything that matches no rule and is not control plane is "unknown"
