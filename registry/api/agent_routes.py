@@ -29,6 +29,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from ..audit import set_audit_action
+from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
 from ..common.log_redaction import redact_headers, redact_mapping
@@ -743,35 +744,38 @@ def _hash_items(items: list[AgentBatchItem]) -> str:
 
 
 def _check_agent_permission(
-    permission: str,
+    action: str,
     agent_name: str,
     user_context: dict[str, Any],
 ) -> None:
     """
-    Check if user has permission for agent operation.
+    Check if user has permission for an agent operation.
+
+    Takes a logical ACTION (list/get/create/modify/delete/toggle) and resolves
+    it to the correct agent scope via the canonical asset-permission map. This
+    replaces the previous raw-scope-string argument, which had let agent toggle
+    and modify be gated on the SERVER scopes ``toggle_service`` / ``modify_service``
+    (a cross-asset privilege bleed: a server grant leaked agent control, and the
+    intended ``modify_agent`` grant was ignored). Passing an action keeps the
+    enforced scope in lockstep with the family so this cannot recur.
 
     Args:
-        permission: Permission to check
-        agent_name: Name of the agent
-        user_context: User context from auth
+        action: Logical agent action (e.g. "modify", "toggle", "delete").
+        agent_name: Name of the agent (used for the 403 detail and per-resource
+            grant match).
+        user_context: User context from auth.
 
     Raises:
-        HTTPException: If user lacks permission
+        HTTPException: 403 if the user lacks the permission.
     """
-    from ..auth.dependencies import user_has_ui_permission_for_service
-
-    if not user_has_ui_permission_for_service(
-        permission,
-        agent_name,
-        user_context.get("ui_permissions", {}),
-    ):
+    if not user_has_asset_permission("agent", action, agent_name, user_context):
         logger.warning(
-            f"User {user_context['username']} attempted to perform {permission} "
-            f"on agent {agent_name} without permission"
+            f"User {user_context['username']} attempted to {action} "
+            f"agent {agent_name} without permission"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You do not have permission to {permission} for {agent_name}",
+            detail=f"You do not have permission to {action} agent {agent_name}",
         )
 
 
@@ -1619,7 +1623,7 @@ async def toggle_agent(
             detail=f"Agent not found at path '{path}'",
         )
 
-    _check_agent_permission("toggle_service", agent_card.name, user_context)
+    _check_agent_permission("toggle", agent_card.name, user_context)
 
     # Per-resource access check for non-admins, mirroring the server toggle
     # (POST /api/servers/toggle). Having toggle_service permission is not
@@ -1969,7 +1973,7 @@ async def pull_agent_card(
         )
 
     # 2. Check permissions (modify_service + owner or admin)
-    _check_agent_permission("modify_service", existing_agent.name, user_context)
+    _check_agent_permission("modify", existing_agent.name, user_context)
 
     if not user_context["is_admin"] and existing_agent.registered_by != user_context["username"]:
         raise HTTPException(
@@ -2222,7 +2226,7 @@ async def update_agent(
             detail=f"Agent not found at path '{path}'",
         )
 
-    _check_agent_permission("modify_service", existing_agent.name, user_context)
+    _check_agent_permission("modify", existing_agent.name, user_context)
 
     if not user_context["is_admin"] and existing_agent.registered_by != user_context["username"]:
         logger.warning(
@@ -2407,7 +2411,7 @@ async def patch_agent(
         )
 
     # Authorization (parity with PUT)
-    _check_agent_permission("modify_service", existing_agent.name, user_context)
+    _check_agent_permission("modify", existing_agent.name, user_context)
     if not user_context["is_admin"] and existing_agent.registered_by != user_context["username"]:
         logger.warning(
             f"User {user_context['username']} attempted to patch agent {path} "

@@ -93,8 +93,8 @@ def mock_user_context() -> dict[str, Any]:
         "accessible_agents": ["all"],
         "ui_permissions": {
             "publish_agent": ["all"],
-            "toggle_service": ["all"],
-            "modify_service": ["all"],
+            "toggle_agent": ["all"],
+            "modify_agent": ["all"],
         },
         "can_modify_servers": True,
         "is_admin": False,
@@ -115,8 +115,8 @@ def mock_admin_context() -> dict[str, Any]:
         "accessible_agents": ["all"],
         "ui_permissions": {
             "publish_agent": ["all"],
-            "toggle_service": ["all"],
-            "modify_service": ["all"],
+            "toggle_agent": ["all"],
+            "modify_agent": ["all"],
         },
         "can_modify_servers": True,
         "is_admin": True,
@@ -328,37 +328,37 @@ class TestCheckAgentPermission:
     """Tests for _check_agent_permission helper function."""
 
     def test_check_agent_permission_granted(self, mock_user_context):
-        """Test permission check passes when user has permission."""
-        # Arrange
-        permission = "publish_agent"
-        agent_name = "test-agent"
+        """Passes when the user holds the AGENT scope for the action.
 
-        with patch("registry.auth.dependencies.user_has_ui_permission_for_service") as mock_check:
-            mock_check.return_value = True
-
-            # Act & Assert (no exception raised)
-            _check_agent_permission(permission, agent_name, mock_user_context)
-            mock_check.assert_called_once_with(
-                permission,
-                agent_name,
-                mock_user_context["ui_permissions"],
-            )
+        The helper takes a logical action and resolves it to the agent scope
+        (modify -> modify_agent). The fixture grants modify_agent: ["all"].
+        """
+        # Act & Assert (no exception raised)
+        _check_agent_permission("modify", "test-agent", mock_user_context)
 
     def test_check_agent_permission_denied(self, mock_user_context):
-        """Test permission check raises HTTPException when denied."""
-        # Arrange
-        permission = "publish_agent"
-        agent_name = "test-agent"
+        """Raises 403 when the user lacks the AGENT scope for the action."""
+        # delete has no delete_agent grant in the fixture -> denied.
+        with pytest.raises(HTTPException) as exc_info:
+            _check_agent_permission("delete", "test-agent", mock_user_context)
 
-        with patch("registry.auth.dependencies.user_has_ui_permission_for_service") as mock_check:
-            mock_check.return_value = False
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert "permission" in str(exc_info.value.detail).lower()
 
-            # Act & Assert
-            with pytest.raises(HTTPException) as exc_info:
-                _check_agent_permission(permission, agent_name, mock_user_context)
+    def test_check_agent_permission_ignores_server_scope(self, mock_user_context):
+        """A SERVER scope must NOT satisfy an agent action (the bug this fixes).
 
-            assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-            assert "permission" in str(exc_info.value.detail).lower()
+        Granting only modify_service must not let the caller modify an agent;
+        the helper resolves 'modify' to modify_agent, so a service-only grant
+        is denied.
+        """
+        ctx = dict(mock_user_context)
+        ctx["ui_permissions"] = {"modify_service": ["all"], "toggle_service": ["all"]}
+        with pytest.raises(HTTPException) as exc_info:
+            _check_agent_permission("modify", "test-agent", ctx)
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        with pytest.raises(HTTPException):
+            _check_agent_permission("toggle", "test-agent", ctx)
 
 
 @pytest.mark.unit
@@ -1280,21 +1280,18 @@ class TestToggleAgent:
             assert data["is_enabled"] is True
 
     @pytest.mark.asyncio
-    async def test_toggle_agent_no_permission(
-        self, test_app, mock_limited_user_context, sample_agent_card
-    ):
-        """Test toggling agent without permission (403)."""
+    async def test_toggle_agent_no_permission(self, test_app_limited, sample_agent_card):
+        """Test toggling agent without the toggle_agent permission (403).
+
+        The limited context has empty ui_permissions, so it holds no
+        toggle_agent grant and the canonical gate denies.
+        """
         # Arrange
-        with (
-            patch("registry.api.agent_routes.agent_service") as mock_agent_service,
-            patch(
-                "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=False
-            ),
-        ):
+        with patch("registry.api.agent_routes.agent_service") as mock_agent_service:
             mock_agent_service.get_agent_info = AsyncMock(return_value=sample_agent_card)
 
             # Act
-            response = test_app.post("/agents/test-agent/toggle?enabled=true")
+            response = test_app_limited.post("/agents/test-agent/toggle?enabled=true")
 
             # Assert
             assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -1331,7 +1328,7 @@ class TestToggleAgent:
             "groups": ["other-group"],
             "scopes": ["read:agents"],
             "accessible_agents": ["/agents/some-other-agent"],
-            "ui_permissions": {"toggle_service": ["all"]},
+            "ui_permissions": {"toggle_agent": ["all"]},
             "is_admin": False,
         }
 
@@ -1342,10 +1339,6 @@ class TestToggleAgent:
 
         with (
             patch("registry.api.agent_routes.agent_service") as mock_agent_service,
-            patch(
-                "registry.auth.dependencies.user_has_ui_permission_for_service",
-                return_value=True,
-            ),
             patch(
                 "registry.api.agent_routes.get_search_repository",
                 return_value=mock_search_repo,
@@ -1378,7 +1371,7 @@ class TestToggleAgent:
             "groups": ["test-group"],
             "scopes": ["write:agents"],
             "accessible_agents": ["/agents/some-other-agent"],
-            "ui_permissions": {"toggle_service": ["all"]},
+            "ui_permissions": {"toggle_agent": ["all"]},
             "is_admin": False,
         }
 
@@ -1389,10 +1382,6 @@ class TestToggleAgent:
 
         with (
             patch("registry.api.agent_routes.agent_service") as mock_agent_service,
-            patch(
-                "registry.auth.dependencies.user_has_ui_permission_for_service",
-                return_value=True,
-            ),
             patch(
                 "registry.api.agent_routes.get_search_repository",
                 return_value=mock_search_repo,

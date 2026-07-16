@@ -423,6 +423,25 @@ sanitizer that isn't called) is equivalent to no check.
   (search, catalog) BEFORE per-record filtering so a caller with no list scope
   sees zero records — including public ones — exactly as the equivalent
   server/agent list scope behaves.
+- **Resolve every per-asset permission through one canonical `(family, action)`
+  map — never pass a raw scope string to a gate.** Each asset family's gate must
+  enforce its OWN family's scope; a hand-typed scope-name argument lets a sibling
+  family's scope be substituted by accident, and admins mask it (their `["all"]`
+  grants + is_admin bypass satisfy any name), so the bleed sits latent. Keep the
+  scope-name convention in ONE typed table keyed by `(family, action)`
+  (`registry/auth/asset_permissions.py`: `asset_scope_name` /
+  `user_has_asset_permission`), and have call sites pass a logical ACTION
+  ("modify", "toggle") — not a scope string — so the family is fixed by the call
+  and the map picks the name. Preserve the EXACT on-disk names in the map
+  (persisted `ui_permissions` keys — do not "normalize" `list_service` vs
+  `list_agents` pluralization; renaming a persisted key is a breaking data
+  migration, not a refactor). After adding a family, grep for gates that bypass
+  the map (a raw `user_has_ui_permission_for_service("..._<otherfamily>"`, an
+  inline `ui_permissions.get("<scope>")`) and confirm each enforces its own
+  family. When a gate starts enforcing a scope that was previously unenforced,
+  provision that scope on EVERY seed surface at once (seed JSONs, the Helm
+  `mongodb-configure` configmap, the IAM UI permission keys) and ship a dry-run
+  backfill — otherwise existing non-admins lose the access on upgrade.
 - **Authorize the exact bytes you act on — never a separately-captured copy.** If
   one component captures a request body for the authz decision and another
   forwards a different copy to the sink, they can diverge (size-triggered

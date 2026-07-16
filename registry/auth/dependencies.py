@@ -10,6 +10,7 @@ from .access_resolver import (
     get_user_accessible_tools,  # noqa: F401 - re-exported for external callers
     resolve_scope_access,
 )
+from .asset_permissions import accessible_resources_for
 from .privileged_constants import ADMIN_ACTION_PREFIXES, is_admin_conferring_action
 from .proxied_token import (
     _api_auth_request_enabled,
@@ -255,23 +256,25 @@ def get_accessible_services_for_user(user_ui_permissions: dict[str, list[str]]) 
     """
     Get list of services the user can see based on their list_service permission.
 
+    Thin wrapper over the canonical ``accessible_resources_for`` so the
+    ``list_service`` discovery projection stays in lockstep with the other
+    families. Kept as a named function for existing callers/tests.
+
     Args:
         user_ui_permissions: User's UI permissions dict from get_ui_permissions_for_user()
 
     Returns:
         List of service names the user can see, or ['all'] if they can see all services
     """
-    list_permissions = user_ui_permissions.get("list_service", [])
-
-    if "all" in list_permissions:
-        return ["all"]
-
-    return list_permissions
+    return accessible_resources_for("server", user_ui_permissions)
 
 
 def get_accessible_agents_for_user(user_ui_permissions: dict[str, list[str]]) -> list[str]:
     """
     Get list of agents the user can see based on their list_agents permission.
+
+    Thin wrapper over the canonical ``accessible_resources_for``. Kept as a named
+    function for existing callers/tests.
 
     Args:
         user_ui_permissions: User's UI permissions dict from get_ui_permissions_for_user()
@@ -279,12 +282,26 @@ def get_accessible_agents_for_user(user_ui_permissions: dict[str, list[str]]) ->
     Returns:
         List of agent paths the user can see, or ['all'] if they can see all agents
     """
-    list_permissions = user_ui_permissions.get("list_agents", [])
+    return accessible_resources_for("agent", user_ui_permissions)
 
-    if "all" in list_permissions:
-        return ["all"]
 
-    return list_permissions
+def get_accessible_skills_for_user(user_ui_permissions: dict[str, list[str]]) -> list[str]:
+    """
+    Get list of skills the user can see based on their list_skills permission.
+
+    Discovery gate for skills, bringing them to parity with servers/agents/custom
+    entities via the canonical ``accessible_resources_for``: a caller with no
+    ``list_skills`` grant discovers zero skills — including public ones — and is
+    layered on top of (not a replacement for) the per-record visibility check in
+    ``list_skills_for_user``.
+
+    Args:
+        user_ui_permissions: User's UI permissions dict from get_ui_permissions_for_user()
+
+    Returns:
+        List of skill names the user can see, or ['all'] if they can see all skills
+    """
+    return accessible_resources_for("skill", user_ui_permissions)
 
 
 def user_can_list_custom_entity_type(
@@ -305,13 +322,10 @@ def user_can_list_custom_entity_type(
     Returns:
         True if the caller may list/search this type's records, False otherwise.
     """
-    from ..services.custom_entity_scopes import entity_scope
+    from .asset_permissions import user_has_asset_permission
 
-    if user_context.get("is_admin", False):
-        return True
-    ui_permissions = user_context.get("ui_permissions") or {}
-    return user_has_ui_permission_for_service(
-        entity_scope("list", type_name), type_name, ui_permissions
+    return user_has_asset_permission(
+        "custom_entity", "list", type_name, user_context, type_name=type_name
     )
 
 
@@ -534,6 +548,7 @@ async def _derive_user_context(
             "accessible_tools": {},
             "accessible_services": [],
             "accessible_agents": [],
+            "accessible_skills": [],
             "ui_permissions": {},
             "can_modify_servers": False,
             "is_admin": False,
@@ -564,6 +579,7 @@ async def _derive_user_context(
         "accessible_tools": access.tools,
         "accessible_services": get_accessible_services_for_user(ui_permissions),
         "accessible_agents": get_accessible_agents_for_user(ui_permissions),
+        "accessible_skills": get_accessible_skills_for_user(ui_permissions),
         "ui_permissions": ui_permissions,
         "can_modify_servers": user_can_modify_servers(groups, scopes),
         "is_admin": _user_is_admin(ui_permissions),

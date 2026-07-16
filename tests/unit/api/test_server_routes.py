@@ -1652,9 +1652,7 @@ class TestRemoveServiceOwnership:
         # regular user is "testuser"; server owned by someone else.
         mock_server_service.get_server_info.return_value = self._owned_server("someoneelse")
 
-        with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
-        ):
+        with patch("registry.api.server_routes.user_has_asset_permission", return_value=True):
             response = test_client_regular.post(
                 "/api/servers/remove", data={"path": "/test-server"}
             )
@@ -1667,9 +1665,7 @@ class TestRemoveServiceOwnership:
         mock_server_service.get_server_info.return_value = self._owned_server("testuser")
         mock_server_service.remove_server.return_value = True
 
-        with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
-        ):
+        with patch("registry.api.server_routes.user_has_asset_permission", return_value=True):
             response = test_client_regular.post(
                 "/api/servers/remove", data={"path": "/test-server"}
             )
@@ -3099,7 +3095,7 @@ class TestToggleApiAuthorization:
         mock_server_service.user_can_access_server_path = AsyncMock(return_value=True)
         mock_server_service.toggle_service.return_value = True
         with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service",
+            "registry.api.server_routes.user_has_asset_permission",
             return_value=True,
         ):
             response = test_client_regular.post(
@@ -3310,7 +3306,7 @@ class TestServerModifyOwnership:
         """The owner with modify_service may rewrite their own credential."""
         mock_server_service.get_server_info.return_value = dict(self._OWNED)
         with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service",
+            "registry.api.server_routes.user_has_asset_permission",
             return_value=True,
         ):
             response = test_client_regular.patch(

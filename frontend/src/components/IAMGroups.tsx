@@ -24,10 +24,12 @@ import {
 } from '../hooks/useIAM';
 import { useServerList, useServerTools } from '../hooks/useToolCatalog';
 import { useAgentList } from '../hooks/useAgentList';
+import { useSkills } from '../hooks/useSkills';
 import { useRegistryConfig } from '../hooks/useRegistryConfig';
 import DeleteConfirmation from './DeleteConfirmation';
 import SearchableSelect from './SearchableSelect';
 import ListStateBoundary from './iam/ListStateBoundary';
+import UiPermissionEditor from './iam/UiPermissionEditor';
 
 interface IAMGroupsProps {
   onShowToast: (message: string, type: 'success' | 'error' | 'info') => void;
@@ -42,37 +44,14 @@ interface ServerAccessEntry {
   tools: string[];  // array of selected tool names
 }
 
-// ─── Available ui_permissions keys from scopes.yml ──────────────
-const UI_PERMISSION_KEYS = [
-  { key: 'list_service', label: 'List Services' },
-  { key: 'register_service', label: 'Register Service' },
-  { key: 'health_check_service', label: 'Health Check Service' },
-  { key: 'toggle_service', label: 'Toggle Service' },
-  { key: 'modify_service', label: 'Modify Service' },
-  { key: 'delete_service', label: 'Delete Service' },
-  { key: 'list_agents', label: 'List Agents' },
-  { key: 'get_agent', label: 'Get Agent' },
-  { key: 'publish_agent', label: 'Publish Agent' },
-  { key: 'modify_agent', label: 'Modify Agent' },
-  { key: 'delete_agent', label: 'Delete Agent' },
-];
-
 // ─── Per-type custom-entity ui_permissions ────────
 // Each admin-defined custom type mints list/create/modify/delete_<type>_entity
-// scopes. These are enumerated from the current type set (via /api/config) so an
-// admin can grant them proactively, before any record of the type exists. The
-// keys mirror registry/services/custom_entity_scopes.entity_scope() exactly.
-const ENTITY_SCOPE_ACTIONS: { action: string; verb: string }[] = [
-  { action: 'list', verb: 'List' },
-  { action: 'create', verb: 'Create' },
-  { action: 'modify', verb: 'Modify' },
-  { action: 'delete', verb: 'Delete' },
-];
-
+// scopes, edited in UiPermissionEditor. Enumerated from the current type set (via
+// /api/config) so an admin can grant them proactively, before any record exists.
+// The scope keys mirror registry/services/custom_entity_scopes.entity_scope().
 interface EntityScopeGroup {
   typeName: string;
   displayName: string;
-  keys: { key: string; label: string }[];
 }
 
 function buildEntityScopeGroups(
@@ -81,10 +60,6 @@ function buildEntityScopeGroups(
   return customTypes.map((t) => ({
     typeName: t.name,
     displayName: t.display_name || t.name,
-    keys: ENTITY_SCOPE_ACTIONS.map(({ action, verb }) => ({
-      key: `${action}_${t.name}_entity`,
-      label: `${verb} ${t.display_name || t.name}`,
-    })),
   }));
 }
 
@@ -323,13 +298,20 @@ function _buildScopeJson(
     .filter((p) => !p.startsWith('/virtual/'))
     .map((p) => p.replace(/^\/+|\/+$/g, ''));
 
+  // The Server Access picker emits '*' for "All servers", but the backend
+  // list_service / read ui_permissions use 'all' as the wildcard token ('*' is
+  // treated as a literal server name and matches nothing). Translate here so the
+  // "* (All servers)" option actually grants list access. The server_access rule
+  // itself keeps '*' (its invocation-wildcard semantics are unchanged).
+  const mcpServiceResources = mcpServerPaths.includes('*') ? ['all'] : mcpServerPaths;
+
   // Always sync MCP server UI permissions with current server_access
   if (mcpServerPaths.length > 0) {
-    perms['list_service'] = mcpServerPaths;
-    perms['health_check_service'] = mcpServerPaths;
-    perms['get_service'] = mcpServerPaths;
-    perms['list_tools'] = mcpServerPaths;
-    perms['call_tool'] = mcpServerPaths;
+    perms['list_service'] = mcpServiceResources;
+    perms['health_check_service'] = mcpServiceResources;
+    perms['get_service'] = mcpServiceResources;
+    perms['list_tools'] = mcpServiceResources;
+    perms['call_tool'] = mcpServiceResources;
   } else {
     delete perms['list_service'];
     delete perms['health_check_service'];
@@ -361,7 +343,20 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
   const { groups, isLoading, error, refetch } = useIAMGroups();
   const { servers: availableServers, isLoading: serversLoading } = useServerList();
   const { agents: availableAgents, isLoading: agentsLoading } = useAgentList();
+  const { skills: availableSkills, loading: skillsLoading } = useSkills();
   const { config } = useRegistryConfig();
+
+  // Skill options for the UiPermissionEditor list_skills multi-select. Keyed by
+  // skill name (the resource identifier list_skills is matched against).
+  const skillOptions = useMemo(
+    () =>
+      (availableSkills ?? []).map((s) => ({
+        value: s.name,
+        label: s.name,
+        description: s.description || undefined,
+      })),
+    [availableSkills],
+  );
 
   // Dynamic per-type entity scope keys, enabled only when the custom-types
   // feature is on. Enumerated from the current type set so admins can grant
@@ -572,14 +567,19 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
         .filter((p) => !p.startsWith('/virtual/'))
         .map((p) => p.replace(/^\/+|\/+$/g, ''));
 
+      // '*' (All servers) from the picker -> 'all' wildcard token the backend
+      // list_service/read ui_permissions expect ('*' would be a literal name and
+      // match no server). server_access keeps '*' for invocation semantics.
+      const mcpServiceResources = mcpServerPaths.includes('*') ? ['all'] : mcpServerPaths;
+
       // Always sync MCP server UI permissions with current server_access
       // (matches the virtual server sync pattern below)
       if (mcpServerPaths.length > 0) {
-        perms['list_service'] = mcpServerPaths;
-        perms['health_check_service'] = mcpServerPaths;
-        perms['get_service'] = mcpServerPaths;
-        perms['list_tools'] = mcpServerPaths;
-        perms['call_tool'] = mcpServerPaths;
+        perms['list_service'] = mcpServiceResources;
+        perms['health_check_service'] = mcpServiceResources;
+        perms['get_service'] = mcpServiceResources;
+        perms['list_tools'] = mcpServiceResources;
+        perms['call_tool'] = mcpServiceResources;
       } else {
         delete perms['list_service'];
         delete perms['health_check_service'];
@@ -956,51 +956,17 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
             )}
             <span>
               UI Permissions
-              <span className="text-xs text-gray-400 ml-1">(enter "all" or a comma-separated list of service/agent names)</span>
+              <span className="text-xs text-gray-400 ml-1">(grant mutation permissions and skill/custom-type discovery)</span>
             </span>
           </button>
           {showUiPermissions && (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
-                {UI_PERMISSION_KEYS.map(({ key, label }) => (
-                  <div key={key}>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                    <input
-                      type="text"
-                      value={uiPermissions[key] || ''}
-                      onChange={(e) => setPermValue(key, e.target.value)}
-                      placeholder="e.g. all or currenttime, mcpgw"
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                                 bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                                 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    />
-                  </div>
-                ))}
-              </div>
-              {entityScopeGroups.map((group) => (
-                <div key={group.typeName} className="pl-6 space-y-2">
-                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-                    Custom Type: {group.displayName}
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {group.keys.map(({ key, label }) => (
-                      <div key={key}>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                        <input
-                          type="text"
-                          value={uiPermissions[key] || ''}
-                          onChange={(e) => setPermValue(key, e.target.value)}
-                          placeholder="e.g. all or a comma-separated list"
-                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                                     bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                                     focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </>
+            <UiPermissionEditor
+              uiPermissions={uiPermissions}
+              setPermValue={setPermValue}
+              entityScopeGroups={entityScopeGroups}
+              skillOptions={skillOptions}
+              skillsLoading={skillsLoading}
+            />
           )}
         </div>
 
@@ -1299,51 +1265,17 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
                 )}
                 <span>
                   UI Permissions
-                  <span className="text-xs text-gray-400 ml-1">(enter "all" or a comma-separated list of service/agent names)</span>
+                  <span className="text-xs text-gray-400 ml-1">(grant mutation permissions and skill/custom-type discovery)</span>
                 </span>
               </button>
               {showUiPermissions && (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-6">
-                    {UI_PERMISSION_KEYS.map(({ key, label }) => (
-                      <div key={key}>
-                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                        <input
-                          type="text"
-                          value={uiPermissions[key] || ''}
-                          onChange={(e) => setPermValue(key, e.target.value)}
-                          placeholder="e.g. all or currenttime, mcpgw"
-                          className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                                     bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                                     focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  {entityScopeGroups.map((group) => (
-                    <div key={group.typeName} className="pl-6 space-y-2">
-                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-                        Custom Type: {group.displayName}
-                      </p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {group.keys.map(({ key, label }) => (
-                          <div key={key}>
-                            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
-                            <input
-                              type="text"
-                              value={uiPermissions[key] || ''}
-                              onChange={(e) => setPermValue(key, e.target.value)}
-                              placeholder="e.g. all or a comma-separated list"
-                              className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg
-                                         bg-white dark:bg-gray-900 text-gray-900 dark:text-white
-                                         focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </>
+                <UiPermissionEditor
+                  uiPermissions={uiPermissions}
+                  setPermValue={setPermValue}
+                  entityScopeGroups={entityScopeGroups}
+                  skillOptions={skillOptions}
+                  skillsLoading={skillsLoading}
+                />
               )}
             </div>
 

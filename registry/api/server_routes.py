@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..audit import set_audit_action
+from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.csrf import (
     generate_csrf_token,
     verify_csrf_token_flexible,
@@ -992,7 +993,6 @@ async def toggle_service_route(
     _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
     """Toggle a service on/off (requires toggle_service UI permission)."""
-    from ..auth.dependencies import user_has_ui_permission_for_service
     from ..health.service import health_service
 
     if not service_path.startswith("/"):
@@ -1005,9 +1005,7 @@ async def toggle_service_route(
     service_name = server_info["server_name"]
 
     # Check if user has toggle_service permission for this specific service
-    if not user_has_ui_permission_for_service(
-        "toggle_service", service_name, user_context.get("ui_permissions", {})
-    ):
+    if not user_has_asset_permission("server", "toggle", service_name, user_context):
         logger.warning(
             f"User {user_context['username']} attempted to toggle service {service_name} without toggle_service permission"
         )
@@ -1151,37 +1149,34 @@ def _to_dt(value: Any) -> datetime | None:
 
 
 def _check_server_permission(
-    permission: str,
+    action: str,
     server_name: str,
     user_context: dict[str, Any],
 ) -> None:
-    """Check whether the user has the requested UI permission for a server.
+    """Check whether the user may perform ``action`` on a server.
 
-    Mirrors `_check_agent_permission` in agent_routes.py so PUT/PATCH on
-    servers behaves the same way as PUT/PATCH on agents.
+    Takes a logical ACTION (list/create/modify/delete/toggle/health_check) and
+    resolves it to the server scope via the canonical asset-permission map, so
+    the enforced scope is always the correct one for the server family. Mirrors
+    `_check_agent_permission` in agent_routes.py.
 
     Args:
-        permission: UI permission name (e.g., "modify_service").
-        server_name: Display name of the server, used for the 403 detail.
+        action: Logical server action (e.g. "modify", "toggle", "delete").
+        server_name: Display name of the server, used for the 403 detail and the
+            per-resource grant match.
         user_context: Authenticated user context.
 
     Raises:
         HTTPException: 403 if the user lacks the permission.
     """
-    from ..auth.dependencies import user_has_ui_permission_for_service
-
-    if not user_has_ui_permission_for_service(
-        permission,
-        server_name,
-        user_context.get("ui_permissions", {}),
-    ):
+    if not user_has_asset_permission("server", action, server_name, user_context):
         logger.warning(
-            f"User {user_context.get('username')} attempted to perform {permission} "
-            f"on server {server_name} without permission"
+            f"User {user_context.get('username')} attempted to {action} "
+            f"server {server_name} without permission"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You do not have permission to {permission} for {server_name}",
+            detail=f"You do not have permission to {action} server {server_name}",
         )
 
 
@@ -2297,7 +2292,6 @@ async def edit_server_form(
     user_context: Annotated[dict, Depends(enhanced_auth)],
 ):
     """Show edit form for a service (requires modify_service UI permission)."""
-    from ..auth.dependencies import user_has_ui_permission_for_service
 
     if not service_path.startswith("/"):
         service_path = "/" + service_path
@@ -2309,9 +2303,7 @@ async def edit_server_form(
     service_name = server_info["server_name"]
 
     # Check if user has modify_service permission for this specific service
-    if not user_has_ui_permission_for_service(
-        "modify_service", service_name, user_context.get("ui_permissions", {})
-    ):
+    if not user_has_asset_permission("server", "modify", service_name, user_context):
         logger.warning(
             f"User {user_context['username']} attempted to access edit form for {service_name} without modify_service permission"
         )
@@ -2383,7 +2375,6 @@ async def edit_server_submit(
     require admin privileges, mirroring the registration gate. If `deployment`
     is omitted, the existing server's deployment is preserved.
     """
-    from ..auth.dependencies import user_has_ui_permission_for_service
     from ..utils.local_runtime_validation import (
         add_unpinned_warning_tag,
         parse_and_validate_local_runtime,
@@ -2438,9 +2429,7 @@ async def edit_server_submit(
             )
     else:
         # Remote edit — standard modify_service permission check.
-        if not user_has_ui_permission_for_service(
-            "modify_service", service_name, user_context.get("ui_permissions", {})
-        ):
+        if not user_has_asset_permission("server", "modify", service_name, user_context):
             logger.warning(
                 f"User {user_context['username']} attempted to edit service "
                 f"{service_name} without modify_service permission"
@@ -3043,7 +3032,6 @@ async def get_service_tools(
 @router.post("/refresh/{service_path:path}")
 async def refresh_service(service_path: str, user_context: Annotated[dict, Depends(enhanced_auth)]):
     """Refresh service health and tool information (requires health_check_service permission)."""
-    from ..auth.dependencies import user_has_ui_permission_for_service
     from ..health.service import health_service
 
     if not service_path.startswith("/"):
@@ -3056,9 +3044,7 @@ async def refresh_service(service_path: str, user_context: Annotated[dict, Depen
     service_name = server_info["server_name"]
 
     # Check if user has health_check_service permission for this specific service
-    if not user_has_ui_permission_for_service(
-        "health_check_service", service_name, user_context.get("ui_permissions", {})
-    ):
+    if not user_has_asset_permission("server", "health_check", service_name, user_context):
         logger.warning(
             f"User {user_context['username']} attempted to refresh service {service_name} without health_check_service permission"
         )
@@ -4374,7 +4360,7 @@ async def update_server_auth_credential(
     # require the same modify_service permission as PUT/PATCH /servers/{path}.
     # nginx_proxied_auth only authenticates; it does not authorize.
     _check_server_permission(
-        "modify_service",
+        "modify",
         existing_server.get("server_name", server_path),
         user_context,
     )
@@ -4527,13 +4513,10 @@ async def toggle_service_api(
     # Authorization: mirror the legacy UI toggle route (toggle_service_route).
     # Require the toggle_service UI permission for this service, then a
     # per-server access check for non-admin callers.
-    from ..auth.dependencies import user_has_ui_permission_for_service
 
     service_name = server_info["server_name"]
 
-    if not user_has_ui_permission_for_service(
-        "toggle_service", service_name, user_context.get("ui_permissions", {})
-    ):
+    if not user_has_asset_permission("server", "toggle", service_name, user_context):
         logger.warning(
             f"User '{user_context.get('username')}' attempted to toggle "
             f"'{service_name}' without toggle_service permission"
@@ -4693,12 +4676,8 @@ async def remove_service_api(
     # not the URL path token, so the trust key is consistent and cannot be satisfied by
     # a delete_service grant for a raw path string that differs from the server_name.
     if not user_context.get("is_admin", False):
-        from ..auth.dependencies import user_has_ui_permission_for_service
-
         service_name = server_info["server_name"]
-        if not user_has_ui_permission_for_service(
-            "delete_service", service_name, user_context.get("ui_permissions", {})
-        ):
+        if not user_has_asset_permission("server", "delete", service_name, user_context):
             logger.warning(
                 f"User {user_context.get('username')} denied delete for server "
                 f"'{service_name}' ({path})"
@@ -5783,7 +5762,7 @@ async def remove_server_version(
     if not existing_server:
         raise HTTPException(status_code=404, detail="Service path not registered")
     _check_server_permission(
-        "modify_service",
+        "modify",
         existing_server.get("server_name", decoded_path),
         user_context,
     )
@@ -5848,7 +5827,7 @@ async def set_default_version(
     if not existing_server:
         raise HTTPException(status_code=404, detail="Service path not registered")
     _check_server_permission(
-        "modify_service",
+        "modify",
         existing_server.get("server_name", decoded_path),
         user_context,
     )
@@ -6085,7 +6064,7 @@ async def update_server_endpoint(
         )
 
     _check_server_permission(
-        "modify_service",
+        "modify",
         existing.get("server_name", path),
         user_context,
     )
@@ -6258,7 +6237,7 @@ async def patch_server_endpoint(
         )
 
     _check_server_permission(
-        "modify_service",
+        "modify",
         existing.get("server_name", path),
         user_context,
     )

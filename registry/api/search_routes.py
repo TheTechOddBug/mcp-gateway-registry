@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..audit import set_audit_action
+from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.dependencies import nginx_proxied_auth
 from ..auth.dependencies import (
     user_can_list_custom_entity_type as _user_can_list_custom_entity_type,
@@ -722,6 +723,14 @@ async def semantic_search(
     for skill in raw_results.get("skills", []):
         skill_path = skill.get("path", "")
         if not skill_path:
+            continue
+
+        skill_name = skill.get("skill_name", skill_path.strip("/"))
+
+        # Discovery gate FIRST (list_skills, parity with list_service and the
+        # custom-entity type gate): a caller with no list_skills grant sees no
+        # skills -- not even public ones -- before the per-record visibility check.
+        if not user_has_asset_permission("skill", "list", skill_name, user_context):
             continue
 
         visibility = skill.get("visibility", "public")
