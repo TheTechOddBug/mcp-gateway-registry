@@ -218,6 +218,20 @@ sanitizer that isn't called) is equivalent to no check.
   never fall back to a raw user string when tokenization yields nothing. Escape
   at the SINK (the repository method that builds the query), not at the caller —
   a caller-escape contract silently breaks the moment a new caller forgets it.
+- **A user-supplied value interpolated into an outbound URL PATH segment must be
+  validated against a strict identifier allowlist — mirror the resource's own
+  canonical name rule (e.g. `^[a-z0-9]+(-[a-z0-9]+)*\Z`) rather than a looser
+  superset — BEFORE building the URL.** Otherwise a value like
+  `../../api/management/iam/users` normalizes (via the HTTP client) to a
+  DIFFERENT endpoint after the request is issued, and if the client carries a
+  privileged credential (M2M / API token) the traversed request inherits that
+  privilege. A non-empty `.strip()` check is not sufficient. Anchor the pattern
+  with `\Z`, not `$`: Python's `$` also matches just before a trailing newline,
+  so `^...+$` would accept `"validname\n"`. Validate at the interpolation site —
+  do not trust the downstream service to reject the traversed path. Fail closed:
+  return the handler's error shape, do not raise. Query parameters are lower risk
+  (they don't traverse the path), but still reject absolute (`/`-leading) and
+  `..`-containing values as defense-in-depth.
 
 ## Authorization & ownership
 
@@ -240,6 +254,23 @@ sanitizer that isn't called) is equivalent to no check.
   `dict.get("key")`; watch for dict-vs-Pydantic-model confusion.
 - **No substring matching for privilege decisions** (`"unrestricted" in scope`
   accepted access scopes as admin). Match exact, centralized constants.
+- **Reserve the wildcard/sentinel names at every write that turns user input
+  into an authorization key.** If a resolver treats a magic value (`all`, `*`)
+  as a cross-cutting wildcard, then any name derived from user input — a server
+  registration `path` normalized (`lstrip("/")`) into a scope `server` value —
+  that equals that sentinel silently escalates to "all resources". Reject the
+  reserved names at the registration/validation chokepoint (fail closed, exact
+  set — do not over-strip so adjacent names like `all-tools` stay valid) AND at
+  the deepest write sink as defense-in-depth. Enumerate ALL write sinks: a
+  direct-write path that skips the canonical `add_*` helper (e.g. a bulk
+  `import_group` that persists the rule list verbatim via `replace_one`) bypasses
+  the sink guard and needs its own check. Make the scan flatten/normalize/coerce
+  IDENTICALLY to the resolver's read path (share the flatten helper; `str()`-
+  coerce exactly as the resolver does) so the guard can never be blind to a shape
+  or type the resolver would still honor as a wildcard. Keep the read-side
+  sentinel set and the write-side reject set cross-referenced so they stay in
+  lockstep. Existing rows written before the fix are a separate data-cleanup
+  concern (audit `{"server": {"$in": ["all","*"]}}`), not covered by a code guard.
 - **Canonicalize a path before any deny-list / classifier decision.** A path
   that drives an authorization decision (a resource-token deny-list, a route
   classifier) arrives from an attacker-controlled raw request URI, typically
