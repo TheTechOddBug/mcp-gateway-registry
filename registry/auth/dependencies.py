@@ -340,21 +340,18 @@ def user_can_list_custom_entity_type(
     # Custom-entity list is the one per-record discovery gate (three tiers), so
     # it keeps its own implementation rather than routing through the binary
     # user_has_asset_permission (which the type-level mutation gates use). The
-    # naming SSOT (custom_entity_scopes) is still shared.
-    from ..services.custom_entity_scopes import (
-        entity_scope,
-        list_grant_allows_type,
-        list_grant_record_paths,
-    )
+    # tier resolution is shared via resolve_list_grant so the search loop and
+    # this gate can never disagree.
+    from ..services.custom_entity_scopes import entity_scope, resolve_list_grant
 
     if user_context.get("is_admin", False):
         return True
     ui_permissions = user_context.get("ui_permissions") or {}
     granted = ui_permissions.get(entity_scope("list", type_name)) or []
 
-    if list_grant_allows_type(type_name, granted):
+    whole_open, record_paths = resolve_list_grant(type_name, granted)
+    if whole_open:
         return True
-    record_paths = list_grant_record_paths(type_name, granted)
     if record_path is not None:
         return record_path in record_paths
     # Discovery pre-check: reachable if the caller holds any specific record.

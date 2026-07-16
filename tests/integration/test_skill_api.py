@@ -282,12 +282,19 @@ class TestSkillVisibility:
     """Test skill visibility filtering."""
 
     @pytest.mark.asyncio
-    async def test_public_skill_visible_to_anonymous(
+    async def test_anonymous_sees_no_skills_without_list_scope(
         self,
         mock_skill_repository,
         mock_search_repository,
     ):
-        """Test that public skills are visible to anonymous users."""
+        """Anonymous users see NO skills — including public ones.
+
+        Skills now have a list_skills discovery gate (parity with list_service /
+        list_agents): a caller with no list_skills grant discovers zero skills
+        before the per-record visibility check. Anonymous (user_context=None)
+        holds no grant, so even a public skill is hidden. This is the intended
+        behavior change; see scripts/backfill-skill-list-scope.py.
+        """
         from registry.schemas.skill_models import SkillCard, VisibilityEnum
         from registry.services.skill_service import SkillService
 
@@ -305,8 +312,7 @@ class TestSkillVisibility:
         service._search_repo = mock_search_repository
 
         result = await service.list_skills_for_user(user_context=None)
-        assert len(result) == 1
-        assert result[0].name == "public"
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_private_skill_hidden_from_others(
