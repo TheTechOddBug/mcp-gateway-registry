@@ -290,29 +290,54 @@ def get_accessible_agents_for_user(user_ui_permissions: dict[str, list[str]]) ->
 def user_can_list_custom_entity_type(
     type_name: str,
     user_context: dict,
+    record_path: str | None = None,
 ) -> bool:
     """Return True if the caller may see records of a custom type.
 
-    Type-level discovery gate for custom entities, mirroring the
-    ``list_service`` / ``list_agents`` projection: admin sees all types, a
-    non-admin must hold ``list_<type>_entity`` (or "all") in their
-    ui_permissions. Fails closed on a missing ui_permissions dict.
+    Discovery gate for custom entities, mirroring ``list_agents``: the
+    ``list_<type>_entity`` grant is interpreted in three tiers — ``"all"`` or the
+    bare type name open the WHOLE type; a record path ``/type/uuid`` opens just
+    that record. Admin bypasses. Fails closed on a missing ui_permissions dict.
+
+    Two call shapes:
+
+    - ``record_path=None`` (discovery pre-check for search/collection): True if
+      the caller can see ANY record of the type — the whole type OR at least one
+      specific record. This only decides whether the type is reachable at all;
+      per-record filtering still happens downstream (search checks each hit's
+      path; the collection list intersects the granted paths).
+    - ``record_path`` given (single-record gate): True only if the grant covers
+      that specific record (whole-type, or that exact path).
+
+    This discovery gate is layered ON TOP of the per-record visibility check;
+    both must pass.
 
     Args:
         type_name: The custom type name.
         user_context: The authenticated request context.
+        record_path: Optional specific record path ``/type/uuid`` to check.
 
     Returns:
-        True if the caller may list/search this type's records, False otherwise.
+        True if the caller may list/search the type (or the given record).
     """
-    from ..services.custom_entity_scopes import entity_scope
+    from ..services.custom_entity_scopes import (
+        entity_scope,
+        list_grant_allows_type,
+        list_grant_record_paths,
+    )
 
     if user_context.get("is_admin", False):
         return True
     ui_permissions = user_context.get("ui_permissions") or {}
-    return user_has_ui_permission_for_service(
-        entity_scope("list", type_name), type_name, ui_permissions
-    )
+    granted = ui_permissions.get(entity_scope("list", type_name)) or []
+
+    if list_grant_allows_type(type_name, granted):
+        return True
+    record_paths = list_grant_record_paths(type_name, granted)
+    if record_path is not None:
+        return record_path in record_paths
+    # Discovery pre-check: reachable if the caller holds any specific record.
+    return len(record_paths) > 0
 
 
 async def get_servers_for_scope(scope: str) -> list[str]:

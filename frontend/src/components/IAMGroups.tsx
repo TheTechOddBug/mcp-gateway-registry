@@ -28,6 +28,7 @@ import { useRegistryConfig } from '../hooks/useRegistryConfig';
 import DeleteConfirmation from './DeleteConfirmation';
 import SearchableSelect from './SearchableSelect';
 import ListStateBoundary from './iam/ListStateBoundary';
+import CustomTypeListPicker from './iam/CustomTypeListPicker';
 
 interface IAMGroupsProps {
   onShowToast: (message: string, type: 'success' | 'error' | 'info') => void;
@@ -62,8 +63,10 @@ const UI_PERMISSION_KEYS = [
 // scopes. These are enumerated from the current type set (via /api/config) so an
 // admin can grant them proactively, before any record of the type exists. The
 // keys mirror registry/services/custom_entity_scopes.entity_scope() exactly.
-const ENTITY_SCOPE_ACTIONS: { action: string; verb: string }[] = [
-  { action: 'list', verb: 'List' },
+// Mutation actions render as free-text grants; the read action (`list`) renders
+// as a record picker (CustomTypeListPicker) since its grant supports specific
+// record paths, not just "all".
+const ENTITY_MUTATION_ACTIONS: { action: string; verb: string }[] = [
   { action: 'create', verb: 'Create' },
   { action: 'modify', verb: 'Modify' },
   { action: 'delete', verb: 'Delete' },
@@ -72,7 +75,8 @@ const ENTITY_SCOPE_ACTIONS: { action: string; verb: string }[] = [
 interface EntityScopeGroup {
   typeName: string;
   displayName: string;
-  keys: { key: string; label: string }[];
+  listKey: string;
+  mutationKeys: { key: string; label: string }[];
 }
 
 function buildEntityScopeGroups(
@@ -81,7 +85,8 @@ function buildEntityScopeGroups(
   return customTypes.map((t) => ({
     typeName: t.name,
     displayName: t.display_name || t.name,
-    keys: ENTITY_SCOPE_ACTIONS.map(({ action, verb }) => ({
+    listKey: `list_${t.name}_entity`,
+    mutationKeys: ENTITY_MUTATION_ACTIONS.map(({ action, verb }) => ({
       key: `${action}_${t.name}_entity`,
       label: `${verb} ${t.display_name || t.name}`,
     })),
@@ -982,8 +987,14 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
                   <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
                     Custom Type: {group.displayName}
                   </p>
+                  <CustomTypeListPicker
+                    typeName={group.typeName}
+                    displayName={group.displayName}
+                    value={uiPermissions[group.listKey] || ''}
+                    onChange={(csv) => setPermValue(group.listKey, csv)}
+                  />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {group.keys.map(({ key, label }) => (
+                    {group.mutationKeys.map(({ key, label }) => (
                       <div key={key}>
                         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
                         <input
@@ -1325,8 +1336,14 @@ const IAMGroups: React.FC<IAMGroupsProps> = ({ onShowToast }) => {
                       <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
                         Custom Type: {group.displayName}
                       </p>
+                      <CustomTypeListPicker
+                        typeName={group.typeName}
+                        displayName={group.displayName}
+                        value={uiPermissions[group.listKey] || ''}
+                        onChange={(csv) => setPermValue(group.listKey, csv)}
+                      />
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {group.keys.map(({ key, label }) => (
+                        {group.mutationKeys.map(({ key, label }) => (
                           <div key={key}>
                             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
                             <input
