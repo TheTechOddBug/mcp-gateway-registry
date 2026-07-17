@@ -22,6 +22,8 @@ so the privileged-write guard cannot silently drift out of sync with the
 admin-derivation rule.
 """
 
+import re
+
 # Mutating (management) UI-Scopes action prefixes. A user with any action whose
 # name starts with one of these, granted for "all" resources, is an admin.
 # Read-only prefixes (list_, get_, health_check_) are intentionally excluded.
@@ -41,6 +43,50 @@ ADMIN_ACTION_PREFIXES: tuple[str, ...] = (
 # Grant value that makes a mutating action admin-conferring. See the note above
 # on why "*" is deliberately excluded.
 PRIVILEGED_GRANTS: frozenset[str] = frozenset({"all"})
+
+# Per-type custom-entity mutation scopes (create_/modify_/delete_<type>_entity)
+# match the mutating prefixes above, but they are NOT admin-conferring: they gate
+# a single custom type's records, not registry management. Excluding them here
+# lets an admin grant a non-admin group ``create_dataset_entity: ["all"]`` without
+# silently promoting that user to full registry admin. This intentionally MODIFIES
+# the prefix-only admin-derivation contract from PR #717/#663 -- ``list_`` scopes
+# are read-only-prefixed and already excluded, so only the mutating forms need it.
+#
+# SECURITY BOUNDARY: this exclusion is the single source of truth for "a per-type
+# entity scope is not admin". ``is_admin_conferring_action`` (below) is the ONLY
+# supported way to apply the admin-derivation rule; both the per-request
+# ``_user_is_admin`` (dependencies.py) and the privileged-write ``_grants_admin``
+# (scope_repository.py) call it so they cannot drift apart.
+_PER_TYPE_ENTITY_SCOPE_RE = re.compile(r"^(create|modify|delete)_.+_entity$")
+
+
+def is_admin_conferring_action(action: str) -> bool:
+    """Return True if holding ``action`` for "all" resources confers admin.
+
+    An action confers admin when it starts with a mutating management prefix
+    (``ADMIN_ACTION_PREFIXES``) AND is not an excluded per-type custom-entity
+    scope (``create_/modify_/delete_<type>_entity``). Read-only prefixed actions
+    (``list_``/``get_``/``health_check_``) never match a mutating prefix and so
+    are non-conferring by construction.
+
+    This is the sole gate for the admin-derivation rule; both the per-request
+    admin check and the privileged-write guard defer to it so the exclusion
+    cannot be honored by one consumer and ignored by the other.
+
+    Args:
+        action: A UI-Scopes action name (e.g. ``register_service``,
+            ``create_dataset_entity``).
+
+    Returns:
+        True if the action is admin-conferring (subject to a "all" grant),
+        False otherwise.
+    """
+    if not action.startswith(ADMIN_ACTION_PREFIXES):
+        return False
+    if _PER_TYPE_ENTITY_SCOPE_RE.match(action):
+        return False
+    return True
+
 
 # Scope/group names that confer administrative access by membership. Naming a
 # scope one of these, or mapping a group to one of these, elevates whoever holds

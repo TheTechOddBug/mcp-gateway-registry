@@ -811,6 +811,69 @@ class ScopeRepositoryBase(ABC):
         pass
 
     @abstractmethod
+    async def merge_ui_permissions(
+        self,
+        group_name: str,
+        ui_permissions: dict[str, list[str]],
+    ) -> bool:
+        """
+        Merge a set of ui_permission keys into a group's ui_permissions.
+
+        Targeted read-modify-write of individual permission keys, used to grant
+        a group per-type custom-entity scopes on type-create without
+        round-tripping the whole group document through import_group. Existing
+        keys are overwritten with the provided value; keys not present are added.
+
+        Args:
+            group_name: Name of the group to update.
+            ui_permissions: Mapping of permission name -> allowed resources to
+                merge into the group's ui_permissions.
+
+        Returns:
+            True if the group existed and was updated, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def remove_ui_permission_keys(
+        self,
+        group_name: str,
+        permission_keys: list[str],
+    ) -> bool:
+        """
+        Remove a set of ui_permission keys from a group's ui_permissions.
+
+        Used to clean up per-type custom-entity scopes on type-delete.
+
+        Args:
+            group_name: Name of the group to update.
+            permission_keys: Permission names to unset from ui_permissions.
+
+        Returns:
+            True if the group existed and was updated, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def remove_ui_permission_keys_from_all_groups(
+        self,
+        permission_keys: list[str],
+    ) -> int:
+        """
+        Remove a set of ui_permission keys from EVERY group that holds them.
+
+        Sweeps all groups so a granted non-admin does not keep a dangling
+        per-type scope after its type is deleted.
+
+        Args:
+            permission_keys: Permission names to unset from every group.
+
+        Returns:
+            The number of group documents modified.
+        """
+        pass
+
+    @abstractmethod
     async def add_group_mapping(
         self,
         group_name: str,

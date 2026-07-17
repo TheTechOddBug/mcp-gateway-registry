@@ -27,6 +27,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
+# The built-in registry-admin group that per-type custom-entity scopes are minted
+# to on type-create. Admins get the full scope set so they can manage records of a
+# new type immediately; non-admins are granted scopes explicitly via the IAM UI.
+ADMIN_GROUP_NAME: str = "mcp-registry-admin"
+
 STANDARD_METHODS: list[str] = [
     "initialize",
     "notifications/initialized",
@@ -635,3 +640,89 @@ async def add_group_mapping_to_scope(
     except Exception as e:
         logger.error(f"Error adding group mapping to scope {scope_name}: {e}")
         return False
+
+
+class ScopeMintError(Exception):
+    """Raised when minting a custom type's scopes to the admin group fails.
+
+    Type creation treats this as fatal: a type whose scopes could not be granted
+    to admins is unusable (no one can list/create its records), so the caller
+    should surface the failure rather than leave an orphaned type.
+    """
+
+
+async def mint_custom_type_scopes(
+    type_name: str,
+) -> bool:
+    """Grant the per-type custom-entity scope set to the admin group.
+
+    Adds ``list/create/modify/delete_<type>_entity: ["all"]`` to
+    ``mcp-registry-admin`` via a targeted ui_permissions merge (no whole-doc
+    round-trip, so the privileged-write guard is not involved). Fails closed:
+    raises ScopeMintError if the group is missing or the write fails, so type
+    creation can abort.
+
+    Args:
+        type_name: The custom type name whose scopes to mint.
+
+    Returns:
+        True on success. Raises ScopeMintError on failure (never returns False).
+    """
+    from .custom_entity_scopes import all_entity_scopes
+
+    scopes = all_entity_scopes(type_name)
+    scope_repo = get_scope_repository()
+    try:
+        success = await scope_repo.merge_ui_permissions(ADMIN_GROUP_NAME, scopes)
+    except Exception as e:
+        raise ScopeMintError(f"Failed to mint scopes for custom type '{type_name}': {e}") from e
+
+    if not success:
+        raise ScopeMintError(
+            f"Failed to mint scopes for custom type '{type_name}': "
+            f"group '{ADMIN_GROUP_NAME}' not found or not updated"
+        )
+
+    logger.info(
+        "Minted per-type scopes for custom type '%s' to group '%s': %s",
+        type_name,
+        ADMIN_GROUP_NAME,
+        sorted(scopes.keys()),
+    )
+    return True
+
+
+async def cleanup_custom_type_scopes(
+    type_name: str,
+) -> int:
+    """Remove a custom type's scope set from EVERY group that holds it.
+
+    Sweeps all groups (not just ``mcp-registry-admin``) so a non-admin who was
+    granted the type's scopes does not keep a dangling permission after the type
+    is deleted. Best-effort: logs and returns 0 on error rather than raising,
+    matching the delete-type teardown which prioritizes record/descriptor
+    removal.
+
+    Args:
+        type_name: The custom type name whose scopes to remove.
+
+    Returns:
+        The number of group documents modified.
+    """
+    from .custom_entity_scopes import all_entity_scopes
+
+    keys = list(all_entity_scopes(type_name).keys())
+    scope_repo = get_scope_repository()
+    try:
+        modified = await scope_repo.remove_ui_permission_keys_from_all_groups(keys)
+    except Exception as e:
+        logger.error(f"Failed to clean up scopes for custom type '{type_name}': {e}")
+        return 0
+
+    logger.info(
+        "Cleaned up per-type scopes for custom type '%s' from %d group(s): %s",
+        type_name,
+        modified,
+        sorted(keys),
+    )
+    return modified

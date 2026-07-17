@@ -421,6 +421,39 @@ sanitizer that isn't called) is equivalent to no check.
   skills. Filter each resource by ITS OWN access check (skill access for skills,
   server access for servers); the only universal bypass is real admin. Fail
   closed (omit) when access is unclear.
+- **A dynamically-minted permission name must not collide with a
+  privilege-derivation rule.** Admin here is derived from holding any
+  `ui_permission` whose action starts with a mutating prefix
+  (`create_/modify_/delete_/...`) granted for `["all"]`. Minting a per-type scope
+  named `create_<type>_entity` would therefore SILENTLY PROMOTE anyone granted it
+  to full admin. When you add a new family of dynamic scopes that reuse the
+  system's `{action}_{resource}` convention: (a) put the admin-derivation rule
+  behind ONE shared predicate (`is_admin_conferring_action`) in the dependency-free
+  constants module, and make EVERY consumer (`_user_is_admin`, the privileged-write
+  `_grants_admin`) call it — grep for stray `.startswith(PREFIXES)` checks that
+  bypass it; (b) exclude the new dynamic family from admin-derivation there
+  (exact regex, e.g. `^(create|modify|delete)_.+_entity$`), and keep the minted
+  action set EXACTLY equal to the excluded set (add a runtime `assert not
+  is_admin_conferring_action(x)` invariant so they can't drift); (c) constrain the
+  `<type>`/resource name charset at the source (`^[a-z0-9_-]+$`) so the minted key
+  is safe to use as a Mongo `$set` dotted field path (no `.`/`$` injection) and no
+  crafted name can slip a real admin action past the exclusion. NOTE the drift
+  trap: a *separate* privileged-WRITE guard that flags "any `["all"]` grant" (not
+  routed through the shared predicate) will disagree with the admin-derivation
+  rule about the excluded family — that disagreement is safe only if it fails
+  CLOSED (over-restrictive), and any admin-population counter that consumes it will
+  over-count; audit both directions.
+- **Bring a new first-class asset to authorization parity across its WHOLE
+  surface, not just the reported gap.** A custom/extensible entity type that has
+  per-record ownership but no per-type permission layer is missing create-gating
+  AND type-scoped discovery. Fixing only the ungated CREATE leaves enumeration
+  open; gate list/get/create/modify/delete/rate uniformly (view gate hides
+  existence with 404, mutate gate denies with 403), layer the per-type scope ON
+  TOP of the existing per-record owner/visibility checks (defense-in-depth, don't
+  replace them), and wire the SAME type-level gate into every discovery projection
+  (search, catalog) BEFORE per-record filtering so a caller with no list scope
+  sees zero records — including public ones — exactly as the equivalent
+  server/agent list scope behaves.
 - **Authorize the exact bytes you act on — never a separately-captured copy.** If
   one component captures a request body for the authz decision and another
   forwards a different copy to the sink, they can diverge (size-triggered

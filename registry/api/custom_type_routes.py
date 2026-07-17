@@ -31,6 +31,12 @@ from ..services.custom_entity_errors import (
     CustomTypeLimitError,
 )
 from ..services.custom_entity_service import CustomEntityService
+from ..services.scope_service import (
+    ScopeMintError,
+    cleanup_custom_type_scopes,
+    mint_custom_type_scopes,
+    trigger_auth_server_reload,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -136,6 +142,39 @@ async def create_custom_type(
     except CustomEntityValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.errors)
 
+    # Mint the per-type scope set to the admin group so admins can manage this
+    # type's records immediately. FATAL: a type whose scopes could not be granted
+    # is unusable. Roll back the just-created descriptor so the type-create stays
+    # atomic -- otherwise the orphaned descriptor makes an identical retry fail
+    # with 409 (already-exists) even though its scopes were never provisioned.
+    try:
+        await mint_custom_type_scopes(created.name)
+    except ScopeMintError as e:
+        logger.error(f"Failed to mint scopes for custom type {created.name}: {e}")
+        try:
+            # No records can exist yet (the type was created moments ago), so a
+            # non-forced delete is sufficient and leaves the scope store untouched.
+            await service.delete_type(created.name, force=False)
+            logger.info(f"Rolled back custom type {created.name} after scope-mint failure")
+        except Exception:
+            logger.exception(
+                "Failed to roll back custom type %s after scope-mint failure; "
+                "the descriptor is orphaned and a retry may 409",
+                created.name,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Custom type scope provisioning failed and the type was rolled back: {e}",
+        )
+
+    # Reload is non-fatal: the auth server self-heals on its next periodic reload.
+    try:
+        await trigger_auth_server_reload()
+    except Exception:
+        logger.warning(
+            "Auth-server reload after minting scopes for %s failed (self-heals)", created.name
+        )
+
     logger.info(f"Custom type defined: {created.name} by {user_context.get('username')}")
     return created
 
@@ -202,6 +241,16 @@ async def delete_custom_type(
         count = await service.delete_type(name, force=force)
     except CustomTypeHasRecordsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    # Scope cleanup runs AFTER record/descriptor teardown (matches the existing
+    # embeddings -> records -> descriptor order). Non-fatal: a dangling scope on a
+    # deleted type is harmless (no records remain), and the backfill/sweep can
+    # re-run. Sweep ALL groups so a granted non-admin loses the scope too.
+    try:
+        await cleanup_custom_type_scopes(name)
+        await trigger_auth_server_reload()
+    except Exception:
+        logger.warning("Scope cleanup/reload after deleting custom type %s failed", name)
 
     set_audit_action(
         http_request,

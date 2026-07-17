@@ -10,7 +10,7 @@ from .access_resolver import (
     get_user_accessible_tools,  # noqa: F401 - re-exported for external callers
     resolve_scope_access,
 )
-from .privileged_constants import ADMIN_ACTION_PREFIXES
+from .privileged_constants import ADMIN_ACTION_PREFIXES, is_admin_conferring_action
 from .proxied_token import (
     _api_auth_request_enabled,
     verify_registry_ui_token,
@@ -287,6 +287,59 @@ def get_accessible_agents_for_user(user_ui_permissions: dict[str, list[str]]) ->
     return list_permissions
 
 
+def user_can_list_custom_entity_type(
+    type_name: str,
+    user_context: dict,
+    record_path: str | None = None,
+) -> bool:
+    """Return True if the caller may see records of a custom type.
+
+    Discovery gate for custom entities, mirroring ``list_agents``: the
+    ``list_<type>_entity`` grant is interpreted in three tiers — ``"all"`` or the
+    bare type name open the WHOLE type; a record path ``/type/uuid`` opens just
+    that record. Admin bypasses. Fails closed on a missing ui_permissions dict.
+
+    Two call shapes:
+
+    - ``record_path=None`` (discovery pre-check for search/collection): True if
+      the caller can see ANY record of the type — the whole type OR at least one
+      specific record. This only decides whether the type is reachable at all;
+      per-record filtering still happens downstream (search checks each hit's
+      path; the collection list intersects the granted paths).
+    - ``record_path`` given (single-record gate): True only if the grant covers
+      that specific record (whole-type, or that exact path).
+
+    This discovery gate is layered ON TOP of the per-record visibility check;
+    both must pass.
+
+    Args:
+        type_name: The custom type name.
+        user_context: The authenticated request context.
+        record_path: Optional specific record path ``/type/uuid`` to check.
+
+    Returns:
+        True if the caller may list/search the type (or the given record).
+    """
+    from ..services.custom_entity_scopes import (
+        entity_scope,
+        list_grant_allows_type,
+        list_grant_record_paths,
+    )
+
+    if user_context.get("is_admin", False):
+        return True
+    ui_permissions = user_context.get("ui_permissions") or {}
+    granted = ui_permissions.get(entity_scope("list", type_name)) or []
+
+    if list_grant_allows_type(type_name, granted):
+        return True
+    record_paths = list_grant_record_paths(type_name, granted)
+    if record_path is not None:
+        return record_path in record_paths
+    # Discovery pre-check: reachable if the caller holds any specific record.
+    return len(record_paths) > 0
+
+
 async def get_servers_for_scope(scope: str) -> list[str]:
     """
     Get list of server names that a scope provides access to - queries repository directly.
@@ -356,7 +409,11 @@ def _user_is_admin(
 
     Mutating actions are identified by prefix: register_, modify_, toggle_,
     delete_, publish_, create_. Read-only actions (list_, get_, health_check_)
-    do not grant admin status.
+    do not grant admin status. Per-type custom-entity mutation scopes
+    (create_/modify_/delete_<type>_entity) are also excluded via
+    is_admin_conferring_action: they gate one custom type's records, not
+    registry administration, so granting a non-admin group such a scope for
+    "all" resources does not silently promote it to admin.
 
     See GitHub issue #663 for the motivation behind this design.
 
@@ -368,7 +425,7 @@ def _user_is_admin(
         True if user has admin-level management permissions, False otherwise.
     """
     for action, resources in ui_permissions.items():
-        if action.startswith(_ADMIN_ACTION_PREFIXES) and "all" in resources:
+        if is_admin_conferring_action(action) and "all" in resources:
             logger.debug(f"Admin check: action '{action}' with 'all' grants admin status")
             return True
 
