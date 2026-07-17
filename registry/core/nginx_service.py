@@ -2359,9 +2359,15 @@ map "$uri:$http_x_mcp_server_version" $versioned_backend {{
         proxy_set_header Upgrade $http_upgrade;
         chunked_transfer_encoding off;"""
 
-        # Use the location path exactly as specified in the server configuration
-        # Users have full control over the location path format (with or without trailing slash)
-        location_path = path
+        # Always normalise the location path to end with a trailing slash (issue #1501).
+        # nginx treats `location /a` as a prefix match against ANY URL starting with
+        # `/a` (e.g. /api/, /auth, /about), so a server registered at a short path
+        # would silently hijack unrelated browser/API routes and subject them to
+        # auth_request /validate. `location /a/` only matches /a/ and paths that
+        # literally continue past the slash, so `/api/...` no longer matches. A bare
+        # `GET /a` still gets nginx's standard 301 redirect to `/a/`, and MCP clients
+        # already call `/server-name/mcp` (or /sse), which continue to match.
+        location_path = path.rstrip("/") + "/"
         logger.info(f"Creating location block for {location_path} with {transport_type} transport")
 
         return f"""

@@ -1003,6 +1003,33 @@ def test_create_location_block_direct_transport(nginx_service):
     assert "proxy_cache off" in block
 
 
+@pytest.mark.unit
+def test_create_location_block_appends_trailing_slash(nginx_service):
+    """Issue #1501: a server path without a trailing slash must render as a
+    trailing-slash location so nginx does a subtree prefix match (`/a/`) instead
+    of hijacking any URL that merely starts with the path (`/a` matches /api/...).
+    """
+    block = nginx_service._create_location_block(
+        "/a", "http://localhost:8000/mcp", "streamable-http"
+    )
+
+    # The location directive is normalised to end with a slash ...
+    assert "location {{ROOT_PATH}}/a/ {" in block
+    # ... and must NOT emit the bare-path form that prefix-matches /api, /auth, etc.
+    assert "location {{ROOT_PATH}}/a {" not in block
+
+
+@pytest.mark.unit
+def test_create_location_block_preserves_single_trailing_slash(nginx_service):
+    """A path already ending in a slash stays a single-slash location (no `//`)."""
+    block = nginx_service._create_location_block(
+        "/test/", "http://localhost:8000/mcp", "streamable-http"
+    )
+
+    assert "location {{ROOT_PATH}}/test/ {" in block
+    assert "location {{ROOT_PATH}}/test// {" not in block
+
+
 # =============================================================================
 # KEYCLOAK CONFIGURATION TESTS
 # =============================================================================
