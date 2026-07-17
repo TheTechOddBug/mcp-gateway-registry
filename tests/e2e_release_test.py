@@ -34,11 +34,12 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import requests
 
@@ -294,7 +295,9 @@ class ReleaseE2ETest:
 
         result = body.get("result")
         if not isinstance(result, dict):
-            raise RuntimeError(f"Unexpected tools/call result shape: {json.dumps(body, default=str)[:200]}")
+            raise RuntimeError(
+                f"Unexpected tools/call result shape: {json.dumps(body, default=str)[:200]}"
+            )
         return result
 
     def test_registry_up(self) -> str:
@@ -395,9 +398,7 @@ class ReleaseE2ETest:
     def test_skill_crud(self) -> str:
         """Full CRUD lifecycle for an agent skill."""
         name = f"e2e-skill-{self.suffix}"
-        skill_md_url = (
-            "https://github.com/anthropics/skills/blob/main/skills/mcp-builder/SKILL.md"
-        )
+        skill_md_url = "https://github.com/anthropics/skills/blob/main/skills/mcp-builder/SKILL.md"
         skill_path = None
         try:
             request = SkillRegistrationRequest(
