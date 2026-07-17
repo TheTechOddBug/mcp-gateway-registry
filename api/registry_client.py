@@ -20,7 +20,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import requests
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Configure logging
 logging.basicConfig(
@@ -182,6 +182,22 @@ class ServerDetailResponse(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    @field_validator("num_tools", mode="before")
+    @classmethod
+    def _default_num_tools(cls, value: Any) -> Any:
+        """Coerce a null num_tools to 0.
+
+        Freshly-registered servers return ``num_tools: null`` until their tools
+        are discovered; without this a register-then-read flow fails validation.
+        """
+        return 0 if value is None else value
+
+    @field_validator("tool_list", mode="before")
+    @classmethod
+    def _default_tool_list(cls, value: Any) -> Any:
+        """Coerce a null tool_list to an empty list (see _default_num_tools)."""
+        return [] if value is None else value
+
 
 class ServerUpdateResponse(BaseModel):
     """Response from PUT/PATCH /api/servers/{path}.
@@ -233,10 +249,54 @@ class ErrorResponse(BaseModel):
 
 
 class SecurityScanResult(BaseModel):
-    """Security scan result model."""
+    """Security scan result model (GET /api/servers/{path}/security-scan).
 
-    analysis_results: dict[str, Any] = Field(..., description="Analysis results by analyzer")
-    tool_results: list[dict[str, Any]] = Field(..., description="Detailed tool scan results")
+    The endpoint returns the full scan summary (safety flags + severity counts)
+    with the per-analyzer findings nested under ``raw_output.analysis_results``.
+    For backwards compatibility the ``analysis_results`` and ``tool_results``
+    fields are still exposed at the top level: they are lifted out of
+    ``raw_output`` when the API nests them there.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    analysis_results: dict[str, Any] = Field(
+        default_factory=dict, description="Analysis results by analyzer"
+    )
+    tool_results: list[dict[str, Any]] = Field(
+        default_factory=list, description="Detailed tool scan results"
+    )
+    server_url: str | None = Field(None, description="Server URL that was scanned")
+    server_path: str | None = Field(None, description="Server path")
+    scan_timestamp: str | None = Field(None, description="Scan timestamp")
+    is_safe: bool | None = Field(None, description="Whether the server is safe")
+    critical_issues: int | None = Field(None, description="Number of critical issues")
+    high_severity: int | None = Field(None, description="Number of high severity issues")
+    medium_severity: int | None = Field(None, description="Number of medium severity issues")
+    low_severity: int | None = Field(None, description="Number of low severity issues")
+    analyzers_used: list[str] = Field(default_factory=list, description="Analyzers used in scan")
+    scan_failed: bool | None = Field(None, description="Whether the scan failed")
+    error_message: str | None = Field(None, description="Error message if scan failed")
+    raw_output: dict[str, Any] | None = Field(None, description="Raw scan output")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_nested_results(cls, data: Any) -> Any:
+        """Lift analysis_results / tool_results out of raw_output when nested.
+
+        The current API nests the per-analyzer findings under raw_output; older
+        callers expect them at the top level. Populate the top-level fields from
+        raw_output only when they are not already present.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("raw_output")
+        if isinstance(raw, dict):
+            if not data.get("analysis_results") and "analysis_results" in raw:
+                data["analysis_results"] = raw["analysis_results"]
+            if not data.get("tool_results") and "tool_results" in raw:
+                data["tool_results"] = raw["tool_results"]
+        return data
 
 
 class RescanResponse(BaseModel):
