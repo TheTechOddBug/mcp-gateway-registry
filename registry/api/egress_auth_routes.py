@@ -283,13 +283,6 @@ async def vend_egress_token(
         user_id=sub,
         server_path=server_path,
         egress_oauth=egress_oauth,
-        # Legacy-key fallback: `sub` here is the token's `sub` claim == the login
-        # username/email (mint_mcp_proxy_token stamps subject=username), i.e. the
-        # pre-cutover vault principal. When `egress_user` (canonical OIDC sub) is
-        # present and differs, this lets the vend find + migrate a connection
-        # vaulted under the old id instead of forcing a re-consent. Equal values
-        # (older tokens with no egress_user claim) make it a no-op.
-        legacy_user_id=claims.get("sub") or "",
     )
     if access_token is not None:
         return EgressTokenResponse(access_token=access_token)
@@ -736,9 +729,6 @@ async def list_connections(
     conns = await get_egress_auth_service().list_connections(
         auth_method=user_context.get("auth_method") or "",
         user_id=user_context.get("egress_user") or user_context.get("username") or "",
-        # Legacy pre-cutover principal (username/email) so the UI also lists any
-        # connection not yet vend-migrated to the canonical egress id.
-        legacy_user_id=user_context.get("username") or "",
     )
     return [c.model_dump() for c in conns]
 
@@ -760,7 +750,5 @@ async def disconnect(
         user_id=user_context.get("egress_user") or user_context.get("username") or "",
         provider=provider,
         server_path=server_path,
-        # Also revoke any pre-cutover copy still under the legacy principal id.
-        legacy_user_id=user_context.get("username") or "",
     )
     return {"status": "revoked"}
