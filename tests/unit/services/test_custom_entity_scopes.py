@@ -14,7 +14,6 @@ from registry.services import scope_service
 from registry.services.custom_entity_scopes import (
     all_entity_scopes,
     entity_scope,
-    is_per_type_entity_scope,
     list_grant_allows_type,
     list_grant_record_paths,
 )
@@ -40,16 +39,6 @@ class TestNaming:
             "modify_dataset_entity": ["all"],
             "delete_dataset_entity": ["all"],
         }
-
-    def test_is_per_type_entity_scope_mutating_only(self):
-        assert is_per_type_entity_scope("create_dataset_entity") is True
-        assert is_per_type_entity_scope("modify_dataset_entity") is True
-        assert is_per_type_entity_scope("delete_dataset_entity") is True
-        # list_ is read-only; not a "mutating per-type entity scope".
-        assert is_per_type_entity_scope("list_dataset_entity") is False
-        # Non-entity actions are not per-type entity scopes.
-        assert is_per_type_entity_scope("register_service") is False
-        assert is_per_type_entity_scope("create_virtual_server") is False
 
 
 @pytest.mark.unit

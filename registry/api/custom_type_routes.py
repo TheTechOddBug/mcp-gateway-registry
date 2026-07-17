@@ -144,15 +144,27 @@ async def create_custom_type(
 
     # Mint the per-type scope set to the admin group so admins can manage this
     # type's records immediately. FATAL: a type whose scopes could not be granted
-    # is unusable, so surface the failure (the descriptor already exists; the
-    # admin can retry create after resolving the scope-store issue).
+    # is unusable. Roll back the just-created descriptor so the type-create stays
+    # atomic -- otherwise the orphaned descriptor makes an identical retry fail
+    # with 409 (already-exists) even though its scopes were never provisioned.
     try:
         await mint_custom_type_scopes(created.name)
     except ScopeMintError as e:
         logger.error(f"Failed to mint scopes for custom type {created.name}: {e}")
+        try:
+            # No records can exist yet (the type was created moments ago), so a
+            # non-forced delete is sufficient and leaves the scope store untouched.
+            await service.delete_type(created.name, force=False)
+            logger.info(f"Rolled back custom type {created.name} after scope-mint failure")
+        except Exception:
+            logger.exception(
+                "Failed to roll back custom type %s after scope-mint failure; "
+                "the descriptor is orphaned and a retry may 409",
+                created.name,
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Custom type created but scope provisioning failed: {e}",
+            detail=f"Custom type scope provisioning failed and the type was rolled back: {e}",
         )
 
     # Reload is non-fatal: the auth server self-heals on its next periodic reload.

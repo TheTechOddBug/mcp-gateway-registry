@@ -15,22 +15,14 @@ The scope set per type ``<type>`` is exactly:
 
 The mutating three match ``ADMIN_ACTION_PREFIXES`` but are intentionally
 EXCLUDED from the admin-derivation rule by ``is_admin_conferring_action`` in
-``registry.auth.privileged_constants`` (the security boundary lives there, so
-this module imports the predicate rather than redefining the exclusion regex).
+``registry.auth.privileged_constants``. That module owns the single copy of the
+exclusion regex (the security boundary), so this module does not redefine it.
 """
-
-import re
-
-from ..auth.privileged_constants import is_admin_conferring_action
 
 # The four actions minted per type. Ordering is stable so callers that iterate
 # (mint/cleanup) produce a deterministic scope set. ``get`` is folded into
 # ``list`` (a single list scope gates both list and get).
 _ENTITY_SCOPE_ACTIONS: tuple[str, ...] = ("list", "create", "modify", "delete")
-
-# Mutating per-type entity scopes only (list_ is read-only and excluded). Mirrors
-# the exclusion regex in privileged_constants; used by is_per_type_entity_scope.
-_MUTATING_ENTITY_SCOPE_RE = re.compile(r"^(create|modify|delete)_.+_entity$")
 
 
 def entity_scope(
@@ -151,29 +143,3 @@ def resolve_list_grant(
     if list_grant_allows_type(type_name, granted):
         return True, set()
     return False, set(list_grant_record_paths(type_name, granted))
-
-
-def is_per_type_entity_scope(
-    action: str,
-) -> bool:
-    """Return True if ``action`` is a MUTATING per-type entity scope.
-
-    A mutating per-type entity scope matches ``^(create|modify|delete)_.+_entity$``
-    -- exactly the set the admin-derivation rule excludes. Read-only
-    ``list_<type>_entity`` returns False here (it is never admin-conferring, so it
-    needs no exclusion). This is cross-checked against the boundary predicate:
-    every action matched here MUST be non-admin-conferring, which asserts the
-    exclusion regex in privileged_constants stays in sync with this one.
-
-    Args:
-        action: A UI-Scopes action name.
-
-    Returns:
-        True if the action is a mutating per-type entity scope, False otherwise.
-    """
-    if not _MUTATING_ENTITY_SCOPE_RE.match(action):
-        return False
-    # Invariant: a mutating entity scope must be excluded from admin derivation.
-    # If this ever fails, the two regexes have drifted apart.
-    assert not is_admin_conferring_action(action)  # nosec B101 - boundary invariant
-    return True

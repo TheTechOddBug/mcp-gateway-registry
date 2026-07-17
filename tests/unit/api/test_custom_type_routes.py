@@ -154,6 +154,37 @@ class TestCreate:
             resp = client.post("/api/custom-types", json=self._payload())
         assert resp.status_code == 500
 
+    def test_create_rolls_back_descriptor_when_mint_fails(
+        self, patched_service, patched_scope_hooks
+    ):
+        # A mint failure must not leave an orphaned descriptor behind (an
+        # identical retry would otherwise 409). The route deletes the just-created
+        # type so create stays atomic.
+        from registry.services.scope_service import ScopeMintError
+
+        patched_scope_hooks["mint"] = AsyncMock(side_effect=ScopeMintError("boom"))
+        with patch.object(
+            custom_type_routes, "mint_custom_type_scopes", patched_scope_hooks["mint"]
+        ):
+            client = _make_client(ADMIN_CTX, patched_service)
+            resp = client.post("/api/custom-types", json=self._payload())
+        assert resp.status_code == 500
+        patched_service.delete_type.assert_awaited_once_with("workflow", force=False)
+
+    def test_create_survives_rollback_failure(self, patched_service, patched_scope_hooks):
+        # If the rollback delete itself fails, the route still returns 500 (it does
+        # not mask the original mint failure with a rollback error).
+        from registry.services.scope_service import ScopeMintError
+
+        patched_service.delete_type = AsyncMock(side_effect=RuntimeError("db down"))
+        patched_scope_hooks["mint"] = AsyncMock(side_effect=ScopeMintError("boom"))
+        with patch.object(
+            custom_type_routes, "mint_custom_type_scopes", patched_scope_hooks["mint"]
+        ):
+            client = _make_client(ADMIN_CTX, patched_service)
+            resp = client.post("/api/custom-types", json=self._payload())
+        assert resp.status_code == 500
+
     def test_non_admin_forbidden(self, patched_service):
         client = _make_client(USER_CTX, patched_service)
         resp = client.post("/api/custom-types", json=self._payload())
