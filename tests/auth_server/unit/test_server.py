@@ -5357,3 +5357,102 @@ class TestFederationTokenRotationStrength:
             assert response.json()["action"] == "rotated"
             assert server_module.FEDERATION_STATIC_TOKEN == self._STRONG
             assert server_module.FEDERATION_STATIC_TOKEN_AUTH_ENABLED is True
+
+
+class TestEntraLogoutQueryStringGuard:
+    """Entra logout must not breach the logout-URL length limit (AADSTS90015).
+
+    Large ID tokens (users in many groups) push the full logout URL past Entra's
+    limit. The handler drops the optional id_token_hint when the composed URL
+    would exceed MAX_LOGOUT_URL_LENGTH; Entra still processes the logout without
+    it.
+    """
+
+    _PROVIDER = "entra"
+    _LOGOUT_URL = "https://login.microsoftonline.com/tenant/oauth2/v2.0/logout"
+
+    def _run_logout(self, id_token_hint):
+        import asyncio
+        import urllib.parse
+
+        import auth_server.server as server_module
+
+        config = {
+            "providers": {
+                self._PROVIDER: {
+                    "client_id": "app-client-id",
+                    "logout_url": self._LOGOUT_URL,
+                }
+            }
+        }
+        request = Mock()
+        request.headers = {}
+
+        with (
+            patch.object(server_module, "OAUTH2_CONFIG", config),
+            patch.dict("os.environ", {"REGISTRY_URL": "https://gw.example.com"}),
+        ):
+            response = asyncio.run(
+                server_module.oauth2_logout(
+                    provider=self._PROVIDER,
+                    request=request,
+                    redirect_uri="/login",
+                    id_token_hint=id_token_hint,
+                )
+            )
+
+        parsed = urllib.parse.urlparse(response.headers["location"])
+        return urllib.parse.parse_qs(parsed.query)
+
+    def _hint_for_url_length(self, target_url_len):
+        """Build an id_token_hint that makes the composed logout URL exactly
+        target_url_len chars, so boundary behavior can be tested precisely."""
+        import urllib.parse
+
+        base_params = {"post_logout_redirect_uri": "https://gw.example.com/login"}
+        # Length of the URL with an empty hint value appended.
+        empty_hint_url_len = len(
+            f"{self._LOGOUT_URL}?" + urllib.parse.urlencode({**base_params, "id_token_hint": ""})
+        )
+        # "a" is not percent-encoded, so each char adds exactly one to the URL.
+        return "a" * (target_url_len - empty_hint_url_len)
+
+    def test_small_token_keeps_id_token_hint(self):
+        """A short id_token_hint stays in the logout query string."""
+        query = self._run_logout("short-token")
+        assert query["id_token_hint"] == ["short-token"]
+        assert query["post_logout_redirect_uri"] == ["https://gw.example.com/login"]
+
+    def test_no_hint_provided_omits_id_token_hint(self):
+        """With no id_token_hint the handler must not inject one; logout still
+        redirects with the post_logout_redirect_uri."""
+        query = self._run_logout(None)
+        assert "id_token_hint" not in query
+        assert query["post_logout_redirect_uri"] == ["https://gw.example.com/login"]
+
+    def test_hint_at_limit_is_kept(self):
+        """A hint whose composed URL is exactly at the limit is kept (boundary)."""
+        from auth_server.server import MAX_LOGOUT_URL_LENGTH
+
+        hint = self._hint_for_url_length(MAX_LOGOUT_URL_LENGTH)
+        query = self._run_logout(hint)
+        assert query["id_token_hint"] == [hint]
+
+    def test_hint_one_over_limit_is_dropped(self):
+        """A hint whose composed URL is one char over the limit is dropped."""
+        from auth_server.server import MAX_LOGOUT_URL_LENGTH
+
+        hint = self._hint_for_url_length(MAX_LOGOUT_URL_LENGTH + 1)
+        query = self._run_logout(hint)
+        assert "id_token_hint" not in query
+        assert query["post_logout_redirect_uri"] == ["https://gw.example.com/login"]
+
+    def test_oversized_token_drops_id_token_hint(self):
+        """An id_token_hint that would breach the limit is omitted; logout still
+        redirects with the post_logout_redirect_uri so Entra completes it."""
+        from auth_server.server import MAX_LOGOUT_URL_LENGTH
+
+        oversized = "a" * (MAX_LOGOUT_URL_LENGTH + 100)
+        query = self._run_logout(oversized)
+        assert "id_token_hint" not in query
+        assert query["post_logout_redirect_uri"] == ["https://gw.example.com/login"]

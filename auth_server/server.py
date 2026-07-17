@@ -122,6 +122,17 @@ _USER_JWT_AUDIENCE: str = "mcp-registry"
 MAX_TOKEN_LIFETIME_HOURS = 24
 DEFAULT_TOKEN_LIFETIME_HOURS = 8
 
+# Maximum length (in characters) of the full Entra logout URL before we drop the
+# optional id_token_hint. Entra ID rejects overly long logout requests with the
+# documented error AADSTS90015 ("QueryStringTooLong"), which happens for users in
+# many groups whose ID token JWT is large. Entra rejects against the entire
+# request URL, so we measure scheme+host+path+query, not the query string alone.
+# Microsoft does not publish the exact threshold, so this is a conservative
+# empirical value chosen to stay well under observed failures. Entra still
+# processes the logout without the hint (the only difference is a possible
+# account-selection prompt for multi-account users).
+MAX_LOGOUT_URL_LENGTH: int = 2000
+
 # Trailing path segments that are MCP transport endpoints, not part of the
 # registered server name. Used when deriving the scope key from a proxied path
 # so that /validate and the mcp-proxy hop authorize against the SAME server
@@ -5694,9 +5705,26 @@ async def oauth2_logout(
             logout_params = {
                 "post_logout_redirect_uri": full_redirect_uri,
             }
+            # Guard against AADSTS90015: only attach id_token_hint if the full
+            # logout URL stays under the safe length. Entra rejects against the
+            # entire request URL, so measure scheme+host+path+query, not the query
+            # string alone. Large ID tokens (users in many groups) otherwise
+            # breach Entra's limit and the logout is rejected, leaving a dangling
+            # IdP session.
             if id_token_hint:
-                logout_params["id_token_hint"] = id_token_hint
-            logger.debug(f"Entra ID logout params built: has_id_token_hint={bool(id_token_hint)}")
+                candidate_params = {**logout_params, "id_token_hint": id_token_hint}
+                candidate_url_len = len(f"{logout_url}?{urllib.parse.urlencode(candidate_params)}")
+                if candidate_url_len <= MAX_LOGOUT_URL_LENGTH:
+                    logout_params["id_token_hint"] = id_token_hint
+                else:
+                    logger.debug(
+                        f"Entra ID logout: dropping id_token_hint, logout URL would be "
+                        f"{candidate_url_len} chars (limit {MAX_LOGOUT_URL_LENGTH})"
+                    )
+            logger.debug(
+                f"Entra ID logout params built: "
+                f"has_id_token_hint={'id_token_hint' in logout_params}"
+            )
         elif "okta" in provider.lower() or (
             logout_hostname and logout_hostname.endswith(".okta.com")
         ):
