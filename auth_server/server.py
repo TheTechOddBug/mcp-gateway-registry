@@ -953,7 +953,15 @@ def _is_redirect_within_cookie_domain(
         forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
         forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
         request_scheme = forwarded_proto or request.url.scheme
-        request_host = (forwarded_host or request.url.hostname or "").lower()
+        # Compare hostnames only, never host:port. urlparse(url).hostname above
+        # already strips the port, and request.url.hostname is port-less too, but
+        # a raw X-Forwarded-Host may carry a port (e.g. "localhost:7860" from the
+        # registry's server-to-server logout hop). Normalize the forwarded value
+        # the same way so a same-origin redirect isn't falsely rejected.
+        if forwarded_host:
+            request_host = (urlparse(f"//{forwarded_host}").hostname or "").lower()
+        else:
+            request_host = (request.url.hostname or "").lower()
         if request_host and parsed.scheme == request_scheme and hostname == request_host:
             return True
 

@@ -276,6 +276,54 @@ class TestServerNameNormalization:
         assert _server_names_match("*", "another-server")
 
 
+class TestIsRedirectWithinCookieDomain:
+    """Tests for _is_redirect_within_cookie_domain same-origin validation.
+
+    The registry's server-to-server logout hop (issue #1503) forwards a raw
+    X-Forwarded-Host that may carry a port (e.g. "localhost:7860"), while the
+    redirect_uri host is port-stripped by urlparse. These tests guard against
+    the port causing a false same-origin rejection.
+    """
+
+    def _request(self, forwarded_host="", forwarded_proto="", url_host="localhost", scheme="http"):
+        request = MagicMock()
+        headers = {"x-forwarded-host": forwarded_host, "x-forwarded-proto": forwarded_proto}
+        request.headers = MagicMock()
+        request.headers.get = lambda key, default="": headers.get(key, default)
+        request.url = MagicMock()
+        request.url.hostname = url_host
+        request.url.scheme = scheme
+        return request
+
+    def test_forwarded_host_with_port_matches_portless_redirect(self):
+        """X-Forwarded-Host: localhost:7860 must match http://localhost:7860/logout."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        request = self._request(forwarded_host="localhost:7860", forwarded_proto="http")
+        assert _is_redirect_within_cookie_domain("http://localhost:7860/logout", "", request)
+
+    def test_forwarded_host_https_with_domain(self):
+        """A real public host forwarded with https matches an https redirect."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        request = self._request(forwarded_host="app.example.com", forwarded_proto="https")
+        assert _is_redirect_within_cookie_domain("https://app.example.com/logout", "", request)
+
+    def test_different_host_rejected(self):
+        """A redirect to a different host is rejected when no cookie domain covers it."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        request = self._request(forwarded_host="app.example.com", forwarded_proto="https")
+        assert not _is_redirect_within_cookie_domain("https://evil.example.net/logout", "", request)
+
+    def test_scheme_mismatch_rejected(self):
+        """A proto mismatch (http forwarded vs https redirect) is rejected."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        request = self._request(forwarded_host="localhost:7860", forwarded_proto="http")
+        assert not _is_redirect_within_cookie_domain("https://localhost:7860/logout", "", request)
+
+
 class TestGroupToScopeMapping:
     """Tests for mapping IdP groups to MCP scopes."""
 
