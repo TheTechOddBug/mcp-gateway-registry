@@ -1564,8 +1564,16 @@ class TestDeleteAgent:
 
     @pytest.mark.asyncio
     async def test_delete_agent_success(self, test_app, mock_user_context, sample_agent_card):
-        """Test successfully deleting an agent."""
+        """Owner WITH the delete_agent scope can delete (strict dual gate).
+
+        The delete gate is now scope AND (admin OR owner), uniform with
+        server/skill/custom-entity delete. The shared fixture owns the agent
+        (registered_by=testuser) but grants no delete_agent scope, so this test
+        adds it to exercise the success path -- ownership alone no longer suffices
+        (see test_delete_agent_owner_without_scope_denied).
+        """
         # Arrange
+        mock_user_context["ui_permissions"]["delete_agent"] = ["all"]
         with patch("registry.api.agent_routes.agent_service") as mock_agent_service:
             mock_agent_service.get_agent_info = AsyncMock(return_value=sample_agent_card)
             mock_agent_service.remove_agent = AsyncMock(return_value=True)
@@ -1577,8 +1585,87 @@ class TestDeleteAgent:
             assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @pytest.mark.asyncio
+    async def test_delete_agent_narrow_grant_keyed_on_name(
+        self, test_app, mock_user_context, sample_agent_card
+    ):
+        """A narrow delete_agent grant is matched against the agent NAME.
+
+        Uniform with modify/toggle/batch, which all key the canonical
+        per-resource grant on the agent name (not the path). The grant here is the
+        bare name "test-agent" (NOT the path "/agents/test-agent"); the owner may
+        delete, proving the resolver keys on name. Pins the round-5 unification so
+        a regression back to path-keying would fail this test.
+        """
+        # Arrange: narrow grant by NAME (owner is testuser via the fixture card)
+        mock_user_context["ui_permissions"]["delete_agent"] = ["test-agent"]
+        with patch("registry.api.agent_routes.agent_service") as mock_agent_service:
+            mock_agent_service.get_agent_info = AsyncMock(return_value=sample_agent_card)
+            mock_agent_service.remove_agent = AsyncMock(return_value=True)
+
+            # Act
+            response = test_app.delete("/agents/test-agent")
+
+            # Assert
+            assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    @pytest.mark.asyncio
+    async def test_delete_agent_owner_without_scope_denied(
+        self, test_app, mock_user_context, sample_agent_card
+    ):
+        """Owner WITHOUT the delete_agent scope is denied (the tightened gate).
+
+        Previously ownership alone allowed delete (scope OR owner); agent delete
+        was the lone family that let an owner delete without the scope. It now
+        requires the delete_agent scope too. The fixture owns the agent but has
+        no delete_agent grant, so this must 403.
+        """
+        # Arrange (fixture: registered_by=testuser owns it, no delete_agent grant)
+        assert "delete_agent" not in mock_user_context["ui_permissions"]
+        with patch("registry.api.agent_routes.agent_service") as mock_agent_service:
+            mock_agent_service.get_agent_info = AsyncMock(return_value=sample_agent_card)
+            mock_agent_service.remove_agent = AsyncMock(return_value=True)
+
+            # Act
+            response = test_app.delete("/agents/test-agent")
+
+            # Assert
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            # Scope denial routes through the canonical _check_agent_permission.
+            assert "do not have permission to delete agent" in response.json()["detail"].lower()
+            mock_agent_service.remove_agent.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_agent_scope_without_ownership_denied(self, test_app, mock_user_context):
+        """Non-owner WITH the delete_agent scope is still denied (AND-owner half).
+
+        The dual gate requires ownership too (for non-admins): holding
+        delete_agent: ["all"] does not let a non-admin delete an agent they don't
+        own.
+        """
+        # Arrange
+        mock_user_context["ui_permissions"]["delete_agent"] = ["all"]
+        other_user_agent = AgentCardFactory(
+            path="/agents/other-agent",
+            registered_by="otheruser",
+        )
+        with patch("registry.api.agent_routes.agent_service") as mock_agent_service:
+            mock_agent_service.get_agent_info = AsyncMock(return_value=other_user_agent)
+            mock_agent_service.remove_agent = AsyncMock(return_value=True)
+
+            # Act
+            response = test_app.delete("/agents/other-agent")
+
+            # Assert
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "you can only delete agents you registered" in response.json()["detail"].lower()
+            mock_agent_service.remove_agent.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_delete_agent_not_owner(self, test_app, mock_user_context):
-        """Test deleting agent as non-owner without delete_agent permission (403)."""
+        """Test deleting agent as non-owner without delete_agent permission (403).
+
+        The fixture has no delete_agent grant, so the scope half denies first.
+        """
         # Arrange
         other_user_agent = AgentCardFactory(
             path="/agents/other-agent",
@@ -1593,8 +1680,8 @@ class TestDeleteAgent:
 
             # Assert
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            # Updated error message includes delete_agent permission option
-            assert "delete_agent permission" in response.json()["detail"].lower()
+            # Scope denial routes through the canonical _check_agent_permission.
+            assert "do not have permission to delete agent" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_delete_agent_not_found(self, test_app, mock_user_context):

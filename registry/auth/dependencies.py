@@ -428,10 +428,11 @@ def _user_is_admin(
     Mutating actions are identified by prefix: register_, modify_, toggle_,
     delete_, publish_, create_. Read-only actions (list_, get_, health_check_)
     do not grant admin status. Per-type custom-entity mutation scopes
-    (create_/modify_/delete_<type>_entity) are also excluded via
-    is_admin_conferring_action: they gate one custom type's records, not
-    registry administration, so granting a non-admin group such a scope for
-    "all" resources does not silently promote it to admin.
+    (create_/modify_/delete_<type>_entity) AND skill-management scopes
+    (publish_/modify_/delete_/toggle_skill) are also excluded via
+    is_admin_conferring_action: they gate one custom type's records / skill
+    management, not registry administration, so granting a non-admin group such a
+    scope for "all" resources does not silently promote it to admin.
 
     See GitHub issue #663 for the motivation behind this design.
 

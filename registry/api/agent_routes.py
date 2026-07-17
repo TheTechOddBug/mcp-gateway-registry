@@ -814,45 +814,6 @@ def _check_agent_lifecycle_status_permission(
     )
 
 
-def _has_delete_agent_permission(user_context: dict[str, Any], agent_path: str) -> bool:
-    """
-    Check if user has permission to delete an agent.
-
-    Permission hierarchy:
-    1. Admin users can delete any agent
-    2. Users with delete_agent UI permission for "all" can delete any agent
-    3. Users with delete_agent UI permission for the specific agent path can delete it
-
-    Note: Agent ownership is checked separately in the delete endpoint.
-
-    Args:
-        user_context: User context from auth containing is_admin and ui_permissions
-        agent_path: Path of the agent to delete (e.g., "/code-reviewer")
-
-    Returns:
-        bool: True if user has delete permission, False otherwise
-    """
-    # Admin users can delete any agent
-    if user_context.get("is_admin", False):
-        return True
-
-    # Check delete_agent UI permission
-    ui_permissions = user_context.get("ui_permissions", {})
-    delete_perms = ui_permissions.get("delete_agent", [])
-
-    # "all" grants permission to delete any agent
-    if "all" in delete_perms:
-        return True
-
-    # Check if user has permission for this specific agent path
-    # Normalize path for comparison (remove leading slash if present)
-    normalized_path = agent_path.lstrip("/")
-    if agent_path in delete_perms or normalized_path in delete_perms:
-        return True
-
-    return False
-
-
 def _filter_agents_by_access(
     agents: list[AgentCard],
     user_context: dict[str, Any],
@@ -2537,7 +2498,8 @@ async def delete_agent(
     """
     Delete an agent from the registry.
 
-    Requires admin permission, delete_agent UI permission, or agent ownership.
+    Requires the delete_agent UI permission AND (admin OR agent ownership) --
+    uniform with server/skill/custom-entity delete. Admins bypass both checks.
 
     Args:
         path: Agent path
@@ -2577,17 +2539,26 @@ async def delete_agent(
             f"Delete this agent from its source registry, or remove the peer federation.",
         )
 
-    # Check delete permission: admin, delete_agent permission, or owner
+    # Strict dual gate, uniform with server/skill/custom-entity delete: the caller
+    # must hold the delete_agent scope AND be an admin or the agent's owner.
+    # Previously ownership alone sufficed (scope OR owner), letting an owner delete
+    # without the delete_agent grant -- the lone outlier among the asset families.
+    # The scope half routes through the canonical helper keyed on the agent NAME
+    # (matching modify/toggle and the batch path); the ownership check below
+    # (skipped for admins) supplies the AND-owner half.
+    _check_agent_permission("delete", existing_agent.name, user_context)
+
     if (
-        not _has_delete_agent_permission(user_context, path)
+        not user_context.get("is_admin", False)
         and existing_agent.registered_by != user_context["username"]
     ):
         logger.warning(
-            f"User {user_context['username']} attempted to delete agent {path} without permission"
+            f"User {user_context['username']} attempted to delete agent {path} "
+            f"owned by {existing_agent.registered_by}"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins, agent owners, or users with delete_agent permission can delete agents",
+            detail="You can only delete agents you registered",
         )
 
     success = await agent_service.remove_agent(path)

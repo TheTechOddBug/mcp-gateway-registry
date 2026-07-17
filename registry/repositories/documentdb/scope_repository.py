@@ -50,11 +50,12 @@ def _grants_admin(
     """Return True if ui_permissions would confer admin privileges.
 
     Admin is conferred by any mutating UI action granted with "all" access,
-    EXCEPT per-type custom-entity scopes (create_/modify_/delete_<type>_entity),
-    which is_admin_conferring_action excludes. This is the same rule
-    _user_is_admin uses to derive admin status per request (both defer to the
-    shared is_admin_conferring_action so the write guard and the admin check
-    cannot drift), so a group carrying such permissions promotes its members
+    EXCEPT per-type custom-entity scopes (create_/modify_/delete_<type>_entity)
+    and skill-management scopes (publish_/modify_/delete_/toggle_skill), which
+    is_admin_conferring_action excludes. This is the same rule _user_is_admin
+    uses to derive admin status per request (both defer to the shared
+    is_admin_conferring_action so the write guard and the admin check cannot
+    drift), so a group carrying genuinely-admin permissions promotes its members
     to admin.
 
     Args:
