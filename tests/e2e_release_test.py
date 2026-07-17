@@ -22,7 +22,7 @@ Usage:
 
     # Run against a remote gateway
     uv run python tests/e2e_release_test.py \\
-        --registry-url https://mcpgateway.ddns.net \\
+        --registry-url https://your-gateway.example.com \\
         --token-file .oauth-tokens/ingress.json
 
     # Skip the external (AWS) test entirely, or enable debug logging
@@ -685,7 +685,7 @@ Examples:
 
     # Remote gateway
     uv run python tests/e2e_release_test.py \\
-        --registry-url https://mcpgateway.ddns.net \\
+        --registry-url https://your-gateway.example.com \\
         --token-file .oauth-tokens/ingress.json
 
     # Skip the external AWS test
