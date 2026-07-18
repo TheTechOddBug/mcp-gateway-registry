@@ -31,6 +31,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ..audit.context import set_audit_action
+from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
 from ..exceptions import (
@@ -1230,7 +1231,7 @@ async def delete_skill(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill not found: {normalized_path}"
         )
 
-    if not _user_can_modify_skill(existing, user_context):
+    if not _user_can_modify_skill(existing, user_context, action="delete"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     success = await service.delete_skill(normalized_path)
@@ -1279,7 +1280,7 @@ async def toggle_skill(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Skill not found: {normalized_path}"
         )
 
-    if not _user_can_modify_skill(existing, user_context):
+    if not _user_can_modify_skill(existing, user_context, action="toggle"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     success = await service.toggle_skill(normalized_path, request.enabled)
@@ -1389,8 +1390,37 @@ def _user_can_access_skill(
 def _user_can_modify_skill(
     skill: SkillCard,
     user_context: dict,
+    action: str = "modify",
 ) -> bool:
-    """Check if user can modify skill."""
+    """Check if the caller may perform a mutating ``action`` on ``skill``.
+
+    Dual gate: the caller must hold the canonical per-resource scope for this
+    action (``modify_skill`` / ``delete_skill`` / ``toggle_skill`` for the skill
+    name, or ``["all"]``) AND be an admin or the skill's owner. Previously this
+    was owner-or-admin ONLY, which silently ignored the seeded/grantable
+    skill-mutation scopes (they were inert). Admins bypass both checks via
+    ``user_has_asset_permission``.
+
+    The scope half brings skills to parity with every other family (all require
+    the canonical scope). For modify and delete the model is now uniform across
+    servers/agents/skills/custom entities (``scope AND (admin OR owner)``). The
+    one remaining divergence is TOGGLE: agent/server toggle admit a non-owner
+    holding an ``accessible_*`` (list-scope) grant, whereas skill toggle is
+    owner-only (skills have no ``accessible_skills`` toggle path). That toggle
+    non-uniformity is tracked as a follow-up; skills are stricter there, which is
+    fail-safe (over-deny, never over-grant).
+
+    Args:
+        skill: The skill being mutated.
+        user_context: The authenticated request context.
+        action: The logical mutation (``modify``/``delete``/``toggle``).
+
+    Returns:
+        True if both the scope check and the owner/admin check pass.
+    """
+    if not user_has_asset_permission("skill", action, skill.name, user_context):
+        return False
+
     if user_context.get("is_admin"):
         return True
 

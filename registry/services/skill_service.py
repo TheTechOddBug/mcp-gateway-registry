@@ -1394,24 +1394,39 @@ class SkillService:
 
         Returns:
             List of SkillInfo visible to user
+
+        Authorization is two-layered, matching servers/agents/custom entities:
+        first the type-level ``list_skills`` discovery gate (a caller with no
+        ``list_skills`` grant sees zero skills — including public ones), then the
+        per-record visibility check (public/private-owner/group). The discovery
+        gate is defense-in-depth ON TOP of visibility, not a replacement.
         """
         all_skills = await self.list_skills(
             include_disabled=include_disabled,
             tag=tag,
         )
 
-        if not user_context:
-            # Anonymous - only public
-            return [s for s in all_skills if s.visibility == VisibilityEnum.PUBLIC]
-
-        if user_context.get("is_admin"):
+        if user_context and user_context.get("is_admin"):
             return all_skills
 
-        user_groups = set(user_context.get("groups", []))
-        username = user_context.get("username", "")
+        # Discovery gate (list_skills). accessible_skills is derived at auth time
+        # via the canonical accessible_resources_for("skill", ...): ["all"] or the
+        # named skills. Anonymous callers (no context) have no grant -> [] -> see
+        # nothing, which is the intended strict parity with list_service.
+        accessible_skills = (user_context or {}).get("accessible_skills") or []
+        discover_all = "all" in accessible_skills
+        if not discover_all and not accessible_skills:
+            return []
+
+        user_groups = set((user_context or {}).get("groups", []))
+        username = (user_context or {}).get("username", "")
 
         filtered = []
         for skill in all_skills:
+            # Type-level discovery gate first.
+            if not discover_all and skill.name not in accessible_skills:
+                continue
+            # Then per-record visibility (unchanged).
             if skill.visibility == VisibilityEnum.PUBLIC:
                 filtered.append(skill)
             elif skill.visibility == VisibilityEnum.PRIVATE:

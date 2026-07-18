@@ -335,6 +335,20 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     | `custom:${string}`;
   const [viewFilter, setViewFilter] = useState<ViewFilter>('discover');
 
+  // Whether the user can DISCOVER any resource of an entity family, i.e. holds
+  // the family's list_ scope for at least one resource (or "all"). Admins always
+  // can. Used to hide entity tabs the user could never see anything in — a
+  // frontend-convenience mirror of the backend list/search discovery gate (which
+  // remains authoritative: hitting a hidden tab's endpoint still returns
+  // empty/404). Keep the scope names in sync with
+  // registry/auth/asset_permissions.py. Declared here (before the tab-redirect
+  // effect that uses it) so it precedes its first use.
+  const hasListAccess = useCallback((listScope: string): boolean => {
+    if (user?.is_admin) return true;
+    const granted = user?.ui_permissions?.[listScope];
+    return Array.isArray(granted) && granted.length > 0;
+  }, [user?.is_admin, user?.ui_permissions]);
+
   // Pagination state (per entity type)
   const PAGE_SIZE = 50;
   const [serverPage, setServerPage] = useState(0);
@@ -360,29 +374,37 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     };
   }, []);
 
-  // Reset viewFilter to 'discover' when the active tab is hidden by config
+  // Reset viewFilter to 'discover' when the active tab is hidden — either by the
+  // deployment feature flag OR because the user lacks the entity's list_ scope
+  // (tab-gating mirror of the backend discovery gate; Discover always stays, it
+  // filters per-result). Redirecting avoids stranding the user on an empty/hidden
+  // tab reached via a bookmarked URL or a scope change mid-session.
   useEffect(() => {
     if (viewFilter === 'virtual' && registryConfig?.features.virtual_servers === false) {
       setViewFilter('discover');
     }
-    if (viewFilter === 'agents' && registryConfig?.features.agents === false) {
+    if (viewFilter === 'agents' &&
+        (registryConfig?.features.agents === false || !hasListAccess('list_agents'))) {
       setViewFilter('discover');
     }
-    if (viewFilter === 'skills' && registryConfig?.features.skills === false) {
+    if (viewFilter === 'skills' &&
+        (registryConfig?.features.skills === false || !hasListAccess('list_skills'))) {
       setViewFilter('discover');
     }
-    if (viewFilter === 'servers' && registryConfig?.features.mcp_servers === false) {
+    if (viewFilter === 'servers' &&
+        (registryConfig?.features.mcp_servers === false || !hasListAccess('list_service'))) {
       setViewFilter('discover');
     }
-    // A custom-type tab whose type is no longer in config (admin deleted it).
+    // A custom-type tab whose type is no longer in config (admin deleted it) OR
+    // that the user lacks list access to.
     if (viewFilter.startsWith('custom:')) {
       const typeName = viewFilter.slice('custom:'.length);
       const exists = (registryConfig?.custom_types ?? []).some((t) => t.name === typeName);
-      if (registryConfig && !exists) {
+      if (registryConfig && (!exists || !hasListAccess(`list_${typeName}_entity`))) {
         setViewFilter('discover');
       }
     }
-  }, [viewFilter, registryConfig]);
+  }, [viewFilter, registryConfig, hasListAccess]);
 
   // Collapsible state for registry groups (tracks which groups are expanded)
   // Key is registry name: 'local' or peer registry ID like 'peer-registry-lob-1'
@@ -576,6 +598,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     // Check if user has 'all' permission or specific service permission
     return permissions.includes('all') || permissions.includes(serviceName);
   }, [user?.ui_permissions]);
+
 
   // External registry tags - can be configured via environment or constants
   // Default tags that identify servers from external registries
@@ -2601,7 +2624,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
             >
               Discover
             </button>
-            {registryConfig?.features.mcp_servers !== false && (
+            {registryConfig?.features.mcp_servers !== false && hasListAccess('list_service') && (
               <button
                 onClick={() => handleChangeViewFilter('servers')}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
@@ -2625,7 +2648,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 Virtual MCP Servers
               </button>
             )}
-            {registryConfig?.features.agents !== false && (
+            {registryConfig?.features.agents !== false && hasListAccess('list_agents') && (
               <button
                 onClick={() => handleChangeViewFilter('agents')}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
@@ -2637,7 +2660,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 Agents
               </button>
             )}
-            {registryConfig?.features.skills !== false && (
+            {registryConfig?.features.skills !== false && hasListAccess('list_skills') && (
               <button
                 onClick={() => handleChangeViewFilter('skills')}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
@@ -2652,7 +2675,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
             {/* Custom entity type tabs render before External Registries, which
                 is always the last tab. */}
             {registryConfig?.features.custom_types &&
-              (registryConfig?.custom_types ?? []).map((ct) => {
+              (registryConfig?.custom_types ?? [])
+                .filter((ct) => hasListAccess(`list_${ct.name}_entity`))
+                .map((ct) => {
                 const filter = `custom:${ct.name}` as const;
                 return (
                   <button

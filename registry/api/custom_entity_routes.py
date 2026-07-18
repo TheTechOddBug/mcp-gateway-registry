@@ -22,7 +22,8 @@ from fastapi import (
 from pydantic import BaseModel
 
 from ..audit.context import set_audit_action
-from ..auth.dependencies import nginx_proxied_auth, user_has_ui_permission_for_service
+from ..auth.asset_permissions import user_has_asset_permission
+from ..auth.dependencies import nginx_proxied_auth
 from ..schemas.custom_entity_models import (
     CustomEntityCreate,
     CustomEntityRecord,
@@ -94,11 +95,8 @@ def _has_type_scope(
     Returns:
         True if access is permitted, False otherwise.
     """
-    if user_context.get("is_admin", False):
-        return True
-    ui_permissions = user_context.get("ui_permissions") or {}
-    return user_has_ui_permission_for_service(
-        entity_scope(action, type_name), type_name, ui_permissions
+    return user_has_asset_permission(
+        "custom_entity", action, type_name, user_context, type_name=type_name
     )
 
 
