@@ -6,6 +6,26 @@ This document describes the scope configuration file format used by the MCP Gate
 
 Scopes define what resources (MCP servers, agents) users can access and what actions they can perform. The registry uses JSON-based scope configuration files that can be loaded during initialization or managed via the CLI.
 
+## Upgrade: skills and agents are now discovery-gated
+
+Skill and agent discovery is gated on a `list_*` UI permission, matching MCP servers. This is a fail-closed change: a non-admin group that does not hold the grant sees **zero** resources of that family, including public ones. If skills or agents suddenly stop appearing for a non-admin user after upgrade, the user's group is missing the discovery scope. Take these actions once, per deployment:
+
+- **Skills discovery (`list_skills`).** This scope is new, so no group has it until you grant it. Run the one-time backfill to grant `list_skills: ["all"]` to the built-in admin group (dry-run by default):
+
+  ```bash
+  uv run python scripts/backfill-skill-list-scope.py --apply
+  ```
+
+  Then grant `list_skills` to any non-admin group that should see skills. Admins are unaffected (they bypass the check).
+
+- **Skill mutation (`modify_skill` / `delete_skill` / `toggle_skill`).** A non-admin who **owns** a skill now also needs the matching mutation scope; ownership alone is no longer sufficient. Grant these to whichever non-admin group manages skills. Not covered by the backfill.
+
+- **Agent delete (`delete_agent`).** A non-admin who owns an agent now needs `delete_agent` to delete it (previously ownership alone was enough). Every admin surface already carries this scope, so no data migration is required; grant it to any non-admin group that should delete agents it owns.
+
+- **Agent modify / toggle (`modify_agent` / `toggle_agent`).** These are now enforced against the agent family's own scopes. A non-admin who previously managed agents via the server scopes (`modify_service` / `toggle_service`) must instead be granted `modify_agent` / `toggle_agent`.
+
+The tabs for Servers and custom entity types are hidden when the user lacks the corresponding `list_*` scope. The Skills and Agents tabs stay visible and show an in-page hint explaining that discovery access is admin-managed, so a user whose access changed learns what to ask for rather than seeing the tab disappear.
+
 ## Scope Configuration File Format
 
 ### Example Files
@@ -208,11 +228,24 @@ UI permissions control what actions users can perform in the web interface and R
 | `publish_agent` | Register new agents via UI | Agent paths or `"all"` |
 | `modify_agent` | Edit agents via UI | Agent paths or `"all"` |
 | `delete_agent` | Delete agents via UI | Agent paths or `"all"` |
+| `toggle_agent` | Enable/disable agents via UI | Agent paths or `"all"` |
 | `list_service` | View MCP servers in UI | Server names or `"all"` |
 | `register_service` | Register new MCP servers | Server names or `"all"` |
 | `health_check_service` | Run health checks | Server names or `"all"` |
 | `toggle_service` | Enable/disable servers | Server names or `"all"` |
 | `modify_service` | Edit server configurations | Server names or `"all"` |
+| `delete_service` | Delete servers via UI | Server names or `"all"` |
+| `list_skills` | View skills in UI | Skill paths or `"all"` |
+| `publish_skill` | Register new skills via UI | Skill paths or `"all"` |
+| `modify_skill` | Edit skills via UI | Skill paths or `"all"` |
+| `delete_skill` | Delete skills via UI | Skill paths or `"all"` |
+| `toggle_skill` | Enable/disable skills via UI | Skill paths or `"all"` |
+| `list_<type>_entity` | View records of a custom entity type | Record paths or `"all"` |
+| `create_<type>_entity` | Create records of a custom entity type | Record paths or `"all"` |
+| `modify_<type>_entity` | Edit records of a custom entity type | Record paths or `"all"` |
+| `delete_<type>_entity` | Delete records of a custom entity type | Record paths or `"all"` |
+
+Every mutation (`modify_*`, `delete_*`, `toggle_*`) is a **dual gate**: the caller must hold the scope for the specific resource (or `"all"`) **and** be an admin or the resource's owner. Admins bypass both halves. Discovery (`list_*`) requires only the scope: a caller without the `list_*` grant for a family sees zero resources of that family, including public ones (fail closed).
 
 **Example - Read-only access:**
 ```json
