@@ -48,10 +48,21 @@ interface ServerAccessEntry {
 // Each admin-defined custom type mints list/create/modify/delete_<type>_entity
 // scopes, edited in UiPermissionEditor. Enumerated from the current type set (via
 // /api/config) so an admin can grant them proactively, before any record exists.
-// The scope keys mirror registry/services/custom_entity_scopes.entity_scope().
+// The keys mirror registry/services/custom_entity_scopes.entity_scope() exactly.
+// Mutation actions render as free-text grants; the read action (`list`) renders
+// as a record picker (CustomTypeListPicker) since its grant supports specific
+// record paths, not just "all".
+const ENTITY_MUTATION_ACTIONS: { action: string; verb: string }[] = [
+  { action: 'create', verb: 'Create' },
+  { action: 'modify', verb: 'Modify' },
+  { action: 'delete', verb: 'Delete' },
+];
+
 interface EntityScopeGroup {
   typeName: string;
   displayName: string;
+  listKey: string;
+  mutationKeys: { key: string; label: string }[];
 }
 
 function buildEntityScopeGroups(
@@ -60,6 +71,11 @@ function buildEntityScopeGroups(
   return customTypes.map((t) => ({
     typeName: t.name,
     displayName: t.display_name || t.name,
+    listKey: `list_${t.name}_entity`,
+    mutationKeys: ENTITY_MUTATION_ACTIONS.map(({ action, verb }) => ({
+      key: `${action}_${t.name}_entity`,
+      label: `${verb} ${t.display_name || t.name}`,
+    })),
   }));
 }
 
