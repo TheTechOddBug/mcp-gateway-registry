@@ -374,21 +374,23 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     };
   }, []);
 
-  // Reset viewFilter to 'discover' when the active tab is hidden — either by the
-  // deployment feature flag OR because the user lacks the entity's list_ scope
-  // (tab-gating mirror of the backend discovery gate; Discover always stays, it
-  // filters per-result). Redirecting avoids stranding the user on an empty/hidden
-  // tab reached via a bookmarked URL or a scope change mid-session.
+  // Reset viewFilter to 'discover' when the active tab is hidden by the
+  // deployment feature flag. For servers and custom-entity types we ALSO redirect
+  // when the user lacks the entity's list_ scope (those tabs stay hidden). Agents
+  // and Skills are deliberately NOT redirected on a missing scope: their tabs stay
+  // visible and render an access hint (see the agents/skills empty states) so a
+  // user whose skills/agents access changed learns why the tab is empty and what
+  // a registry admin must grant, rather than the tab silently disappearing. The
+  // backend discovery gate remains authoritative (the endpoints still return
+  // empty/404 without the scope).
   useEffect(() => {
     if (viewFilter === 'virtual' && registryConfig?.features.virtual_servers === false) {
       setViewFilter('discover');
     }
-    if (viewFilter === 'agents' &&
-        (registryConfig?.features.agents === false || !hasListAccess('list_agents'))) {
+    if (viewFilter === 'agents' && registryConfig?.features.agents === false) {
       setViewFilter('discover');
     }
-    if (viewFilter === 'skills' &&
-        (registryConfig?.features.skills === false || !hasListAccess('list_skills'))) {
+    if (viewFilter === 'skills' && registryConfig?.features.skills === false) {
       setViewFilter('discover');
     }
     if (viewFilter === 'servers' &&
@@ -2338,12 +2340,34 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
               </div>
             ) : filteredAgents.length === 0 ? (
               <div className="text-center py-12 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg border border-cyan-200 dark:border-cyan-800">
-                <div className="text-gray-400 text-lg mb-2">No agents found</div>
-                <p className="text-gray-500 dark:text-gray-300 text-sm">
-                  {searchTerm || activeFilter !== 'all'
-                    ? 'Press Enter in the search bar to search semantically'
-                    : 'No agents are registered yet'}
-                </p>
+                {!hasListAccess('list_agents') ? (
+                  <>
+                    <div className="text-gray-400 text-lg mb-2">
+                      You don't have access to view agents
+                    </div>
+                    <p className="text-gray-500 dark:text-gray-300 text-sm max-w-md mx-auto">
+                      Agent discovery is managed by your registry administrator. Ask them to
+                      grant your group the "list_agents" permission so agents appear here.{' '}
+                      <a
+                        href="https://github.com/agentic-community/mcp-gateway-registry/blob/main/docs/faq/granting-skill-and-agent-discovery-permissions.md"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-600 dark:text-cyan-400 hover:underline"
+                      >
+                        Learn more
+                      </a>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-gray-400 text-lg mb-2">No agents found</div>
+                    <p className="text-gray-500 dark:text-gray-300 text-sm">
+                      {searchTerm || activeFilter !== 'all'
+                        ? 'Press Enter in the search bar to search semantically'
+                        : 'No agents are registered yet'}
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-6">
@@ -2446,6 +2470,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
             loading={skillsLoading}
             error={skillsError}
             isFiltered={!!searchTerm || activeFilter !== 'all'}
+            hasListAccess={hasListAccess('list_skills')}
             canModify={user?.can_modify_servers || false}
             page={skillPage}
             totalPages={skillTotalPages}
@@ -2648,7 +2673,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 Virtual MCP Servers
               </button>
             )}
-            {registryConfig?.features.agents !== false && hasListAccess('list_agents') && (
+            {registryConfig?.features.agents !== false && (
               <button
                 onClick={() => handleChangeViewFilter('agents')}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${
@@ -2660,7 +2685,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 Agents
               </button>
             )}
-            {registryConfig?.features.skills !== false && hasListAccess('list_skills') && (
+            {registryConfig?.features.skills !== false && (
               <button
                 onClick={() => handleChangeViewFilter('skills')}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 ${

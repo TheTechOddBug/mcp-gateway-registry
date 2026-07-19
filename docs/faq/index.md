@@ -40,6 +40,7 @@ Common questions and answers about the MCP Gateway Registry.
 
 ## Access Control and Visibility
 
+- [Why did the Skills or Agents tab go empty, and how do I grant a group discovery access?](granting-skill-and-agent-discovery-permissions.md)
 - [How do I restrict which agents a user can see based on their group?](group-restricted-agent-visibility.md)
 - [How do I restrict which MCP servers a user can see based on their Entra ID group?](restrict-server-visibility-by-entra-group.md)
 - [How do I create a non-admin group that can register servers and run health checks but cannot toggle, edit, or delete them?](read-write-non-admin-group.md)

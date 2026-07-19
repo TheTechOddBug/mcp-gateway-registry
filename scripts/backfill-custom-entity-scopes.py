@@ -38,6 +38,23 @@ uses (MCP_STORAGE_BACKEND, DOCUMENTDB_HOST, etc.).
 import argparse
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Ensure the repo root (this file's parent's parent) is importable. Running the
+# script directly (``python scripts/backfill-custom-entity-scopes.py``) puts the
+# ``scripts/`` directory on sys.path[0], NOT the repo root, so ``import
+# registry`` would fail with ModuleNotFoundError. Prepending the repo root makes
+# the script self-contained regardless of the working directory.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Shared Mongo/DocumentDB connection CLI args (sibling module in scripts/).
+from _mongo_conn_args import (  # noqa: E402
+    add_connection_args,
+    apply_connection_overrides,
+)
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -66,6 +83,7 @@ Examples:
         action="store_true",
         help="Actually apply changes (default is a dry run)",
     )
+    add_connection_args(parser)
     return parser.parse_args()
 
 
@@ -125,6 +143,10 @@ async def main() -> None:
     logger.info("=" * 60)
     logger.info("Mode: %s", "DRY RUN" if dry_run else "APPLY CHANGES")
     logger.info("=" * 60)
+
+    # Apply CLI connection overrides into the environment BEFORE the registry
+    # config singleton is imported inside _run_backfill.
+    apply_connection_overrides(args)
 
     result = await _run_backfill(dry_run)
 
