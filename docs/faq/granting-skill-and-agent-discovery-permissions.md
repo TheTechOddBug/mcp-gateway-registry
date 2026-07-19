@@ -19,6 +19,17 @@ An administrator grants the group the missing discovery scope (`list_skills` or 
 
 Grant `["all"]` to let the group discover every skill/agent, or a list of specific resource paths to scope discovery to just those. `list_` scopes are read-only, so `["all"]` is safe and does **not** trigger admin auto-promotion (unlike the mutating `modify_`/`delete_`/`toggle_`/`publish_`/`register_`/`create_` prefixes).
 
+## Finding which groups need the grant
+
+To see which groups are missing `list_agents` / `list_skills` across a whole deployment, run the read-only audit. It lists every group, flags the ones missing a discovery scope, and prints the exact fix commands per group. It changes nothing:
+
+```bash
+uv run python scripts/audit-discovery-scopes.py \
+  --registry-url http://localhost --token-file .token
+```
+
+The audit drives `api/registry_management.py` under the hood, so it uses the same auth as the CLI. For a group whose `server_access` contains a reserved wildcard server (`"*"`/`"all"`), it prints the IAM-UI recipe instead of a re-import command, because the import guard refuses wildcard `server_access`. Use `--scope list_skills` to audit just one scope.
+
 ## Option 1: Grant via the IAM UI (recommended for one or two groups)
 
 1. Sign in as an administrator and open **Settings > IAM > Groups**.
