@@ -12,7 +12,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from pydantic import (
     BaseModel,
@@ -363,9 +363,14 @@ class AgentCard(BaseModel):
     """
 
     # Unique identifier
-    id: UUID = Field(
-        default_factory=uuid4,
-        description="Unique identifier (UUID) for this agent",
+    id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        min_length=1,
+        max_length=512,
+        description=(
+            "Unique identifier for this agent. Any non-empty string "
+            "(UUID, ARN, URN, ...). Auto-generated UUID if not supplied."
+        ),
     )
 
     # Required A2A fields
@@ -897,6 +902,14 @@ class AgentRegistrationRequest(BaseModel):
         None,
         description="Registry path (optional - auto-generated if not provided)",
     )
+
+    id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=512,
+        description="Optional caller-supplied id (UUID, ARN, ...). Auto-generated if omitted.",
+    )
+
     protocol_version: str = Field(
         default="1.0",
         alias="protocolVersion",
@@ -1029,6 +1042,18 @@ class AgentRegistrationRequest(BaseModel):
         if v is None:
             return None
         return _validate_path_format(v)
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("id must be a non-empty string when provided")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in stripped):
+            raise ValueError("id must not contain control characters")
+        return stripped
 
     @field_validator("protocol_version")
     @classmethod

@@ -259,6 +259,31 @@ _registration_status_rejected_counter = _meter.create_counter(
 registration_status_rejected_total = _CounterAdapter(_registration_status_rejected_counter)
 
 
+# Caller-supplied asset id metrics (#1276). Labels: asset_type (server|agent|skill).
+_asset_id_supplied_counter = _meter.create_counter(
+    name="registry_asset_id_supplied_total",
+    description="Registrations where a caller-supplied asset id was honored",
+    unit="1",
+)
+registry_asset_id_supplied_total = _CounterAdapter(_asset_id_supplied_counter)
+
+_asset_id_conflict_counter = _meter.create_counter(
+    name="registry_asset_id_conflict_total",
+    description="Asset registrations rejected due to an id collision (409)",
+    unit="1",
+)
+registry_asset_id_conflict_total = _CounterAdapter(_asset_id_conflict_counter)
+
+_asset_id_federation_conflict_counter = _meter.create_counter(
+    name="registry_asset_id_federation_conflict_total",
+    description="Federated assets skipped due to a local id collision",
+    unit="1",
+)
+registry_asset_id_federation_conflict_total = _CounterAdapter(
+    _asset_id_federation_conflict_counter
+)
+
+
 # Deployment mode info (registry/core/metrics.py:19)
 #
 # Originally a Prometheus Gauge with .labels(...).set(1) called once at startup.
