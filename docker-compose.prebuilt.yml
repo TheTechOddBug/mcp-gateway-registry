@@ -71,6 +71,10 @@ services:
       # Comma-separated host allowlist for the RUM snippet (fail-closed when set). Empty disables the check.
       - RUM_ALLOWED_HOSTS=${RUM_ALLOWED_HOSTS:-}
       - GATEWAY_ADDITIONAL_SERVER_NAMES=${GATEWAY_ADDITIONAL_SERVER_NAMES:-}
+      # SSRF guard allowlist for internal MCP-server / A2A-agent upstreams at
+      # private IPs (e.g. docker-network hostnames); mirrors docker-compose.yml.
+      - SSRF_ALLOWED_HOSTS=${SSRF_ALLOWED_HOSTS:-}
+      - SSRF_ALLOWED_CIDRS=${SSRF_ALLOWED_CIDRS:-}
       # Registry Card Configuration
       - REGISTRY_URL=${REGISTRY_URL:-http://localhost}
       # Request-source trust (audit client IP + OAuth external-URL host allowlist)
