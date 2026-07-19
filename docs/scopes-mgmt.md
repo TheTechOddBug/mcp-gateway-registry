@@ -258,7 +258,34 @@ UI permissions control what actions users can perform in the web interface and R
 | `modify_<type>_entity` | Edit records of a custom entity type | Record paths or `"all"` |
 | `delete_<type>_entity` | Delete records of a custom entity type | Record paths or `"all"` |
 
-Every mutation (`modify_*`, `delete_*`, `toggle_*`) is a **dual gate**: the caller must hold the scope for the specific resource (or `"all"`) **and** be an admin or the resource's owner. Admins bypass both halves. Discovery (`list_*`) requires only the scope: a caller without the `list_*` grant for a family sees zero resources of that family, including public ones (fail closed).
+### How each operation is authorized
+
+Authorization is uniform across all four asset families (servers, agents, skills, custom entities). An **admin** bypasses every check below and can do anything. For a **non-admin**, each operation resolves as follows:
+
+| Operation | Gate for a non-admin caller |
+| --- | --- |
+| **Discover** (`list_*`) | scope only (holds the `list_` grant for the resource or `"all"`) |
+| **Create** (`register_`/`publish_`/`create_`) | scope only (a non-empty create grant) |
+| **Modify** (`modify_*`) | scope **AND** owner |
+| **Delete** (`delete_*`) | scope **AND** owner |
+| **Toggle** (`toggle_*`) | scope **AND** owner |
+
+**Dual gate (mutations).** Modify, delete, and toggle each require the caller to hold the scope for the specific resource (or `"all"`) **AND** be the resource's owner. Both halves are required: a scope grant alone does not let a non-admin mutate a resource someone else owns, and ownership alone does not let them mutate it without the scope. This is identical across servers, agents, skills, and custom entities.
+
+**Ownership** is the `registered_by` field for servers and agents, and the `owner` field for skills and custom entities (set to the creating user at registration).
+
+**Discovery (`list_*`) is scope-only and fail-closed.** A caller without the `list_` grant for a family sees zero resources of that family, including public ones. Discovery does not depend on ownership.
+
+The per-family scope names for each operation are:
+
+| Operation | Server | Agent | Skill | Custom entity `<type>` |
+| --- | --- | --- | --- | --- |
+| Discover | `list_service` | `list_agents` | `list_skills` | `list_<type>_entity` |
+| Create | `register_service` | `publish_agent` | `publish_skill` | `create_<type>_entity` |
+| Modify | `modify_service` | `modify_agent` | `modify_skill` | `modify_<type>_entity` |
+| Delete | `delete_service` | `delete_agent` | `delete_skill` | `delete_<type>_entity` |
+| Toggle | `toggle_service` | `toggle_agent` | `toggle_skill` | (n/a) |
+| Health check | `health_check_service` | (n/a) | (n/a) | (n/a) |
 
 **Example - Read-only access:**
 ```json

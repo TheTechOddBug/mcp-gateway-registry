@@ -2347,7 +2347,15 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                     </div>
                     <p className="text-gray-500 dark:text-gray-300 text-sm max-w-md mx-auto">
                       Agent discovery is managed by your registry administrator. Ask them to
-                      grant your group the "list_agents" permission so agents appear here.
+                      grant your group the "list_agents" permission so agents appear here.{' '}
+                      <a
+                        href="https://github.com/agentic-community/mcp-gateway-registry/blob/main/docs/faq/granting-skill-and-agent-discovery-permissions.md"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-cyan-600 dark:text-cyan-400 hover:underline"
+                      >
+                        Learn more
+                      </a>
                     </p>
                   </>
                 ) : (

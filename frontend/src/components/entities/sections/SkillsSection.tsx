@@ -106,11 +106,24 @@ const SkillsSection: React.FC<SkillsSectionProps> = ({
             hasListAccess ? 'No skills found' : "You don't have access to view skills"
           }
           subtitle={
-            !hasListAccess
-              ? 'Skill discovery is managed by your registry administrator. Ask them to grant your group the "list_skills" permission so skills appear here.'
-              : isFiltered
-                ? 'Press Enter in the search bar to search semantically'
-                : 'No skills are registered yet'
+            !hasListAccess ? (
+              <>
+                Skill discovery is managed by your registry administrator. Ask them to grant
+                your group the "list_skills" permission so skills appear here.{' '}
+                <a
+                  href="https://github.com/agentic-community/mcp-gateway-registry/blob/main/docs/faq/granting-skill-and-agent-discovery-permissions.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-600 dark:text-amber-400 hover:underline"
+                >
+                  Learn more
+                </a>
+              </>
+            ) : isFiltered ? (
+              'Press Enter in the search bar to search semantically'
+            ) : (
+              'No skills are registered yet'
+            )
           }
           cta={
             hasListAccess && !isFiltered && canModify ? (
