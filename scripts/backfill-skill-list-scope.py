@@ -34,14 +34,26 @@ Usage:
     MCP_STORAGE_BACKEND=mongodb-ce DOCUMENTDB_HOST=localhost \\
         uv run python scripts/backfill-skill-list-scope.py --apply
 
-Requires the registry package importable (run from the repo root via uv). The
-storage backend and connection are read from the same environment the registry
-uses (MCP_STORAGE_BACKEND, DOCUMENTDB_HOST, etc.).
+The script adds the repo root to sys.path itself, so it can be run from any
+working directory (e.g. ``uv run python scripts/backfill-skill-list-scope.py``).
+The storage backend and connection are read from the same environment the
+registry uses (MCP_STORAGE_BACKEND, DOCUMENTDB_HOST, etc.).
 """
 
 import argparse
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Ensure the repo root (this file's parent's parent) is importable. Running the
+# script directly (``python scripts/backfill-skill-list-scope.py``) puts the
+# ``scripts/`` directory on sys.path[0], NOT the repo root, so ``import
+# registry`` would fail with ModuleNotFoundError. Prepending the repo root makes
+# the script self-contained regardless of the working directory.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 # Configure logging with basicConfig
 logging.basicConfig(
