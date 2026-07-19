@@ -6,10 +6,6 @@ After the skill and agent discovery gate landed, discovery of skills and agents 
 
 Admins are unaffected: they bypass the discovery check and see everything.
 
-## Quick answer
-
-An administrator grants the group the missing discovery scope (`list_skills` or `list_agents`). There are two ways to do it: the IAM UI (per group, no file editing) or the `registry_management.py` CLI (scriptable, good for many groups). For the brand-new `list_skills` scope there is also a one-time backfill script that grants it to the built-in admin group.
-
 ## The permissions involved
 
 | Capability | Permission key | Applies to |
@@ -19,45 +15,14 @@ An administrator grants the group the missing discovery scope (`list_skills` or 
 
 Grant `["all"]` to let the group discover every skill/agent, or a list of specific resource paths to scope discovery to just those. `list_` scopes are read-only, so `["all"]` is safe and does **not** trigger admin auto-promotion (unlike the mutating `modify_`/`delete_`/`toggle_`/`publish_`/`register_`/`create_` prefixes).
 
-## Finding which groups need the grant
+There are two situations, described below: creating a **new** group (get the scope right from the start) and **backfilling** groups that already exist.
 
-To see which groups are missing `list_agents` / `list_skills` across a whole deployment, run the read-only audit. It lists every group, flags the ones missing a discovery scope, and prints the exact fix commands per group. It changes nothing:
+## New groups: include the discovery scope from the start
 
-```bash
-uv run python scripts/audit-discovery-scopes.py \
-  --registry-url http://localhost --token-file .token
-```
+When you author a new group, put `list_agents` / `list_skills` in its `ui_permissions` so members can discover skills and agents immediately. Two ways:
 
-The audit drives `api/registry_management.py` under the hood, so it uses the same auth as the CLI. For a group whose `server_access` contains a reserved wildcard server (`"*"`/`"all"`), it prints the IAM-UI recipe instead of a re-import command, because the import guard refuses wildcard `server_access`. Use `--scope list_skills` to audit just one scope.
-
-## Option 1: Grant via the IAM UI (recommended for one or two groups)
-
-1. Sign in as an administrator and open **Settings > IAM > Groups**.
-2. Click the group you want to edit (for example the read-write group your users belong to).
-3. In the **UI Permissions** editor, find the discovery scope:
-   - For agents, the **`list_agents`** entry.
-   - For skills, the **`list_skills`** entry.
-4. Turn on the **All** toggle to grant discovery of every resource, or use the multi-select to pick specific records (the record **name** is shown, the record **path** is stored).
-5. **Save** the group. Members pick up the change on their next login or token refresh.
-
-See [IAM Settings UI](../iam-settings-ui.md) for the full Groups editor reference.
-
-## Option 2: Grant via the CLI (scriptable, good for many groups)
-
-The `import-group` command **upserts** a group: it creates the group if it does not exist and updates it in place if it does. So the flow is read the current definition, add the scope, re-import.
-
-```bash
-export REGISTRY_URL="https://your-registry"
-export TOKEN_FILE=".token"   # an admin JWT token file
-
-# 1. See the group's current scope definition
-uv run python api/registry_management.py \
-  --registry-url "$REGISTRY_URL" \
-  --token-file "$TOKEN_FILE" \
-  describe-group --name my-group --json > my-group.json
-```
-
-Edit `my-group.json` and add the discovery scope under `ui_permissions`:
+- **IAM UI:** Settings > IAM > Groups > **Create Group**, and in the **UI Permissions** editor turn on the **All** toggle (or multi-select specific records) for `list_agents` and `list_skills`. See [IAM Settings UI](../iam-settings-ui.md).
+- **CLI:** author the group JSON with the scopes present, then import it:
 
 ```json
 {
@@ -71,29 +36,23 @@ Edit `my-group.json` and add the discovery scope under `ui_permissions`:
 ```
 
 ```bash
-# 2. Re-import to apply the change (updates the existing group in place)
+export REGISTRY_URL="https://your-registry"
+export TOKEN_FILE=".token"   # an admin JWT token file
+
 uv run python api/registry_management.py \
-  --registry-url "$REGISTRY_URL" \
-  --token-file "$TOKEN_FILE" \
+  --registry-url "$REGISTRY_URL" --token-file "$TOKEN_FILE" \
   import-group --file my-group.json
 ```
 
-To scope discovery to specific resources instead of the whole family, list their paths rather than `"all"`:
+The shipped example group files ([cli/examples/](../../cli/examples/)) already include `list_skills`, so copying one as a starting point gets this right for free. To scope discovery to specific resources instead of the whole family, list their paths rather than `"all"` (e.g. `"list_agents": ["/flight-booking"]`).
 
-```json
-{
-  "ui_permissions": {
-    "list_agents": ["/flight-booking", "/hotel-search"],
-    "list_skills": ["/code-review"]
-  }
-}
-```
+## Backfilling existing groups
 
-## Option 3: One-time `list_skills` backfill (new-scope bootstrap)
+Existing groups created before the gate do not hold the new scope. Fix them in two steps.
 
-`list_skills` is a new scope, so no group holds it after upgrade, not even the admin group. Run the backfill once per deployment to grant `list_skills: ["all"]` to the built-in `mcp-registry-admin` group. It is a dry run by default; add `--apply` to make the change.
+### Step 1: the built-in admin group (`list_skills` bootstrap)
 
-The simplest place to run it is **inside a running container**, where the registry's own environment (`.env`, `SECRET_KEY`, and the Mongo/DocumentDB service names) is already present:
+`list_skills` is brand new, so no group holds it after upgrade, not even the admin group. Run the one-time backfill to grant `list_skills: ["all"]` to `mcp-registry-admin`. It is a dry run by default; add `--apply` to make the change. The simplest place to run it is **inside a running container**, where the registry's own environment is already present:
 
 ```bash
 # Docker Compose
@@ -103,7 +62,7 @@ docker compose exec registry uv run python scripts/backfill-skill-list-scope.py 
 kubectl exec -it deploy/registry -- uv run python scripts/backfill-skill-list-scope.py --apply
 ```
 
-If you run it **outside** the deployment (a host shell, a one-off ECS task, an admin pod that is not the registry), the registry service names may not resolve. Pass the connection explicitly. The password and `SECRET_KEY` are read from the environment only, never as CLI args:
+To run it **outside** the deployment (host shell, one-off ECS task, admin pod), the registry service names may not resolve, so pass the connection explicitly. The password and `SECRET_KEY` are read from the environment only, never as CLI args:
 
 ```bash
 # MongoDB CE reached directly (skip replica-set discovery that advertises
@@ -121,11 +80,34 @@ DOCUMENTDB_PASSWORD=... SECRET_KEY=... \
   --auth-server-url https://your-auth-server
 ```
 
-Run `uv run python scripts/backfill-skill-list-scope.py --help` for the full connection-argument list (`--host`, `--port`, `--database`, `--username`, `--auth-source`, `--tls`, `--direct-connection`, `--storage-backend`, `--auth-server-url`). The same arguments work for `scripts/backfill-custom-entity-scopes.py`.
+Run `--help` for the full connection-argument list (`--host`, `--port`, `--database`, `--username`, `--auth-source`, `--tls`, `--direct-connection`, `--storage-backend`, `--auth-server-url`). `--auth-server-url` matters when you run outside the deployment: after writing the grant, the script asks the auth-server to reload its scope cache; if that URL is not reachable, the grant is persisted but the running auth-server keeps the old scopes until restarted or reloaded. There is no equivalent backfill for `list_agents`, because that scope already existed before the gate.
 
-This only fixes the built-in admin group. Any non-admin group that should see skills still needs `list_skills` granted explicitly via Option 1 or Option 2. There is no equivalent backfill for `list_agents`, because that scope already existed before the gate.
+### Step 2: every other existing group (audit, then grant)
 
-`--auth-server-url` matters when you run the script outside the deployment: after writing the grant, the script asks the auth-server to reload its scope cache. If that URL is not reachable, the grant is still persisted but the running auth-server keeps the old scopes until it is restarted or reloaded.
+The backfill only fixes the admin group. For all other groups, first find which ones are missing a discovery scope with the **read-only** audit. It lists every group, flags the gaps, and prints the exact grant command per group. It changes nothing and works against any deployment surface (it only needs the registry URL and an admin token):
+
+```bash
+uv run python scripts/audit-discovery-scopes.py \
+  --registry-url http://localhost --token-file .token
+```
+
+The audit drives `api/registry_management.py` under the hood, so it uses the same auth as the CLI. Use `--scope list_skills` to audit just one scope.
+
+Then grant the scope to each flagged group. The audit prints one of two recipes per group:
+
+- **Most groups:** a describe -> edit -> import round-trip. `import-group` **upserts** (updates the group in place), so you read the current definition, add the discovery key under `ui_permissions`, and re-import:
+
+  ```bash
+  uv run python api/registry_management.py \
+    --registry-url "$REGISTRY_URL" --token-file "$TOKEN_FILE" \
+    describe-group --name my-group --json > my-group.json
+  # add "list_skills": ["all"] (and/or "list_agents") under "ui_permissions", then:
+  uv run python api/registry_management.py \
+    --registry-url "$REGISTRY_URL" --token-file "$TOKEN_FILE" \
+    import-group --file my-group.json
+  ```
+
+- **Groups whose `server_access` contains a reserved wildcard server (`"*"`/`"all"`):** these cannot be re-imported (the import guard refuses wildcard `server_access`), so grant the scope via the IAM UI instead: Settings > IAM > Groups > *group* > UI Permissions > turn on **All** for the missing scope. The audit flags these automatically.
 
 ## Related mutation scopes (owner self-service)
 
