@@ -291,12 +291,12 @@ def _print_recipe(
 
     print(
         f"uv run python api/registry_management.py \\\n"
-        f"  --registry-url \"$REGISTRY_URL\" --token-file \"$TOKEN_FILE\" \\\n"
+        f'  --registry-url "$REGISTRY_URL" --token-file "$TOKEN_FILE" \\\n'
         f"  describe-group --name {group_name} --json > {group_name}.json\n"
-        f"# then add these keys under \"ui_permissions\" in {group_name}.json:  "
+        f'# then add these keys under "ui_permissions" in {group_name}.json:  '
         f"{{ {grant_json} }}\n"
         f"uv run python api/registry_management.py \\\n"
-        f"  --registry-url \"$REGISTRY_URL\" --token-file \"$TOKEN_FILE\" \\\n"
+        f'  --registry-url "$REGISTRY_URL" --token-file "$TOKEN_FILE" \\\n'
         f"  import-group --file {group_name}.json"
     )
 
