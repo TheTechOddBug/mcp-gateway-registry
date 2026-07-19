@@ -10,13 +10,26 @@ Scopes define what resources (MCP servers, agents) users can access and what act
 
 Skill and agent discovery is gated on a `list_*` UI permission, matching MCP servers. This is a fail-closed change: a non-admin group that does not hold the grant sees **zero** resources of that family, including public ones. If skills or agents suddenly stop appearing for a non-admin user after upgrade, the user's group is missing the discovery scope. Take these actions once, per deployment:
 
-- **Skills discovery (`list_skills`).** This scope is new, so no group has it until you grant it. Run the one-time backfill to grant `list_skills: ["all"]` to the built-in admin group (dry-run by default):
+- **Skills discovery (`list_skills`).** This scope is new, so no group has it until you grant it. Run the one-time backfill to grant `list_skills: ["all"]` to the built-in admin group (dry-run by default). The simplest place to run it is inside a running container, where the registry environment is already present:
 
   ```bash
-  uv run python scripts/backfill-skill-list-scope.py --apply
+  # Docker Compose
+  docker compose exec registry uv run python scripts/backfill-skill-list-scope.py --apply
+
+  # Kubernetes / EKS
+  kubectl exec -it deploy/registry -- uv run python scripts/backfill-skill-list-scope.py --apply
   ```
 
-  Then grant `list_skills` to any non-admin group that should see skills. Admins are unaffected (they bypass the check).
+  To run it outside the deployment (host shell, one-off ECS task, admin pod), pass the connection explicitly; the password and `SECRET_KEY` are read from the environment, never as CLI args:
+
+  ```bash
+  DOCUMENTDB_PASSWORD=... SECRET_KEY=... \
+    uv run python scripts/backfill-skill-list-scope.py --apply \
+    --host <mongo-host> --username admin --direct-connection \
+    --auth-server-url <auth-server-url>
+  ```
+
+  See `--help` for the full connection-argument list (`--tls`, `--storage-backend documentdb` for Amazon DocumentDB, etc.). Then grant `list_skills` to any non-admin group that should see skills. Admins are unaffected (they bypass the check).
 
 - **Skill mutation (`modify_skill` / `delete_skill` / `toggle_skill`).** A non-admin who **owns** a skill now also needs the matching mutation scope; ownership alone is no longer sufficient. Grant these to whichever non-admin group manages skills. Not covered by the backfill.
 

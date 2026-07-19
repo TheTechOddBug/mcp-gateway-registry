@@ -22,22 +22,38 @@ The migration is IDEMPOTENT: minting is a per-key ``$set`` merge, so re-running
 it simply re-writes the same value. Safe to run repeatedly.
 
 Usage:
-    # Dry run (default) - report what would be granted
-    SECRET_KEY=... DOCUMENTDB_HOST=localhost \\
-        uv run python scripts/backfill-skill-list-scope.py
+    # Dry run (default) - report what would be granted, connection from env/.env
+    uv run python scripts/backfill-skill-list-scope.py
 
     # Actually apply changes
-    SECRET_KEY=... DOCUMENTDB_HOST=localhost \\
-        uv run python scripts/backfill-skill-list-scope.py --apply
+    uv run python scripts/backfill-skill-list-scope.py --apply
 
-    # MongoDB CE (single-node) backend
-    MCP_STORAGE_BACKEND=mongodb-ce DOCUMENTDB_HOST=localhost \\
-        uv run python scripts/backfill-skill-list-scope.py --apply
+The simplest place to run this is inside a running container (Docker Compose:
+``docker compose exec registry ...``; EKS: ``kubectl exec deploy/registry -- ...``),
+where the registry environment is already present. The script also adds the repo
+root to sys.path itself, so it can be run from any working directory.
 
-The script adds the repo root to sys.path itself, so it can be run from any
-working directory (e.g. ``uv run python scripts/backfill-skill-list-scope.py``).
-The storage backend and connection are read from the same environment the
-registry uses (MCP_STORAGE_BACKEND, DOCUMENTDB_HOST, etc.).
+CONNECTION: by default the storage backend and connection are read from the same
+environment the registry uses (STORAGE_BACKEND, DOCUMENTDB_HOST, etc., including
+values in a local ``.env``). For deployments where those service names are not
+resolvable from wherever you run the script (a host shell against a Dockerized
+Mongo, a one-off task pointed at Amazon DocumentDB on ECS, an EKS admin pod), the
+connection can be supplied via CLI args instead (see ``--host`` and friends).
+
+    # Amazon DocumentDB on ECS (TLS, SCRAM-SHA-1 via --storage-backend documentdb)
+    DOCUMENTDB_PASSWORD=... SECRET_KEY=... \\
+        uv run python scripts/backfill-skill-list-scope.py --apply \\
+        --storage-backend documentdb --host docdb.cluster-xxxx.us-east-1.docdb.amazonaws.com \\
+        --username admin --tls --auth-server-url http://localhost:8888
+
+    # MongoDB CE on EKS / single node reached directly (skip replica-set discovery)
+    DOCUMENTDB_PASSWORD=... SECRET_KEY=... \\
+        uv run python scripts/backfill-skill-list-scope.py --apply \\
+        --host localhost --username admin --direct-connection
+
+SECURITY: the password and SECRET_KEY are read from the environment only and are
+never accepted as CLI args (argv is visible in the process list). Supply them via
+``DOCUMENTDB_PASSWORD`` / ``SECRET_KEY`` (env vars, or a task/secret injection).
 """
 
 import argparse
@@ -54,6 +70,12 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# Shared Mongo/DocumentDB connection CLI args (sibling module in scripts/).
+from _mongo_conn_args import (  # noqa: E402
+    add_connection_args,
+    apply_connection_overrides,
+)
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -79,11 +101,16 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Dry run (default)
+    # Dry run (default), connection from environment / .env
     uv run python scripts/backfill-skill-list-scope.py
 
-    # Apply changes
+    # Apply, connection from environment / .env
     uv run python scripts/backfill-skill-list-scope.py --apply
+
+    # Apply with an explicit connection (password + SECRET_KEY stay in env)
+    DOCUMENTDB_PASSWORD=... SECRET_KEY=... \\
+        uv run python scripts/backfill-skill-list-scope.py --apply \\
+        --host localhost --username admin --direct-connection
 """,
     )
     parser.add_argument(
@@ -91,6 +118,7 @@ Examples:
         action="store_true",
         help="Actually apply changes (default is a dry run)",
     )
+    add_connection_args(parser)
     return parser.parse_args()
 
 
@@ -147,6 +175,10 @@ async def main() -> None:
     logger.info("=" * 60)
     logger.info("Mode: %s", "DRY RUN" if dry_run else "APPLY CHANGES")
     logger.info("=" * 60)
+
+    # Apply CLI connection overrides into the environment BEFORE the registry
+    # config singleton is imported inside _run_backfill.
+    apply_connection_overrides(args)
 
     result = await _run_backfill(dry_run)
 

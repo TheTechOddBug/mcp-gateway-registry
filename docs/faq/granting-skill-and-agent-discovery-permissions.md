@@ -80,17 +80,41 @@ To scope discovery to specific resources instead of the whole family, list their
 
 ## Option 3: One-time `list_skills` backfill (new-scope bootstrap)
 
-`list_skills` is a new scope, so no group holds it after upgrade, not even the admin group. Run the backfill once per deployment to grant `list_skills: ["all"]` to the built-in `mcp-registry-admin` group. It is a dry run by default; add `--apply` to make the change:
+`list_skills` is a new scope, so no group holds it after upgrade, not even the admin group. Run the backfill once per deployment to grant `list_skills: ["all"]` to the built-in `mcp-registry-admin` group. It is a dry run by default; add `--apply` to make the change.
+
+The simplest place to run it is **inside a running container**, where the registry's own environment (`.env`, `SECRET_KEY`, and the Mongo/DocumentDB service names) is already present:
 
 ```bash
-# Dry run first (prints what would change)
-uv run python scripts/backfill-skill-list-scope.py
+# Docker Compose
+docker compose exec registry uv run python scripts/backfill-skill-list-scope.py --apply
 
-# Apply the change
-uv run python scripts/backfill-skill-list-scope.py --apply
+# Kubernetes / EKS (exec into the registry pod)
+kubectl exec -it deploy/registry -- uv run python scripts/backfill-skill-list-scope.py --apply
 ```
 
+If you run it **outside** the deployment (a host shell, a one-off ECS task, an admin pod that is not the registry), the registry service names may not resolve. Pass the connection explicitly. The password and `SECRET_KEY` are read from the environment only, never as CLI args:
+
+```bash
+# MongoDB CE reached directly (skip replica-set discovery that advertises
+# internal hostnames); password + SECRET_KEY come from the environment
+DOCUMENTDB_PASSWORD=... SECRET_KEY=... \
+  uv run python scripts/backfill-skill-list-scope.py --apply \
+  --host localhost --username admin --direct-connection \
+  --auth-server-url http://localhost:8888
+
+# Amazon DocumentDB (TLS + SCRAM-SHA-1 via --storage-backend documentdb)
+DOCUMENTDB_PASSWORD=... SECRET_KEY=... \
+  uv run python scripts/backfill-skill-list-scope.py --apply \
+  --storage-backend documentdb --tls \
+  --host docdb.cluster-xxxx.us-east-1.docdb.amazonaws.com --username admin \
+  --auth-server-url https://your-auth-server
+```
+
+Run `uv run python scripts/backfill-skill-list-scope.py --help` for the full connection-argument list (`--host`, `--port`, `--database`, `--username`, `--auth-source`, `--tls`, `--direct-connection`, `--storage-backend`, `--auth-server-url`). The same arguments work for `scripts/backfill-custom-entity-scopes.py`.
+
 This only fixes the built-in admin group. Any non-admin group that should see skills still needs `list_skills` granted explicitly via Option 1 or Option 2. There is no equivalent backfill for `list_agents`, because that scope already existed before the gate.
+
+`--auth-server-url` matters when you run the script outside the deployment: after writing the grant, the script asks the auth-server to reload its scope cache. If that URL is not reachable, the grant is still persisted but the running auth-server keeps the old scopes until it is restarted or reloaded.
 
 ## Related mutation scopes (owner self-service)
 
