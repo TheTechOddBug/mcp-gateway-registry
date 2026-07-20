@@ -524,6 +524,55 @@ class TestRegisterAgent:
             assert data["agent"]["path"] == "/new-agent"
 
     @pytest.mark.asyncio
+    async def test_register_agent_backwards_compatible_when_flag_disabled(
+        self, test_app, mock_user_context
+    ):
+        """Backwards compatibility (#1276): with the flag OFF and NO id supplied,
+        registration works exactly as before and the id auto-generates.
+
+        This is the default deployment posture (ALLOW_CALLER_SUPPLIED_ASSET_ID
+        false), so existing callers that never send an id must be unaffected.
+        """
+        request_data = {
+            "name": "legacy-agent",
+            "description": "Agent registered without an id, flag off",
+            "url": "http://localhost:9000/legacy-agent",
+            "version": "1.0",
+            "tags": "test",
+            "supportedProtocol": "a2a",
+            # note: no "id" key at all
+        }
+
+        captured = {}
+
+        async def capture_register(card):
+            captured["card"] = card
+            return True
+
+        with (
+            patch("registry.api.agent_routes.agent_service") as mock_agent_service,
+            patch("registry.utils.agent_validator.agent_validator") as mock_validator,
+            patch("registry.api.agent_routes.settings.allow_caller_supplied_asset_id", False),
+        ):
+            mock_agent_service.get_agent_info = AsyncMock(return_value=None)
+            mock_agent_service.register_agent = AsyncMock(side_effect=capture_register)
+            mock_agent_service.is_agent_enabled = AsyncMock(return_value=True)
+
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validation_result.errors = []
+            mock_validation_result.warnings = []
+            mock_validator.validate_agent_card = AsyncMock(return_value=mock_validation_result)
+
+            response = test_app.post("/agents/register", json=request_data)
+
+            # Succeeds as before, and the auto-generated id is a uuid4 string.
+            assert response.status_code == status.HTTP_201_CREATED
+            import uuid
+
+            assert uuid.UUID(captured["card"].id).version == 4
+
+    @pytest.mark.asyncio
     async def test_register_agent_honors_supplied_id(self, test_app, mock_user_context):
         """A caller-supplied id is stored verbatim on the agent card (#1276)."""
         supplied_id = "arn:aws:bedrock:us-east-1:123456789012:agent/my-agent"
