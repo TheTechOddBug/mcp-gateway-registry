@@ -48,9 +48,12 @@ from jwt.api_jwk import PyJWK
 from metrics_middleware import add_auth_metrics_middleware
 
 try:
-    from observability.meters import token_mint_total
+    from observability.meters import redirect_rejected_total, token_mint_total
 except ImportError:
-    from auth_server.observability.meters import token_mint_total
+    from auth_server.observability.meters import (
+        redirect_rejected_total,
+        token_mint_total,
+    )
 
 try:
     from egress_obo import (
@@ -985,11 +988,23 @@ def _get_allowed_redirect_uris() -> frozenset[str]:
     return _parse_allowed_redirect_uris(os.environ.get("OAUTH2_ALLOWED_REDIRECT_URIS", ""))
 
 
-def _is_redirect_uri_allowed(
+def _evaluate_redirect(
     url: str,
     request: Request | None = None,
-) -> bool:
-    """Decide whether a login/logout redirect target is safe.
+) -> tuple[bool, str]:
+    """Decide whether a login/logout redirect target is safe, with a reason.
+
+    Single source of truth for the redirect decision. Returns
+    ``(allowed, reason)`` where ``reason`` is a short, low-cardinality label
+    suitable for a metric and for a redacted log line:
+      - ``empty``            -- no URL supplied
+      - ``backslash``        -- contains a backslash (legacy-browser bypass)
+      - ``protocol_relative``-- ``//host`` off-site redirect
+      - ``relative``         -- same-origin relative path (ALLOWED)
+      - ``scheme``           -- non-http(s) absolute scheme
+      - ``allowlist_match``  -- exact match against the allowlist (ALLOWED)
+      - ``not_in_allowlist`` -- allowlist configured, no match
+      - ``cookie_domain``    -- legacy cookie-domain heuristic decision
 
     Precedence (fail closed):
       1. Relative URLs (no scheme and no netloc) are always safe -- they are
@@ -1005,30 +1020,65 @@ def _is_redirect_uri_allowed(
          configuring the allowlist is the recommended posture.
     """
     if not url:
-        return False
+        return False, "empty"
     # A backslash is not a valid path separator, but some legacy browsers
     # rewrite it to "/" before following a redirect, turning "/\evil.com" into
     # the protocol-relative "//evil.com" (an off-site redirect). urlparse treats
     # it as a relative path, so reject it explicitly before the same-origin
     # shortcut below (fail closed).
     if "\\" in url:
-        return False
+        return False, "backslash"
+    # Reject protocol-relative ("//evil.com") before urlparse: a browser follows
+    # it off-site. urlparse classifies it as netloc (not path), so catching it
+    # here also gives an accurate reason label instead of the generic "scheme".
+    if url.startswith("//"):
+        return False, "protocol_relative"
     parsed = urlparse(url)
     if not parsed.scheme and not parsed.netloc:
-        # Reject protocol-relative ("//evil.com"): urlparse may leave it in the
-        # path, but a browser follows it off-site.
-        if url.startswith("//"):
-            return False
-        return True
+        return True, "relative"
     if parsed.scheme not in ("http", "https"):
-        return False
+        return False, "scheme"
 
     allowlist = _get_allowed_redirect_uris()
     if allowlist:
-        return _normalize_redirect_uri(url) in allowlist
+        if _normalize_redirect_uri(url) in allowlist:
+            return True, "allowlist_match"
+        return False, "not_in_allowlist"
 
     cookie_domain = os.environ.get("SESSION_COOKIE_DOMAIN", "").strip()
-    return _is_redirect_within_cookie_domain(url, cookie_domain, request)
+    allowed = _is_redirect_within_cookie_domain(url, cookie_domain, request)
+    return allowed, "cookie_domain"
+
+
+def _redact_redirect_uri(url: str) -> str:
+    """Reduce a (rejected, untrusted) redirect URL to scheme+host for logging.
+
+    A rejected redirect_uri is untrusted and its path/query/fragment may carry
+    tokens or PII, so never log it whole. Returns just ``scheme://host`` for an
+    absolute http(s) URL, or a coarse placeholder otherwise.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:  # pragma: no cover - urlparse is very tolerant
+        return "<unparseable>"
+    if parsed.scheme in ("http", "https") and parsed.hostname:
+        return f"{parsed.scheme}://{parsed.hostname}"
+    if url.startswith("//"):
+        return "//<host>"
+    return "<non-absolute>"
+
+
+def _is_redirect_uri_allowed(
+    url: str,
+    request: Request | None = None,
+) -> bool:
+    """Return whether a login/logout redirect target is safe.
+
+    Thin bool wrapper over ``_evaluate_redirect`` (the single source of truth),
+    kept for call sites and tests that only need the yes/no decision.
+    """
+    allowed, _reason = _evaluate_redirect(url, request)
+    return allowed
 
 
 def _is_redirect_within_cookie_domain(
@@ -1942,6 +1992,16 @@ async def startup_event():
         logger.error(f"Failed to load scopes configuration on startup: {e}", exc_info=True)
         # Fall back to empty config
         SCOPES_CONFIG = {"group_mappings": {}}
+
+    # Surface the redirect-validation posture once at startup so operators can
+    # tell whether the hardened exact-match allowlist is active (PR #1475).
+    if _get_allowed_redirect_uris():
+        logger.info("OAuth redirect validation: exact-match allowlist active")
+    else:
+        logger.info(
+            "OAUTH2_ALLOWED_REDIRECT_URIS not set; using legacy cookie-domain "
+            "redirect validation. Configure the allowlist for the hardened posture."
+        )
 
 
 # Add metrics collection middleware
@@ -5555,8 +5615,14 @@ async def oauth2_callback(
         # (the hardened path). When the allowlist is unset, this falls back to
         # the weaker same-origin / cookie-domain heuristic for backward
         # compatibility. Fail closed: anything else is rejected to a safe path.
-        if not _is_redirect_uri_allowed(redirect_url, request):
-            logger.warning(f"Blocked unsafe redirect URL: {redirect_url}, falling back to /")
+        allowed, reason = _evaluate_redirect(redirect_url, request)
+        if not allowed:
+            # Redact: a rejected redirect_uri is untrusted; log scheme+host only.
+            logger.warning(
+                f"Blocked unsafe login redirect (reason={reason}): "
+                f"{_redact_redirect_uri(redirect_url)}, falling back to /"
+            )
+            redirect_rejected_total.add(1, {"flow": "login", "reason": reason})
             redirect_url = "/"
         response = RedirectResponse(url=redirect_url, status_code=302)
 
@@ -5753,10 +5819,14 @@ async def oauth2_logout(
         if redirect_uri:
             parsed = urlparse(redirect_uri)
             if parsed.scheme or parsed.netloc:
-                if not _is_redirect_uri_allowed(redirect_uri, request):
+                allowed, reason = _evaluate_redirect(redirect_uri, request)
+                if not allowed:
+                    # Redact: log scheme+host only, never the raw redirect_uri.
                     logger.warning(
-                        f"Blocked unsafe logout redirect_uri for {provider}: {redirect_uri}"
+                        f"Blocked unsafe logout redirect_uri for {provider} "
+                        f"(reason={reason}): {_redact_redirect_uri(redirect_uri)}"
                     )
+                    redirect_rejected_total.add(1, {"flow": "logout", "reason": reason})
                     redirect_uri = None
 
         provider_config = OAUTH2_CONFIG["providers"][provider]
