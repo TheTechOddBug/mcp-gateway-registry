@@ -797,11 +797,14 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             server_info.get("description", ""),
         ]
 
-        tags = server_info.get("tags", [])
+        # Coerce null to empty: a server updated via PUT can carry an explicit
+        # tags/tool_list of None, and dict.get(key, default) returns None (not
+        # the default) when the key is present-but-None.
+        tags = server_info.get("tags") or []
         if tags:
             text_parts.append("Tags: " + ", ".join(tags))
 
-        for tool in server_info.get("tool_list", []):
+        for tool in server_info.get("tool_list") or []:
             text_parts.append(tool.get("name", ""))
             text_parts.append(tool.get("description", ""))
 
@@ -848,7 +851,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
             "path": path,
             "name": server_info.get("server_name", ""),
             "description": server_info.get("description", ""),
-            "tags": server_info.get("tags", []),
+            "tags": server_info.get("tags") or [],
             "metadata_text": metadata_text,
             "is_enabled": is_enabled,
             "status": server_info.get("status", "active"),
@@ -863,7 +866,7 @@ class DocumentDBSearchRepository(SearchRepositoryBase):
                     # Support both "inputSchema" (MCP standard) and "schema" (legacy)
                     "inputSchema": t.get("inputSchema") or t.get("schema", {}),
                 }
-                for t in server_info.get("tool_list", [])
+                for t in server_info.get("tool_list") or []
             ],
             "metadata": server_info,
             "indexed_at": server_info.get("updated_at", server_info.get("registered_at")),

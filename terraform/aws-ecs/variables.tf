@@ -200,19 +200,19 @@ variable "keycloak_log_level" {
 variable "registry_image_uri" {
   description = "Container image URI for registry service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/registry:1.26.0"
+  default     = "public.ecr.aws/p3v1o3c6/registry:1.27.1"
 }
 
 variable "auth_server_image_uri" {
   description = "Container image URI for auth server service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/auth-server:1.26.0"
+  default     = "public.ecr.aws/p3v1o3c6/auth-server:1.27.1"
 }
 
 variable "mcpgw_image_uri" {
   description = "Container image URI for mcpgw service (defaults to pre-built image from public ECR)"
   type        = string
-  default     = "public.ecr.aws/p3v1o3c6/mcpgw:1.26.0"
+  default     = "public.ecr.aws/p3v1o3c6/mcpgw:1.27.1"
 }
 
 variable "keycloak_image_uri" {
@@ -1144,6 +1144,16 @@ variable "batch_worker_lease_heartbeat_seconds" {
   description = "Interval at which a worker renews the lease on its in-flight job. Should be below batch_worker_lease_ttl_seconds."
   type        = number
   default     = 15
+}
+
+# =============================================================================
+# CALLER-SUPPLIED ASSET ID (Issue #1276)
+# =============================================================================
+
+variable "allow_caller_supplied_asset_id" {
+  description = "Allow callers to supply their own asset id on the public server/agent/skill registration routes. Fail-closed: OFF by default (supplied id rejected, ids auto-generate). Federation is not affected. Default: false."
+  type        = bool
+  default     = false
 }
 
 # =============================================================================

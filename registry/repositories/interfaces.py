@@ -284,6 +284,29 @@ class ServerRepositoryBase(ABC):
                 return doc
         return None
 
+    async def find_by_id(
+        self,
+        asset_id: str,
+    ) -> dict[str, Any] | None:
+        """Find a server whose ``id`` equals ``asset_id`` (#1276).
+
+        Used by the registration id pre-check to return a precise 409 on
+        id collision. Default scans ``list_all()``; DocumentDB overrides
+        with an indexed ``find_one({"id": asset_id})``.
+
+        Returns:
+            The full document with ``path`` populated, or None.
+        """
+        if not asset_id:
+            return None
+        all_servers = await self.list_all()
+        for path, server_info in all_servers.items():
+            if server_info.get("id") == asset_id:
+                doc = dict(server_info)
+                doc["path"] = path
+                return doc
+        return None
+
 
 class AgentRepositoryBase(ABC):
     """Abstract base class for A2A agent data access."""
@@ -450,6 +473,29 @@ class AgentRepositoryBase(ABC):
             if not candidate_url:
                 continue
             if normalize_identity_url(candidate_url, ENTITY_TYPE_AGENT) == identity_url:
+                doc = agent.model_dump(mode="json") if hasattr(agent, "model_dump") else dict(agent)
+                doc["path"] = getattr(agent, "path", doc.get("path"))
+                return doc
+        return None
+
+    async def find_by_id(
+        self,
+        asset_id: str,
+    ) -> dict[str, Any] | None:
+        """Find an agent whose ``id`` equals ``asset_id`` (#1276).
+
+        Used by the registration id pre-check to return a precise 409 on
+        id collision. Default scans ``list_all()``; DocumentDB overrides
+        with an indexed ``find_one({"id": asset_id})``.
+
+        Returns:
+            A dict with the agent document fields plus ``path``, or None.
+        """
+        if not asset_id:
+            return None
+        agents = await self.list_all()
+        for agent in agents:
+            if getattr(agent, "id", None) == asset_id:
                 doc = agent.model_dump(mode="json") if hasattr(agent, "model_dump") else dict(agent)
                 doc["path"] = getattr(agent, "path", doc.get("path"))
                 return doc
@@ -807,6 +853,69 @@ class ScopeRepositoryBase(ABC):
         Note:
             This updates the UI-Scopes section to hide the server
             from the UI for users in this group.
+        """
+        pass
+
+    @abstractmethod
+    async def merge_ui_permissions(
+        self,
+        group_name: str,
+        ui_permissions: dict[str, list[str]],
+    ) -> bool:
+        """
+        Merge a set of ui_permission keys into a group's ui_permissions.
+
+        Targeted read-modify-write of individual permission keys, used to grant
+        a group per-type custom-entity scopes on type-create without
+        round-tripping the whole group document through import_group. Existing
+        keys are overwritten with the provided value; keys not present are added.
+
+        Args:
+            group_name: Name of the group to update.
+            ui_permissions: Mapping of permission name -> allowed resources to
+                merge into the group's ui_permissions.
+
+        Returns:
+            True if the group existed and was updated, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def remove_ui_permission_keys(
+        self,
+        group_name: str,
+        permission_keys: list[str],
+    ) -> bool:
+        """
+        Remove a set of ui_permission keys from a group's ui_permissions.
+
+        Used to clean up per-type custom-entity scopes on type-delete.
+
+        Args:
+            group_name: Name of the group to update.
+            permission_keys: Permission names to unset from ui_permissions.
+
+        Returns:
+            True if the group existed and was updated, False otherwise.
+        """
+        pass
+
+    @abstractmethod
+    async def remove_ui_permission_keys_from_all_groups(
+        self,
+        permission_keys: list[str],
+    ) -> int:
+        """
+        Remove a set of ui_permission keys from EVERY group that holds them.
+
+        Sweeps all groups so a granted non-admin does not keep a dangling
+        per-type scope after its type is deleted.
+
+        Args:
+            permission_keys: Permission names to unset from every group.
+
+        Returns:
+            The number of group documents modified.
         """
         pass
 
@@ -1650,6 +1759,29 @@ class SkillRepositoryBase(ABC):
             if not candidate_url:
                 continue
             if normalize_identity_url(candidate_url, ENTITY_TYPE_SKILL) == identity_url:
+                doc = skill.model_dump(mode="json") if hasattr(skill, "model_dump") else dict(skill)
+                doc["path"] = getattr(skill, "path", doc.get("path"))
+                return doc
+        return None
+
+    async def find_by_id(
+        self,
+        asset_id: str,
+    ) -> dict[str, Any] | None:
+        """Find a skill whose ``id`` equals ``asset_id`` (#1276).
+
+        Used by the registration id pre-check to return a precise 409 on
+        id collision. Default scans ``list_all()``; DocumentDB overrides
+        with an indexed ``find_one({"id": asset_id})``.
+
+        Returns:
+            A dict with the skill document fields plus ``path``, or None.
+        """
+        if not asset_id:
+            return None
+        skills = await self.list_all()
+        for skill in skills:
+            if getattr(skill, "id", None) == asset_id:
                 doc = skill.model_dump(mode="json") if hasattr(skill, "model_dump") else dict(skill)
                 doc["path"] = getattr(skill, "path", doc.get("path"))
                 return doc

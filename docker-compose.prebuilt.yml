@@ -71,6 +71,10 @@ services:
       # Comma-separated host allowlist for the RUM snippet (fail-closed when set). Empty disables the check.
       - RUM_ALLOWED_HOSTS=${RUM_ALLOWED_HOSTS:-}
       - GATEWAY_ADDITIONAL_SERVER_NAMES=${GATEWAY_ADDITIONAL_SERVER_NAMES:-}
+      # SSRF guard allowlist for internal MCP-server / A2A-agent upstreams at
+      # private IPs (e.g. docker-network hostnames); mirrors docker-compose.yml.
+      - SSRF_ALLOWED_HOSTS=${SSRF_ALLOWED_HOSTS:-}
+      - SSRF_ALLOWED_CIDRS=${SSRF_ALLOWED_CIDRS:-}
       # Registry Card Configuration
       - REGISTRY_URL=${REGISTRY_URL:-http://localhost}
       # Request-source trust (audit client IP + OAuth external-URL host allowlist)
@@ -267,6 +271,8 @@ services:
       - BATCH_JOB_RETENTION_DAYS=${BATCH_JOB_RETENTION_DAYS:-7}
       - BATCH_WORKER_POLL_INTERVAL_SECONDS=${BATCH_WORKER_POLL_INTERVAL_SECONDS:-1.0}
       - BATCH_MAX_REQUEST_BYTES=${BATCH_MAX_REQUEST_BYTES:-4194304}
+      # Caller-supplied asset id (Issue #1276)
+      - ALLOW_CALLER_SUPPLIED_ASSET_ID=${ALLOW_CALLER_SUPPLIED_ASSET_ID:-false}
       # Registration Gate (Admission Control)
       - REGISTRATION_GATE_ENABLED=${REGISTRATION_GATE_ENABLED:-false}
       - REGISTRATION_GATE_URL=${REGISTRATION_GATE_URL:-}

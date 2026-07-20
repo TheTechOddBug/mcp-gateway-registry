@@ -138,6 +138,22 @@ sanitizer that isn't called) is equivalent to no check.
   time.** A pre-fetch check followed by a separate client call re-resolves DNS =
   TOCTOU / DNS-rebinding. Pin the validated public IP into the transport
   (preserve Host header + TLS SNI) and re-validate on every redirect hop.
+- **Re-validate the destination through the SSRF guard at the moment a stored
+  credential is attached.** Registration-time validation is not enough when the
+  destination is mutable — a `proxy_pass_url`/endpoint changed after registration
+  (or a registration-time bypass) could point a stored credential at a
+  private/metadata address. Every site that decrypts a stored credential and
+  hands it to an outbound request (including an external scanner or SDK client
+  that opens its own connection, which the pinned guarded transport cannot
+  protect) must re-run `validate_url` with the proxy profile first and fail
+  closed: no valid destination, no credential. Grep every `decrypt_credential` /
+  credential-attach site, not just the reported one; a single guarded helper
+  they all call is ideal. Make the header/credential builder SELF-GUARD on the
+  destination it is handed rather than trusting each caller to have validated
+  first — a builder that decrypts a secret only because the caller "should have"
+  checked leaks that secret the first time a caller forgets. Pass the destination
+  into the builder and have it withhold the decrypted secret (return only
+  non-secret headers) when the destination is missing or fails validation.
 - **Never build or attach credentials for a target that fails validation.**
   Validate the URL before decrypting/attaching stored credentials, so a
   malicious registered URL cannot exfiltrate them.
@@ -202,6 +218,20 @@ sanitizer that isn't called) is equivalent to no check.
   never fall back to a raw user string when tokenization yields nothing. Escape
   at the SINK (the repository method that builds the query), not at the caller —
   a caller-escape contract silently breaks the moment a new caller forgets it.
+- **A user-supplied value interpolated into an outbound URL PATH segment must be
+  validated against a strict identifier allowlist — mirror the resource's own
+  canonical name rule (e.g. `^[a-z0-9]+(-[a-z0-9]+)*\Z`) rather than a looser
+  superset — BEFORE building the URL.** Otherwise a value like
+  `../../api/management/iam/users` normalizes (via the HTTP client) to a
+  DIFFERENT endpoint after the request is issued, and if the client carries a
+  privileged credential (M2M / API token) the traversed request inherits that
+  privilege. A non-empty `.strip()` check is not sufficient. Anchor the pattern
+  with `\Z`, not `$`: Python's `$` also matches just before a trailing newline,
+  so `^...+$` would accept `"validname\n"`. Validate at the interpolation site —
+  do not trust the downstream service to reject the traversed path. Fail closed:
+  return the handler's error shape, do not raise. Query parameters are lower risk
+  (they don't traverse the path), but still reject absolute (`/`-leading) and
+  `..`-containing values as defense-in-depth.
 
 ## Authorization & ownership
 
@@ -212,12 +242,45 @@ sanitizer that isn't called) is equivalent to no check.
 - **Enforce ownership server-side before EVERY mutation — across the whole
   endpoint family, not just the reported one.** If register-overwrite needs an
   ownership check, so do the version, rename, auth-credential, and delete
-  siblings. Add CSRF (or non-cookie auth) to all state-changing endpoints.
+  siblings. Add CSRF (or non-cookie auth) to all state-changing endpoints. The
+  member that gets forgotten is usually delete/remove — a family whose update
+  handlers require permission-AND-ownership but whose delete handler checks only
+  permission lets a user with a delete grant destroy someone else's resource.
+  Combine permission and ownership (defense in depth) uniformly, and fail closed
+  when ownership cannot be established (a missing `registered_by` denies a
+  non-admin).
 - **`getattr(a_dict, "key", None)` always returns None** (dicts don't expose keys
   as attributes) — the guard becomes dead code that never denies. Use
   `dict.get("key")`; watch for dict-vs-Pydantic-model confusion.
 - **No substring matching for privilege decisions** (`"unrestricted" in scope`
   accepted access scopes as admin). Match exact, centralized constants.
+- **Reserve the wildcard/sentinel names at every write that turns user input
+  into an authorization key.** If a resolver treats a magic value (`all`, `*`)
+  as a cross-cutting wildcard, then any name derived from user input — a server
+  registration `path` normalized (`lstrip("/")`) into a scope `server` value —
+  that equals that sentinel silently escalates to "all resources". Reject the
+  reserved names at the registration/validation chokepoint (fail closed, exact
+  set — do not over-strip so adjacent names like `all-tools` stay valid) AND at
+  the deepest write sink as defense-in-depth. Enumerate ALL write sinks: a
+  direct-write path that skips the canonical `add_*` helper (e.g. a bulk
+  `import_group` that persists the rule list verbatim via `replace_one`) bypasses
+  the sink guard and needs its own check. Make the scan flatten/normalize/coerce
+  IDENTICALLY to the resolver's read path (share the flatten helper; `str()`-
+  coerce exactly as the resolver does) so the guard can never be blind to a shape
+  or type the resolver would still honor as a wildcard. Keep the read-side
+  sentinel set and the write-side reject set cross-referenced so they stay in
+  lockstep. Existing rows written before the fix are a separate data-cleanup
+  concern (audit `{"server": {"$in": ["all","*"]}}`), not covered by a code guard.
+- **Canonicalize a path before any deny-list / classifier decision.** A path
+  that drives an authorization decision (a resource-token deny-list, a route
+  classifier) arrives from an attacker-controlled raw request URI, typically
+  percent-encoded (nginx forwards `$request_uri`). Percent-decode ONCE and
+  resolve `.`/`..` segments to a canonical absolute path BEFORE matching — an
+  encoded traversal like `/api/agents/%2e%2e/tokens/generate` must classify
+  identically to its canonical `/api/tokens/generate`, or it bypasses the
+  byte-exact deny-list. Decode exactly once (a doubly-encoded `%252e` stays
+  literal and fails closed), clamp traversal at root, and put the normalization
+  inside the single shared entrypoint so every consumer benefits.
 - **Attach a shared/global credential only on explicit opt-in.** Make the
   privileged code path default to not attaching it and gate its use behind an
   admin check.
@@ -267,6 +330,27 @@ sanitizer that isn't called) is equivalent to no check.
   path silently confers privilege. Drive the mapping from config, fail closed to
   no groups when unset/malformed, and grep every provider's sync sibling (okta,
   auth0, …) for the same pattern.
+- **Never mint privilege (groups/scopes/roles) from an unverified request
+  body.** A token-mint endpoint that stamps the groups/scopes carried in its
+  POST body into the issued token trusts the caller to be honest about identity.
+  Reconcile against an authoritative source — resolve the session id from the
+  session store and mint only the intersection of requested and session-held
+  groups, rejecting any privileged group the session does not hold. Where no
+  session-backed source exists (pure service-to-service), keep the subset check
+  but make the trust boundary explicit and fail closed on a missing/malformed
+  context (a `groups: "admin"` string must be rejected, not iterated
+  character-by-character). Note the residual: a caller holding the internal
+  signing key can bypass the endpoint entirely, so this is defense in depth
+  pending asymmetric signing.
+- **Group enrichment from a mutable store must be strictly gated and audited.**
+  When empty-group tokens are enriched from a DB collection, gate it to exactly
+  the token class it is designed for (machine/M2M) — a check of "has some
+  client_id" is not "is an M2M client"; a self-signed user token can carry a
+  client_id and would otherwise be escalated from the M2M table. Gate by an
+  explicit token-type marker AND the sentinel value, fail closed if either is
+  missing, honor the record's disabled flag in the query AND on the returned doc,
+  and emit a WARNING-level audit line whenever enrichment adds a privileged
+  group so a write to the collection is attributable.
 - **Protect the admin population from lockout and self-harm.** Admin user-mgmt
   must refuse self-deletion, refuse removing/demoting the LAST admin (count
   remaining admins first, fail closed if the population can't be enumerated), and
@@ -358,6 +442,58 @@ sanitizer that isn't called) is equivalent to no check.
   skills. Filter each resource by ITS OWN access check (skill access for skills,
   server access for servers); the only universal bypass is real admin. Fail
   closed (omit) when access is unclear.
+- **A dynamically-minted permission name must not collide with a
+  privilege-derivation rule.** Admin here is derived from holding any
+  `ui_permission` whose action starts with a mutating prefix
+  (`create_/modify_/delete_/...`) granted for `["all"]`. Minting a per-type scope
+  named `create_<type>_entity` would therefore SILENTLY PROMOTE anyone granted it
+  to full admin. When you add a new family of dynamic scopes that reuse the
+  system's `{action}_{resource}` convention: (a) put the admin-derivation rule
+  behind ONE shared predicate (`is_admin_conferring_action`) in the dependency-free
+  constants module, and make EVERY consumer (`_user_is_admin`, the privileged-write
+  `_grants_admin`) call it — grep for stray `.startswith(PREFIXES)` checks that
+  bypass it; (b) exclude the new dynamic family from admin-derivation there
+  (exact regex, e.g. `^(create|modify|delete)_.+_entity$`), and keep the minted
+  action set EXACTLY equal to the excluded set (add a runtime `assert not
+  is_admin_conferring_action(x)` invariant so they can't drift); (c) constrain the
+  `<type>`/resource name charset at the source (`^[a-z0-9_-]+$`) so the minted key
+  is safe to use as a Mongo `$set` dotted field path (no `.`/`$` injection) and no
+  crafted name can slip a real admin action past the exclusion. NOTE the drift
+  trap: a *separate* privileged-WRITE guard that flags "any `["all"]` grant" (not
+  routed through the shared predicate) will disagree with the admin-derivation
+  rule about the excluded family — that disagreement is safe only if it fails
+  CLOSED (over-restrictive), and any admin-population counter that consumes it will
+  over-count; audit both directions.
+- **Bring a new first-class asset to authorization parity across its WHOLE
+  surface, not just the reported gap.** A custom/extensible entity type that has
+  per-record ownership but no per-type permission layer is missing create-gating
+  AND type-scoped discovery. Fixing only the ungated CREATE leaves enumeration
+  open; gate list/get/create/modify/delete/rate uniformly (view gate hides
+  existence with 404, mutate gate denies with 403), layer the per-type scope ON
+  TOP of the existing per-record owner/visibility checks (defense-in-depth, don't
+  replace them), and wire the SAME type-level gate into every discovery projection
+  (search, catalog) BEFORE per-record filtering so a caller with no list scope
+  sees zero records — including public ones — exactly as the equivalent
+  server/agent list scope behaves.
+- **Resolve every per-asset permission through one canonical `(family, action)`
+  map — never pass a raw scope string to a gate.** Each asset family's gate must
+  enforce its OWN family's scope; a hand-typed scope-name argument lets a sibling
+  family's scope be substituted by accident, and admins mask it (their `["all"]`
+  grants + is_admin bypass satisfy any name), so the bleed sits latent. Keep the
+  scope-name convention in ONE typed table keyed by `(family, action)`
+  (`registry/auth/asset_permissions.py`: `asset_scope_name` /
+  `user_has_asset_permission`), and have call sites pass a logical ACTION
+  ("modify", "toggle") — not a scope string — so the family is fixed by the call
+  and the map picks the name. Preserve the EXACT on-disk names in the map
+  (persisted `ui_permissions` keys — do not "normalize" `list_service` vs
+  `list_agents` pluralization; renaming a persisted key is a breaking data
+  migration, not a refactor). After adding a family, grep for gates that bypass
+  the map (a raw `user_has_ui_permission_for_service("..._<otherfamily>"`, an
+  inline `ui_permissions.get("<scope>")`) and confirm each enforces its own
+  family. When a gate starts enforcing a scope that was previously unenforced,
+  provision that scope on EVERY seed surface at once (seed JSONs, the Helm
+  `mongodb-configure` configmap, the IAM UI permission keys) and ship a dry-run
+  backfill — otherwise existing non-admins lose the access on upgrade.
 - **Authorize the exact bytes you act on — never a separately-captured copy.** If
   one component captures a request body for the authz decision and another
   forwards a different copy to the sink, they can diverge (size-triggered

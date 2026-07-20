@@ -3,7 +3,7 @@ global:
   image:
     # Container registry (host + optional namespace). Shared default across subcharts.
     registry: public.ecr.aws/p3v1o3c6
-    tag: 1.26.0
+    tag: 1.27.1
     pullPolicy: IfNotPresent
   cloud:
     # AWS region for cloud detection in telemetry. Set this when deploying
@@ -129,6 +129,11 @@ app:
   batchWorkerLeaseTtlSeconds: "60.0" # Lease lifetime before a job can be reclaimed.
   batchWorkerLeaseHeartbeatSeconds: "15.0" # Interval at which a worker renews its lease.
   batchMaxRequestBytes: "4194304" # Max batch request body size in bytes (4 MiB).
+  # Caller-supplied asset id (issue #1276)
+  # Allow callers to supply their own asset id on the public registration routes.
+  # Fail-closed: OFF by default (supplied id rejected, ids auto-generate).
+  # Federation is not affected.
+  allowCallerSuppliedAssetId: false
   # Registration gate / admission control (issue #809)
   # Calls an external endpoint to approve or deny registrations and updates
   # BEFORE they are persisted. Fail-closed when gate is unreachable.
