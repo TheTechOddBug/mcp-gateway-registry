@@ -1762,6 +1762,16 @@ async def lifespan(app: FastAPI):
     # Runs after scopes are loaded so map_groups_to_scopes can resolve groups.
     await _build_static_token_map()
 
+    # Run the legacy-scope audit. This used to be registered via the
+    # deprecated @app.on_event("startup") API, but FastAPI/Starlette never
+    # invokes on_event handlers once a custom `lifespan` is passed to
+    # FastAPI() (as above) -- it was silently dead code, so this audit never
+    # actually ran on boot.
+    try:
+        await _audit_legacy_scopes_on_startup()
+    except Exception as exc:
+        logger.error(f"Legacy scope audit errored during startup: {exc}", exc_info=True)
+
     # Prime the MCP/token-mint audit logger at startup so the durable-sink
     # guard runs at boot. Without this the guard would only fire lazily on the
     # first audited request; priming here makes the auth-server refuse to start
@@ -1823,19 +1833,6 @@ internal_router = APIRouter(
     prefix="/internal",
     dependencies=[Depends(validate_internal_auth)],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Load scopes configuration on startup."""
-    global SCOPES_CONFIG
-    try:
-        SCOPES_CONFIG = await reload_scopes_config()
-        _log_scopes_loaded(SCOPES_CONFIG)
-    except Exception as e:
-        logger.error(f"Failed to load scopes configuration on startup: {e}", exc_info=True)
-        # Fall back to empty config
-        SCOPES_CONFIG = {"group_mappings": {}}
 
 
 # Add metrics collection middleware
@@ -6932,13 +6929,3 @@ async def _audit_legacy_scopes_on_startup() -> int:
     return warnings_emitted
 
 
-@app.on_event("startup")
-async def _run_legacy_scope_audit_on_startup() -> None:
-    """Run the legacy-scope audit once during auth_server boot."""
-    try:
-        await _audit_legacy_scopes_on_startup()
-    except Exception as exc:
-        logger.error(
-            f"Legacy scope audit errored during startup: {exc}",
-            exc_info=True,
-        )
