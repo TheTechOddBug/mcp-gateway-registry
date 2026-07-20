@@ -86,7 +86,24 @@ sanitizer that isn't called) is equivalent to no check.
   the standard `error` code + status. (c) **IdP group-name lists** — group names
   are organizational PII (org units, teams, cost centers); log the count, not the
   names. A "masked" token prefix is still a leak — a base64 JWT header/signature
-  fragment is reconstructable; log `<token len=N>`, not `token[:10]`.
+  fragment is reconstructable; log `<token len=N>`, not `token[:10]`. (d) **A
+  registrant/backend URL** (`proxy_pass_url`, an MCP/SSE endpoint, an agent
+  `base_url`, an inbound `request.url`) can carry credentials in userinfo
+  (`user:pass@host`) or a secret in the query (`?access_token=...`); route every
+  such URL through `registry/common/log_redaction.py` `redact_url` (keeps
+  `scheme://host[:port]/path`, drops userinfo/query/fragment, fails closed) at
+  EVERY log site, not just the reported one. (e) **The caller's own authorization
+  policy** (`user_scopes`, `scope_config`, `accessible_services`, `ui_permissions`)
+  is sensitive and must never sit at INFO — especially on a hot per-request path
+  (the `/validate` subrequest, list-servers): keep the verbose policy trace at
+  DEBUG and emit exactly ONE INFO allow/deny audit line carrying only
+  server/method/tool identifiers, at every return including the fail-closed
+  exception branch. Watch for developer traces mislabeled by LEVEL, not just by
+  content — a `logger.info(f"DEBUG: ...")` or `[TRACE]` line is still emitted at
+  INFO in production; the `# TODO: replace with debug` marker means it was never
+  meant to ship at that level. After fixing the reported site, grep the whole
+  package for the same variable/pattern — these leaks travel in packs across
+  health-check, connection, and registration code paths.
 - **Never reflect an exception/stack trace into a response the caller sees**
   (CWE-209, CodeQL `py/stack-trace-exposure`). `HTTPException(detail=str(e))`,
   `return {"error": str(e)}` from a route, and `HTMLResponse(f"...{exc}...")` all
@@ -726,7 +743,8 @@ the drift between copies is the hole.
   var, never `verify=False`. `guarded_client`/`guarded_async_client` take
   `verify=` and default it to `True`.
 - **Log redaction → `registry/common/log_redaction.py`** (`redact_headers`,
-  `redact_mapping`) and, for OIDC identity, `safe_identity_summary()` in
+  `redact_mapping`, `redact_url` for a single URL string) and, for OIDC identity,
+  `safe_identity_summary()` in
   `auth_server/server.py`. NEVER log a raw header dict, a request/response body
   dict, a `user_context`, `updates`, or decoded id_token claims — route it
   through the redactor (masks any `*token*`/`*secret*`/`*credential*`/auth/cookie

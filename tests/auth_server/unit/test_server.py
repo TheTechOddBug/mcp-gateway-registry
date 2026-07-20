@@ -436,6 +436,129 @@ class TestScopeValidation:
             # Assert
             assert result is True
 
+    @pytest.mark.asyncio
+    async def test_allow_does_not_log_scopes_or_config_at_info(
+        self, mock_scope_repository_with_data, caplog
+    ):
+        """An allow does not leak user_scopes/scope_config at INFO.
+
+        The verbose per-request trace (user scopes, the full scope_config
+        authorization policy) must stay at DEBUG. Exactly one INFO line, the
+        access decision, is emitted and it must not carry the scopes list.
+        """
+        from auth_server.server import validate_server_tool_access
+
+        with patch(
+            "auth_server.server.get_scope_repository",
+            return_value=mock_scope_repository_with_data,
+        ):
+            caplog.set_level(logging.INFO, logger="auth_server.server")
+            server_name = "test-server"
+            method = "initialize"
+            user_scopes = ["read:servers"]
+
+            result = await validate_server_tool_access(server_name, method, None, user_scopes)
+
+        assert result is True
+
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        info_text = "\n".join(r.getMessage() for r in info_records)
+
+        # The full scope config (its dict repr) and the raw scopes list must not
+        # appear at INFO.
+        assert "'methods'" not in info_text
+        assert str(user_scopes) not in info_text
+        assert "User scopes" not in info_text
+
+        # Exactly one INFO decision line, and it records the grant.
+        decision_lines = [line for line in info_text.splitlines() if "Access " in line]
+        assert len(decision_lines) == 1
+        assert "Access granted" in decision_lines[0]
+        assert "test-server" in decision_lines[0]
+
+    @pytest.mark.asyncio
+    async def test_deny_does_not_log_scopes_or_config_at_info(
+        self, mock_scope_repository_with_data, caplog
+    ):
+        """A deny emits exactly one INFO decision line, no scopes dump."""
+        from auth_server.server import validate_server_tool_access
+
+        with patch(
+            "auth_server.server.get_scope_repository",
+            return_value=mock_scope_repository_with_data,
+        ):
+            caplog.set_level(logging.INFO, logger="auth_server.server")
+            server_name = "other-server"
+            method = "initialize"
+            user_scopes = ["read:servers"]
+
+            result = await validate_server_tool_access(server_name, method, None, user_scopes)
+
+        assert result is False
+
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        info_text = "\n".join(r.getMessage() for r in info_records)
+
+        assert "'methods'" not in info_text
+        assert str(user_scopes) not in info_text
+
+        decision_lines = [line for line in info_text.splitlines() if "Access " in line]
+        assert len(decision_lines) == 1
+        assert "Access denied" in decision_lines[0]
+
+    @pytest.mark.asyncio
+    async def test_scope_config_visible_only_at_debug(
+        self, mock_scope_repository_with_data, caplog
+    ):
+        """The scope_config dump still exists, but only at DEBUG."""
+        from auth_server.server import validate_server_tool_access
+
+        with patch(
+            "auth_server.server.get_scope_repository",
+            return_value=mock_scope_repository_with_data,
+        ):
+            caplog.set_level(logging.DEBUG, logger="auth_server.server")
+            await validate_server_tool_access("test-server", "initialize", None, ["read:servers"])
+
+        debug_text = "\n".join(r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
+        # The full authorization policy trace lands at DEBUG.
+        assert "'methods'" in debug_text
+        assert "User scopes" in debug_text
+
+    @pytest.mark.asyncio
+    async def test_exception_path_denies_with_one_info_line_no_scopes(self, caplog):
+        """The fail-closed exception branch denies, emits exactly one
+        INFO decision line, and never leaks user_scopes at INFO."""
+        from auth_server.server import validate_server_tool_access
+
+        # A scope repo whose lookup raises drives the except branch.
+        failing_repo = MagicMock()
+        failing_repo.get_server_scopes = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with patch(
+            "auth_server.server.get_scope_repository",
+            return_value=failing_repo,
+        ):
+            caplog.set_level(logging.INFO, logger="auth_server.server")
+            user_scopes = ["read:servers", "secret-scope-name"]
+
+            result = await validate_server_tool_access(
+                "test-server", "initialize", None, user_scopes
+            )
+
+        # Fail closed.
+        assert result is False
+
+        info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+        info_text = "\n".join(r.getMessage() for r in info_records)
+
+        # No scope list leaked at INFO, and exactly one decision line (deny).
+        assert str(user_scopes) not in info_text
+        assert "secret-scope-name" not in info_text
+        decision_lines = [line for line in info_text.splitlines() if "Access " in line]
+        assert len(decision_lines) == 1
+        assert "Access denied" in decision_lines[0]
+
     def test_validate_scope_subset_valid(self):
         """Test that requested scopes are subset of user scopes."""
         from auth_server.server import validate_scope_subset

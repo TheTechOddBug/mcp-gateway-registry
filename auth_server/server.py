@@ -1667,45 +1667,49 @@ async def validate_server_tool_access(
         True if access is allowed, False otherwise
     """
     try:
-        # Verbose logging: Print input parameters
-        logger.info("=== VALIDATE_SERVER_TOOL_ACCESS START ===")
-        logger.info(f"Requested server: '{server_name}'")
-        logger.info(f"Requested method: '{method}'")
-        logger.info(f"Requested tool: '{tool_name}'")
-        logger.info(f"User scopes: {user_scopes}")
+        # Verbose per-request trace. Kept at DEBUG (never INFO): this runs on the
+        # hot /validate path for every MCP proxy request, and user_scopes /
+        # scope_config carry the full authorization policy. The single audit
+        # record is the one INFO "Access granted/denied" line emitted at each
+        # return point below.
+        logger.debug("=== VALIDATE_SERVER_TOOL_ACCESS START ===")
+        logger.debug(f"Requested server: '{server_name}'")
+        logger.debug(f"Requested method: '{method}'")
+        logger.debug(f"Requested tool: '{tool_name}'")
+        logger.debug(f"User scopes: {user_scopes}")
 
         # Query DocumentDB directly for server access rules
         scope_repo = get_scope_repository()
 
         # Check each user scope to see if it grants access
         for scope in user_scopes:
-            logger.info(f"--- Checking scope: '{scope}' ---")
+            logger.debug(f"--- Checking scope: '{scope}' ---")
 
             # Query DocumentDB for this scope's server access rules
             scope_config = await scope_repo.get_server_scopes(scope)
 
             if not scope_config:
-                logger.info(f"Scope '{scope}' not found in DocumentDB")
+                logger.debug(f"Scope '{scope}' not found in DocumentDB")
                 continue
 
-            logger.info(f"Scope '{scope}' config: {scope_config}")
+            logger.debug(f"Scope '{scope}' config: {scope_config}")
 
             # The scope_config is directly a list of server configurations
             # since the permission type is already encoded in the scope name
             for server_config in scope_config:
-                logger.info(f"  Examining server config: {server_config}")
+                logger.debug(f"  Examining server config: {server_config}")
                 server_config_name = server_config.get("server")
-                logger.info(
+                logger.debug(
                     f"  Server name in config: '{server_config_name}' vs requested: '{server_name}'"
                 )
 
                 if _server_names_match(server_config_name, server_name):
-                    logger.info("  ✓ Server name matches!")
+                    logger.debug("  Server name matches")
 
                     # Check methods first
                     allowed_methods = server_config.get("methods", [])
-                    logger.info(f"  Allowed methods for server '{server_name}': {allowed_methods}")
-                    logger.info(f"  Checking if method '{method}' is in allowed methods...")
+                    logger.debug(f"  Allowed methods for server '{server_name}': {allowed_methods}")
+                    logger.debug(f"  Checking if method '{method}' is in allowed methods...")
 
                     # Check if all methods are allowed (wildcard support)
                     has_wildcard_methods = "all" in allowed_methods or "*" in allowed_methods
@@ -1716,58 +1720,60 @@ async def validate_server_tool_access(
                     if (
                         method in allowed_methods or has_wildcard_methods
                     ) and method != "tools/call":
-                        logger.info(f"  ✓ Method '{method}' found in allowed methods!")
+                        logger.debug(f"  Method '{method}' found in allowed methods")
+                        logger.debug(f"scope '{scope}' allows access to {server_name}.{method}")
                         logger.info(
-                            f"Access granted: scope '{scope}' allows access to {server_name}.{method}"
+                            f"Access granted: server='{server_name}' method='{method}' "
+                            f"tool='{tool_name}'"
                         )
-                        logger.info("=== VALIDATE_SERVER_TOOL_ACCESS END: GRANTED ===")
                         return True
 
                     # Check tools if method not found in methods
                     allowed_tools = server_config.get("tools", [])
-                    logger.info(f"  Allowed tools for server '{server_name}': {allowed_tools}")
+                    logger.debug(f"  Allowed tools for server '{server_name}': {allowed_tools}")
 
                     # Check if all tools are allowed (wildcard support)
                     has_wildcard_tools = "all" in allowed_tools or "*" in allowed_tools
 
                     # For tools/call, check if the specific tool is allowed
                     if method == "tools/call" and tool_name:
-                        logger.info(
+                        logger.debug(
                             f"  Checking if tool '{tool_name}' is in allowed tools for tools/call..."
                         )
                         if tool_name in allowed_tools or has_wildcard_tools:
-                            logger.info(f"  ✓ Tool '{tool_name}' found in allowed tools!")
-                            logger.info(
-                                f"Access granted: scope '{scope}' allows access to {server_name}.{method} for tool {tool_name}"
+                            logger.debug(f"  Tool '{tool_name}' found in allowed tools")
+                            logger.debug(
+                                f"scope '{scope}' allows access to {server_name}.{method} for tool {tool_name}"
                             )
-                            logger.info("=== VALIDATE_SERVER_TOOL_ACCESS END: GRANTED ===")
+                            logger.info(
+                                f"Access granted: server='{server_name}' method='{method}' "
+                                f"tool='{tool_name}'"
+                            )
                             return True
                         else:
-                            logger.info(f"  ✗ Tool '{tool_name}' NOT found in allowed tools")
+                            logger.debug(f"  Tool '{tool_name}' NOT found in allowed tools")
                     else:
                         # For other methods, check if method is in tools list (backward compatibility)
-                        logger.info(f"  Checking if method '{method}' is in allowed tools...")
+                        logger.debug(f"  Checking if method '{method}' is in allowed tools...")
                         if method in allowed_tools or has_wildcard_tools:
-                            logger.info(f"  ✓ Method '{method}' found in allowed tools!")
+                            logger.debug(f"  Method '{method}' found in allowed tools")
+                            logger.debug(f"scope '{scope}' allows access to {server_name}.{method}")
                             logger.info(
-                                f"Access granted: scope '{scope}' allows access to {server_name}.{method}"
+                                f"Access granted: server='{server_name}' method='{method}' "
+                                f"tool='{tool_name}'"
                             )
-                            logger.info("=== VALIDATE_SERVER_TOOL_ACCESS END: GRANTED ===")
                             return True
                         else:
-                            logger.info(f"  ✗ Method '{method}' NOT found in allowed tools")
+                            logger.debug(f"  Method '{method}' NOT found in allowed tools")
                 else:
-                    logger.info("  ✗ Server name does not match")
+                    logger.debug("  Server name does not match")
 
-        logger.warning(
-            f"Access denied: no scope allows access to {server_name}.{method} (tool: {tool_name}) for user scopes: {user_scopes}"
-        )
-        logger.info("=== VALIDATE_SERVER_TOOL_ACCESS END: DENIED ===")
+        logger.info(f"Access denied: server='{server_name}' method='{method}' tool='{tool_name}'")
         return False
 
     except Exception as e:
         logger.error(f"Error validating server/tool access: {e}")
-        logger.info("=== VALIDATE_SERVER_TOOL_ACCESS END: ERROR ===")
+        logger.info(f"Access denied: server='{server_name}' method='{method}' tool='{tool_name}'")
         return False  # Deny access on error
 
 
@@ -2598,7 +2604,9 @@ async def validate_a2a_agent_access(
     try:
         scope_rules = await scope_repo.get_server_scopes_bulk(user_scopes)
     except Exception as exc:
-        logger.warning(f"A2A access: failed to resolve scopes {user_scopes}: {exc}")
+        # Log the scope COUNT, not the scope list: the user's scopes are the
+        # caller's full authorization policy and must not land in logs.
+        logger.warning(f"A2A access: failed to resolve {len(user_scopes)} scope(s): {exc}")
         return False
 
     for scope_config in scope_rules.values():
