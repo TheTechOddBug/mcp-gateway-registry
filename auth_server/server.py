@@ -6927,5 +6927,3 @@ async def _audit_legacy_scopes_on_startup() -> int:
     else:
         logger.info("Legacy scope audit: no issues found.")
     return warnings_emitted
-
-
