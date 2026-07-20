@@ -195,6 +195,10 @@ export class RegistryServiceStack extends cdk.Stack {
       AUTH0_MANAGEMENT_API_TOKEN: config.auth0.managementApiToken,
       SESSION_COOKIE_SECURE: String(config.session.cookieSecure),
       SESSION_COOKIE_DOMAIN: config.session.cookieDomain,
+      // Exact-match allowlist of OAuth login/logout redirect URIs
+      // (open-redirect hardening). Empty falls back to the weaker
+      // cookie-domain heuristic. Read by the auth-server.
+      OAUTH2_ALLOWED_REDIRECT_URIS: config.session.oauth2AllowedRedirectUris,
       OAUTH_STORE_TOKENS_IN_SESSION: String(config.session.oauthStoreTokensInSession),
       REGISTRY_STATIC_TOKEN_AUTH_ENABLED: String(config.staticTokenAuth.registryStaticTokenAuthEnabled),
       REGISTRY_API_TOKEN: config.staticTokenAuth.registryApiToken,

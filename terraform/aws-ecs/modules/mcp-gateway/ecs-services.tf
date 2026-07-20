@@ -308,6 +308,13 @@ module "ecs_service_auth" {
           value = var.session_cookie_domain
         },
         {
+          # Exact-match allowlist of OAuth login/logout redirect URIs
+          # (open-redirect hardening). Empty falls back to the weaker
+          # cookie-domain heuristic.
+          name  = "OAUTH2_ALLOWED_REDIRECT_URIS"
+          value = var.oauth2_allowed_redirect_uris
+        },
+        {
           name  = "TRUSTED_PROXY_HOPS"
           value = tostring(var.trusted_proxy_hops)
         },

@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ValidationError
 
 from registry.audit.context import set_audit_action
+from registry.auth.csrf import verify_csrf_token_flexible
 from registry.auth.dependencies import nginx_proxied_auth
 from registry.core.config import settings
 from registry.rate_limiting.definitions_repository import DefinitionsRepository
@@ -184,6 +185,7 @@ async def set_rate_limit_enabled(
     request: Request,
     enabled: Annotated[bool, Query()],
     user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Enable or disable a definition in place without re-specifying it (admin only).
 
@@ -205,6 +207,7 @@ async def put_rate_limit(
     body: dict,
     request: Request,
     user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Create or update a rate-limit definition (admin only).
 
@@ -236,6 +239,7 @@ async def delete_rate_limit(
     definition_id: str,
     request: Request,
     user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> _DeleteResponse:
     """Delete a rate-limit definition by id (admin only)."""
     _require_admin(user_context)
@@ -317,6 +321,7 @@ async def put_rate_limit_membership(
     body: dict,
     request: Request,
     user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Create or update a membership (admin only).
 
@@ -346,6 +351,7 @@ async def delete_rate_limit_membership(
     membership_id: str,
     request: Request,
     user_context: Annotated[dict | None, Depends(nginx_proxied_auth)] = None,
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> _DeleteResponse:
     """Delete a membership by id (admin only)."""
     _require_admin(user_context)

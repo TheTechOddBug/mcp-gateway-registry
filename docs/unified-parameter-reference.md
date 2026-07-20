@@ -380,6 +380,7 @@ that server's Connect dialog:
 |-----------|-----------------|-----------------------|----------------------|---------|
 | Secure flag | `SESSION_COOKIE_SECURE` | `session_cookie_secure` | `auth-server.app.sessionCookieSecure` | Secure by default (`true`); set `false` only on plain-HTTP localhost. |
 | Cookie domain | `SESSION_COOKIE_DOMAIN` | `session_cookie_domain` | `auth-server.app.sessionCookieDomain` | Leading dot for cross-subdomain; empty is safest. |
+| OAuth redirect allowlist | `OAUTH2_ALLOWED_REDIRECT_URIS` | `oauth2_allowed_redirect_uris` | `auth-server.app.oauth2AllowedRedirectUris` | Comma-separated exact-match allowlist of login/logout redirect URIs (open-redirect hardening). When set, an absolute redirect_uri must exactly match an entry; relative paths always allowed. Empty falls back to the weaker cookie-domain heuristic (configuring the list is the hardened path). |
 | CORS allowlist | `CORS_ALLOWED_ORIGINS` | `cors_allowed_origins` | `registry.app.corsAllowedOrigins` | Comma-separated exact origins for credentialed cross-origin API access. Registry's own origin is always trusted; empty means same-origin only (no wildcard fallback). |
 
 ---

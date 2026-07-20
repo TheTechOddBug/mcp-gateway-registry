@@ -797,6 +797,7 @@ async def rescan_skill(
     http_request: Request,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     skill_path: str = Path(..., description="Skill path"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Trigger a manual security scan for a skill. Admin only."""
     if not user_context.get("is_admin"):
@@ -849,6 +850,7 @@ async def refresh_skill_resources(
     http_request: Request,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     skill_path: str = Path(..., description="Skill path or name"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Re-discover companion resource files and update the stored manifest.
 
@@ -983,6 +985,7 @@ async def register_skill(
     http_request: Request,
     request: SkillRegistrationRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> SkillCard:
     """Register a new skill in the registry."""
     # Authorization: require the publish_skill UI permission, mirroring
@@ -1113,6 +1116,7 @@ async def update_skill(
     request: SkillRegistrationRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     skill_path: str = Path(..., description="Skill path or name"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> SkillCard:
     """Update an existing skill."""
     normalized_path = normalize_skill_path(skill_path)
@@ -1234,6 +1238,7 @@ async def delete_skill(
     http_request: Request,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     skill_path: str = Path(..., description="Skill path or name"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> None:
     """Delete a skill from the registry."""
     normalized_path = normalize_skill_path(skill_path)
@@ -1324,6 +1329,7 @@ async def rate_skill(
     rating_request: RatingRequest,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     skill_path: str = Path(..., description="Skill path or name"),
+    _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ) -> dict:
     """Submit a rating for a skill.
 
