@@ -36,12 +36,20 @@ async def ensure_unique_id_index(
             partialFilterExpression={"id": {"$exists": True}},
         )
     except Exception as exc:
-        logger.warning(
+        # The unique index is the only true race guard; the service-layer
+        # pre-check is racy. Surface a failed build loudly (ERROR + a dedicated
+        # counter) so ops can alert on "running without the DB uniqueness
+        # guarantee" instead of it being a silent warning.
+        from ...core.metrics import ASSET_ID_INDEX_BUILD_FAILED_TOTAL
+
+        logger.error(
             "Could not create unique id index on %s: %s. "
-            "Falling back to service-layer id dedup.",
+            "Falling back to the racy service-layer id dedup; "
+            "id uniqueness is NOT enforced at the database level.",
             collection_name,
             exc,
         )
+        ASSET_ID_INDEX_BUILD_FAILED_TOTAL.labels(collection=collection_name).inc()
 
 
 async def backfill_missing_id(

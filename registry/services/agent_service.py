@@ -11,10 +11,10 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from ..repositories.factory import get_agent_repository, get_search_repository
-from ..repositories.interfaces import AgentRepositoryBase, SearchRepositoryBase
 from ..core.metrics import ASSET_ID_CONFLICT_TOTAL
 from ..exceptions import AssetIdConflictError
+from ..repositories.factory import get_agent_repository, get_search_repository
+from ..repositories.interfaces import AgentRepositoryBase, SearchRepositoryBase
 from ..schemas.agent_models import AgentCard
 from ..utils.url_guard import validate_agent_url
 
@@ -69,9 +69,7 @@ class AgentService:
         # Id uniqueness pre-check (#1276): a caller-supplied id must not
         # collide with an existing agent. Raise -> route maps to 409.
         if agent_card.id and await self._repo.find_by_id(agent_card.id):
-            logger.warning(
-                f"Agent registration rejected: id '{agent_card.id}' already exists"
-            )
+            logger.warning(f"Agent registration rejected: id '{agent_card.id}' already exists")
             ASSET_ID_CONFLICT_TOTAL.labels(asset_type="agent").inc()
             raise AssetIdConflictError(asset_type="agent", asset_id=agent_card.id)
 

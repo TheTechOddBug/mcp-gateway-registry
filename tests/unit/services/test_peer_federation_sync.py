@@ -1382,15 +1382,19 @@ class TestFederationIdConflict:
                 {"success": True},
             ]
         )
-        with patch(
-            "registry.services.peer_federation_service.get_peer_federation_repository",
-            return_value=mock_repository,
-        ), patch(
-            "registry.services.peer_federation_service.server_service",
-            mock_server_service,
-        ), patch(
-            "registry.services.peer_federation_service.agent_service",
-            mock_agent_service,
+        with (
+            patch(
+                "registry.services.peer_federation_service.get_peer_federation_repository",
+                return_value=mock_repository,
+            ),
+            patch(
+                "registry.services.peer_federation_service.server_service",
+                mock_server_service,
+            ),
+            patch(
+                "registry.services.peer_federation_service.agent_service",
+                mock_agent_service,
+            ),
         ):
             service = PeerFederationService()
             with patch.object(service, "_index_server_for_search", new=AsyncMock()):
@@ -1422,15 +1426,19 @@ class TestFederationIdConflict:
             "description": "d",
             "url": "https://example.com/a",
         }
-        with patch(
-            "registry.services.peer_federation_service.get_peer_federation_repository",
-            return_value=mock_repository,
-        ), patch(
-            "registry.services.peer_federation_service.server_service",
-            mock_server_service,
-        ), patch(
-            "registry.services.peer_federation_service.agent_service",
-            mock_agent_service,
+        with (
+            patch(
+                "registry.services.peer_federation_service.get_peer_federation_repository",
+                return_value=mock_repository,
+            ),
+            patch(
+                "registry.services.peer_federation_service.server_service",
+                mock_server_service,
+            ),
+            patch(
+                "registry.services.peer_federation_service.agent_service",
+                mock_agent_service,
+            ),
         ):
             service = PeerFederationService()
             with patch.object(service, "_index_agent_for_search", new=AsyncMock()):

@@ -1303,9 +1303,7 @@ class SkillService:
         # Id uniqueness pre-check (#1276): a caller-supplied id must not
         # collide with an existing skill. Raise -> route maps to 409.
         if skill.id and await repo.find_by_id(skill.id):
-            logger.warning(
-                f"Skill registration rejected: id '{skill.id}' already exists"
-            )
+            logger.warning(f"Skill registration rejected: id '{skill.id}' already exists")
             ASSET_ID_CONFLICT_TOTAL.labels(asset_type="skill").inc()
             raise AssetIdConflictError(asset_type="skill", asset_id=skill.id)
 

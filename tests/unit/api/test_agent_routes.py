@@ -546,6 +546,7 @@ class TestRegisterAgent:
         with (
             patch("registry.api.agent_routes.agent_service") as mock_agent_service,
             patch("registry.utils.agent_validator.agent_validator") as mock_validator,
+            patch("registry.api.agent_routes.settings.allow_caller_supplied_asset_id", True),
         ):
             mock_agent_service.get_agent_info = AsyncMock(return_value=None)
             mock_agent_service.register_agent = AsyncMock(side_effect=capture_register)
@@ -562,6 +563,39 @@ class TestRegisterAgent:
             assert response.status_code == status.HTTP_201_CREATED
             assert captured["card"].id == supplied_id
 
+    @pytest.mark.asyncio
+    async def test_register_agent_rejects_supplied_id_when_flag_disabled(
+        self, test_app, mock_user_context
+    ):
+        """Fail-closed (#1276): a supplied id is a 422 while the flag is off."""
+        request_data = {
+            "name": "id-agent",
+            "description": "Agent with a caller-supplied id",
+            "url": "http://localhost:9000/id-agent",
+            "version": "1.0",
+            "tags": "test",
+            "supportedProtocol": "a2a",
+            "id": "arn:aws:bedrock:us-east-1:123456789012:agent/my-agent",
+        }
+
+        with (
+            patch("registry.api.agent_routes.agent_service") as mock_agent_service,
+            patch("registry.utils.agent_validator.agent_validator") as mock_validator,
+            patch("registry.api.agent_routes.settings.allow_caller_supplied_asset_id", False),
+        ):
+            mock_agent_service.get_agent_info = AsyncMock(return_value=None)
+            mock_agent_service.register_agent = AsyncMock(return_value=True)
+
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validation_result.errors = []
+            mock_validation_result.warnings = []
+            mock_validator.validate_agent_card = AsyncMock(return_value=mock_validation_result)
+
+            response = test_app.post("/agents/register", json=request_data)
+
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+            mock_agent_service.register_agent.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_register_agent_path_conflict(

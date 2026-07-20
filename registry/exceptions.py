@@ -153,9 +153,7 @@ class AssetIdConflictError(RegistryError):
     ):
         self.asset_type = asset_type
         self.asset_id = asset_id
-        super().__init__(
-            f"{asset_type} with id '{asset_id}' already exists"
-        )
+        super().__init__(f"{asset_type} with id '{asset_id}' already exists")
 
 
 class ServerAlreadyExistsError(ServerRegistryError):

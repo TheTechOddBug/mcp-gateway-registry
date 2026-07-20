@@ -945,8 +945,11 @@ class TestRegisterService:
             "is_new_version": False,
         }
 
-        with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+        with (
+            patch(
+                "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+            ),
+            patch("registry.api.server_routes.settings.allow_caller_supplied_asset_id", True),
         ):
             response = test_client_admin.post(
                 "/api/register",
@@ -979,9 +982,13 @@ class TestRegisterService:
 
         The /register form route has no Pydantic model, so resolve_asset_id is
         the only id validation -- the route maps InvalidAssetIdError to 422.
+        The flag is enabled so this exercises the blank-id path, not the gate.
         """
-        with patch(
-            "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+        with (
+            patch(
+                "registry.auth.dependencies.user_has_ui_permission_for_service", return_value=True
+            ),
+            patch("registry.api.server_routes.settings.allow_caller_supplied_asset_id", True),
         ):
             response = test_client_admin.post(
                 "/api/register",
@@ -2870,6 +2877,7 @@ class TestInternalRegisterMetadata:
         assert self._stored(mock_server_service)["metadata"] == {}
         assert any("coerced to {}" in rec.message for rec in caplog.records)
 
+
 class TestServersRegisterAPISuppliedId:
     """POST /api/servers/register honoring a caller-supplied asset id (#1276).
 
@@ -2892,16 +2900,16 @@ class TestServersRegisterAPISuppliedId:
 
     def test_register_honors_supplied_id(self, test_client_admin, mock_server_service):
         supplied_id = "arn:aws:bedrock:us-east-1:123456789012:server/my-server"
-        response = test_client_admin.post(
-            "/api/servers/register",
-            data={**self._BASE_FORM, "id": supplied_id},
-        )
+        with patch("registry.api.server_routes.settings.allow_caller_supplied_asset_id", True):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={**self._BASE_FORM, "id": supplied_id},
+            )
         assert response.status_code == 201
         assert self._stored(mock_server_service)["id"] == supplied_id
 
-    def test_register_omitted_id_autogenerates_uuid(
-        self, test_client_admin, mock_server_service
-    ):
+    def test_register_omitted_id_autogenerates_uuid(self, test_client_admin, mock_server_service):
+        # Omitting the id is always allowed even with the flag off (default).
         response = test_client_admin.post("/api/servers/register", data=self._BASE_FORM)
         assert response.status_code == 201
         # No id supplied -> a uuid4 string is generated (preserves old behavior)
@@ -2911,10 +2919,25 @@ class TestServersRegisterAPISuppliedId:
         assert UUID(generated).version == 4
 
     def test_register_rejects_blank_id(self, test_client_admin, mock_server_service):
-        response = test_client_admin.post(
-            "/api/servers/register",
-            data={**self._BASE_FORM, "id": "   "},
-        )
+        with patch("registry.api.server_routes.settings.allow_caller_supplied_asset_id", True):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={**self._BASE_FORM, "id": "   "},
+            )
+        assert response.status_code == 422
+        mock_server_service.register_server.assert_not_called()
+
+    def test_register_rejects_supplied_id_when_flag_disabled(
+        self, test_client_admin, mock_server_service
+    ):
+        # Fail-closed (#1276): a supplied id is a 422 while the flag is off,
+        # and the service is never called.
+        supplied_id = "arn:aws:bedrock:us-east-1:123456789012:server/my-server"
+        with patch("registry.api.server_routes.settings.allow_caller_supplied_asset_id", False):
+            response = test_client_admin.post(
+                "/api/servers/register",
+                data={**self._BASE_FORM, "id": supplied_id},
+            )
         assert response.status_code == 422
         mock_server_service.register_server.assert_not_called()
 

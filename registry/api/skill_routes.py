@@ -34,6 +34,7 @@ from ..audit.context import set_audit_action
 from ..auth.asset_permissions import user_has_asset_permission
 from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
+from ..core.config import settings
 from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
 from ..exceptions import (
     AssetIdConflictError,
@@ -1039,6 +1040,21 @@ async def register_skill(
         )
     if effective_status:
         request.status = effective_status
+
+    # Feature-flag gate (#1276): reject a caller-supplied id when the flag is off
+    # (fail-closed). Charset/length are already validated by the request model.
+    from ..services._asset_id import (
+        InvalidAssetIdError,
+        check_caller_supplied_id_allowed,
+    )
+
+    try:
+        check_caller_supplied_id_allowed(request.id, settings.allow_caller_supplied_asset_id)
+    except InvalidAssetIdError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid asset id: {e}",
+        )
 
     service = get_skill_service()
     owner = user_context.get("username")

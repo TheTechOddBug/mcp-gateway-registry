@@ -18,12 +18,12 @@ from threading import Lock as ThreadingLock
 from typing import Any, Literal, Optional
 
 from ..constants import DeploymentType
-from ..exceptions import AssetIdConflictError
 from ..core.metrics import (
     ASSET_ID_FEDERATION_CONFLICT_TOTAL,
     PEER_SYNC_DURATION_SECONDS,
     PEER_SYNC_FAILURES,
 )
+from ..exceptions import AssetIdConflictError
 from ..repositories.factory import (
     get_peer_federation_repository,
     get_search_repository,
@@ -1510,9 +1510,7 @@ class PeerFederationService:
                                 f"Federation: skipping server from peer '{peer_id}' "
                                 f"- id '{server_data.get('id')}' already exists locally"
                             )
-                            ASSET_ID_FEDERATION_CONFLICT_TOTAL.labels(
-                                asset_type="server"
-                            ).inc()
+                            ASSET_ID_FEDERATION_CONFLICT_TOTAL.labels(asset_type="server").inc()
                         else:
                             logger.error(f"Failed to register server: {prefixed_path}")
 

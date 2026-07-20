@@ -271,9 +271,7 @@ class TestRegisterAgent:
         await fake_repo.create(AgentCardFactory(path="/first", id="arn:aws:x"))
 
         with pytest.raises(AssetIdConflictError):
-            await agent_service.register_agent(
-                AgentCardFactory(path="/second", id="arn:aws:x")
-            )
+            await agent_service.register_agent(AgentCardFactory(path="/second", id="arn:aws:x"))
 
     @pytest.mark.asyncio
     async def test_register_agent_defaults_to_disabled(

@@ -35,6 +35,7 @@ from ..auth.tool_filter import filter_tools_for_user
 from ..common.log_redaction import redact_mapping
 from ..constants import VALID_AUTH_SCHEMES, DeploymentType, HealthStatus
 from ..core.config import DeploymentMode, settings
+from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
 from ..core.schemas import AuthCredentialUpdateRequest
 from ..schemas.registry_card import LifecycleStatus
 from ..schemas.server_update_models import (
@@ -42,9 +43,12 @@ from ..schemas.server_update_models import (
     ServerCardPatch,
     ServerUpdateRequest,
 )
+from ..services._asset_id import (
+    InvalidAssetIdError,
+    check_caller_supplied_id_allowed,
+    resolve_asset_id,
+)
 from ..services.canonical_export import redact_backend_urls, to_canonical
-from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
-from ..services._asset_id import InvalidAssetIdError, resolve_asset_id
 from ..services.lifecycle_events import (
     EnforcedStatusError,
     enforce_registration_status,
@@ -1437,8 +1441,10 @@ async def register_service(
 
     # Resolve caller-supplied id (or auto-generate). No Pydantic model guards
     # this form route, so resolve_asset_id is the only id validation here —
-    # map its InvalidAssetIdError to 422 explicitly.
+    # map its InvalidAssetIdError to 422 explicitly. The feature-flag gate raises
+    # CallerSuppliedIdDisabledError (a subclass), so it maps to 422 here too.
     try:
+        check_caller_supplied_id_allowed(id, settings.allow_caller_supplied_asset_id)
         resolved_id = resolve_asset_id(id)
     except InvalidAssetIdError as e:
         raise HTTPException(
@@ -4048,7 +4054,9 @@ async def register_service_api(
     # Resolve caller-supplied id (or auto-generate). Like the /register form
     # route, this JSON route has no Pydantic model guarding it, so
     # resolve_asset_id is the only id validation -- map InvalidAssetIdError to 422.
+    # The feature-flag gate raises a subclass, so it maps to 422 here too.
     try:
+        check_caller_supplied_id_allowed(id, settings.allow_caller_supplied_asset_id)
         resolved_id = resolve_asset_id(id)
     except InvalidAssetIdError as e:
         raise HTTPException(

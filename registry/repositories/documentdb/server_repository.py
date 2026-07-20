@@ -311,9 +311,7 @@ class DocumentDBServerRepository(ServerRepositoryBase):
             # raced past the service-layer pre-check; surface it precisely.
             key_pattern = (exc.details or {}).get("keyPattern", {})
             if "id" in key_pattern:
-                logger.warning(
-                    f"Server id '{server_info.get('id')}' already exists (race)"
-                )
+                logger.warning(f"Server id '{server_info.get('id')}' already exists (race)")
                 raise AssetIdConflictError(
                     asset_type="server", asset_id=server_info.get("id", "")
                 ) from exc

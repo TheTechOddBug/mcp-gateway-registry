@@ -161,9 +161,7 @@ class ServerService:
         # path-conflict contract above) so the routes surface a 409.
         asset_id = server_info.get("id")
         if asset_id and await self._repo.find_by_id(asset_id):
-            logger.warning(
-                f"Server registration rejected: id '{asset_id}' already exists"
-            )
+            logger.warning(f"Server registration rejected: id '{asset_id}' already exists")
             ASSET_ID_CONFLICT_TOTAL.labels(asset_type="server").inc()
             return {
                 "success": False,

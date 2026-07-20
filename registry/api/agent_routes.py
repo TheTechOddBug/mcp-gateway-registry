@@ -34,7 +34,8 @@ from ..auth.csrf import verify_csrf_token_flexible
 from ..auth.dependencies import nginx_proxied_auth
 from ..common.log_redaction import redact_headers, redact_mapping
 from ..core.config import settings
-from ..exceptions import UrlValidationError
+from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
+from ..exceptions import AssetIdConflictError, UrlValidationError
 from ..repositories.factory import get_search_repository
 from ..repositories.interfaces import SearchRepositoryBase
 from ..schemas.agent_models import (
@@ -53,9 +54,11 @@ from ..schemas.duplicate_check_models import (
     AgentDuplicateCheckRequest,
     DuplicateCheckResult,
 )
-from ..exceptions import AssetIdConflictError
-from ..core.metrics import ASSET_ID_SUPPLIED_TOTAL
-from ..services._asset_id import resolve_asset_id
+from ..services._asset_id import (
+    InvalidAssetIdError,
+    check_caller_supplied_id_allowed,
+    resolve_asset_id,
+)
 from ..services.agent_batch_service import (
     ConcurrentJobLimitError,
     agent_batch_service,
@@ -1035,6 +1038,17 @@ async def register_agent(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e),
+            )
+
+        # Feature-flag gate (#1276): reject a caller-supplied id when the flag is
+        # off (fail-closed). Charset/length are already validated by the request
+        # model. Federation is not gated here (it does not use this route).
+        try:
+            check_caller_supplied_id_allowed(request.id, settings.allow_caller_supplied_asset_id)
+        except InvalidAssetIdError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid asset id: {e}",
             )
 
         agent_card = AgentCard(

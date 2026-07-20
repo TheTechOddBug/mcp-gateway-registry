@@ -8,9 +8,8 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
+from ...exceptions import AssetIdConflictError
 from ...schemas.agent_models import AgentCard
-from ...exceptions import AssetIdConflictError
-from ...exceptions import AssetIdConflictError
 from ...utils.url_normalize import ENTITY_TYPE_AGENT, NORMALIZED_IDENTITY_URL_FIELD
 from ..interfaces import AgentRepositoryBase
 from ._identity_url_sidecar import (

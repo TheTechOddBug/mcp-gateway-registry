@@ -279,9 +279,18 @@ _asset_id_federation_conflict_counter = _meter.create_counter(
     description="Federated assets skipped due to a local id collision",
     unit="1",
 )
-registry_asset_id_federation_conflict_total = _CounterAdapter(
-    _asset_id_federation_conflict_counter
+registry_asset_id_federation_conflict_total = _CounterAdapter(_asset_id_federation_conflict_counter)
+
+_asset_id_index_build_failed_counter = _meter.create_counter(
+    name="registry_asset_id_index_build_failed_total",
+    description=(
+        "Unique id index build failures. When this is non-zero the registry is "
+        "running WITHOUT the DB-level uniqueness guarantee and relies on the racy "
+        "service-layer pre-check; alert on it."
+    ),
+    unit="1",
 )
+registry_asset_id_index_build_failed_total = _CounterAdapter(_asset_id_index_build_failed_counter)
 
 
 # Deployment mode info (registry/core/metrics.py:19)

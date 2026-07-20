@@ -1046,14 +1046,13 @@ class AgentRegistrationRequest(BaseModel):
     @field_validator("id")
     @classmethod
     def _validate_id(cls, v: str | None) -> str | None:
+        # Delegate to the shared validator so the id rules (non-empty, length,
+        # safe charset) never drift from the server route's resolve_asset_id.
+        from ..services._asset_id import validate_asset_id
+
         if v is None:
             return v
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("id must be a non-empty string when provided")
-        if any(ord(ch) < 32 or ord(ch) == 127 for ch in stripped):
-            raise ValueError("id must not contain control characters")
-        return stripped
+        return validate_asset_id(v)
 
     @field_validator("protocol_version")
     @classmethod
