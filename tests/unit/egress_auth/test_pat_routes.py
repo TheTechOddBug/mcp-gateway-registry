@@ -150,12 +150,52 @@ class TestSetPat:
         assert store.put_calls == []
 
     def test_admin_may_submit_on_behalf(self, client):
+        # On-behalf REQUIRES the target's auth_method (the partition the target
+        # vends from); it is NOT assumed from the admin's own auth_method.
+        store = _StubStore()
+        c = client(ADMIN, server=_server(), store=store)
+        r = c.put(
+            "/api/servers/github/egress-pat",
+            json=_put_body(sub="bob", auth_method="oauth2"),
+        )
+        assert r.status_code == 200
+        assert r.json()["sub"] == "bob"
+        auth_method, user_id, _, _, _ = store.put_calls[0]
+        # Stored under the TARGET's (auth_method, sub), not the admin's.
+        assert (auth_method, user_id) == ("oauth2", "bob")
+
+    def test_admin_on_behalf_missing_auth_method_400(self, client):
+        # Fail closed: an on-behalf write without the target auth_method would
+        # land the PAT in the wrong vault partition, so it is rejected.
         store = _StubStore()
         c = client(ADMIN, server=_server(), store=store)
         r = c.put("/api/servers/github/egress-pat", json=_put_body(sub="bob"))
+        assert r.status_code == 400
+        assert store.put_calls == []
+
+    def test_admin_on_behalf_uses_target_auth_method_not_admins(self, client):
+        # The admin logs in via oauth2 but the target vends via jwt: the PAT must
+        # be stored under jwt (the target's partition), never the admin's oauth2.
+        store = _StubStore()
+        c = client(ADMIN, server=_server(), store=store)
+        r = c.put(
+            "/api/servers/github/egress-pat",
+            json=_put_body(sub="bob", auth_method="jwt"),
+        )
         assert r.status_code == 200
-        assert r.json()["sub"] == "bob"
-        assert store.put_calls[0][1] == "bob"
+        auth_method, user_id, _, _, _ = store.put_calls[0]
+        assert (auth_method, user_id) == ("jwt", "bob")
+
+    def test_admin_on_behalf_non_per_user_auth_method_403(self, client):
+        # A non-per-user target auth_method can never own a per-user PAT.
+        store = _StubStore()
+        c = client(ADMIN, server=_server(), store=store)
+        r = c.put(
+            "/api/servers/github/egress-pat",
+            json=_put_body(sub="bob", auth_method="network-trusted"),
+        )
+        assert r.status_code == 403
+        assert store.put_calls == []
 
     def test_empty_secret_400(self, client):
         store = _StubStore()
@@ -271,9 +311,22 @@ class TestGetPatStatus:
     def test_admin_sub_query_allowed(self, client):
         svc = self._svc(None)
         c = client(ADMIN, server=_server(), svc=svc)
-        r = c.get("/api/servers/github/egress-pat", params={"sub": "bob"})
+        r = c.get(
+            "/api/servers/github/egress-pat",
+            params={"sub": "bob", "auth_method": "oauth2"},
+        )
         assert r.status_code == 200
-        assert svc.get_pat_status.await_args.kwargs["user_id"] == "bob"
+        kwargs = svc.get_pat_status.await_args.kwargs
+        # Reads the TARGET's (auth_method, sub) partition.
+        assert kwargs["user_id"] == "bob"
+        assert kwargs["auth_method"] == "oauth2"
+
+    def test_admin_sub_query_missing_auth_method_400(self, client):
+        svc = self._svc(None)
+        c = client(ADMIN, server=_server(), svc=svc)
+        r = c.get("/api/servers/github/egress-pat", params={"sub": "bob"})
+        assert r.status_code == 400
+        assert svc.get_pat_status.await_count == 0
 
 
 @pytest.mark.unit
@@ -293,6 +346,27 @@ class TestDeletePat:
         c = client(USER, server=_server(), svc=svc)
         r = c.request("DELETE", "/api/servers/github/egress-pat", params={"sub": "bob"})
         assert r.status_code == 403
+        assert svc.delete_pat.await_count == 0
+
+    def test_delete_admin_on_behalf_uses_target_partition(self, client):
+        svc = AsyncMock()
+        svc.delete_pat = AsyncMock(return_value=None)
+        c = client(ADMIN, server=_server(), svc=svc)
+        r = c.request(
+            "DELETE",
+            "/api/servers/github/egress-pat",
+            params={"sub": "bob", "auth_method": "jwt"},
+        )
+        assert r.status_code == 200
+        kwargs = svc.delete_pat.await_args.kwargs
+        assert (kwargs["auth_method"], kwargs["user_id"]) == ("jwt", "bob")
+
+    def test_delete_admin_on_behalf_missing_auth_method_400(self, client):
+        svc = AsyncMock()
+        svc.delete_pat = AsyncMock(return_value=None)
+        c = client(ADMIN, server=_server(), svc=svc)
+        r = c.request("DELETE", "/api/servers/github/egress-pat", params={"sub": "bob"})
+        assert r.status_code == 400
         assert svc.delete_pat.await_count == 0
 
     def test_delete_is_csrf_protected(self):

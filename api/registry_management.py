@@ -2027,10 +2027,12 @@ def cmd_egress_pat_set(args: argparse.Namespace) -> int:
     Submit (or replace) a per-user PAT for a server (write-only).
 
     The secret value is never logged. The server enforces admin-gating of
-    ``--sub``; a non-admin supplying it is rejected 403.
+    ``--sub``; a non-admin supplying it is rejected 403. An admin using ``--sub``
+    must also pass ``--auth-method`` (the target's ingress auth method).
 
     Args:
-        args: Command arguments with path, secret, ttl-value, ttl-unit, sub.
+        args: Command arguments with path, secret, ttl-value, ttl-unit, sub,
+            auth-method.
 
     Returns:
         Exit code (0 for success, 1 for failure)
@@ -2043,6 +2045,7 @@ def cmd_egress_pat_set(args: argparse.Namespace) -> int:
             ttl_value=args.ttl_value,
             ttl_unit=args.ttl_unit,
             sub=args.sub,
+            auth_method=args.auth_method,
         )
         # The response never contains the secret; safe to print as-is.
         print(json.dumps(response, indent=2, default=str))
@@ -2058,14 +2061,16 @@ def cmd_egress_pat_status(args: argparse.Namespace) -> int:
     Report whether a per-user PAT is stored and when it expires.
 
     Args:
-        args: Command arguments with path and optional sub.
+        args: Command arguments with path and optional sub / auth-method.
 
     Returns:
         Exit code (0 for success, 1 for failure)
     """
     try:
         client = _create_client(args)
-        response = client.get_egress_pat_status(server_path=args.path, sub=args.sub)
+        response = client.get_egress_pat_status(
+            server_path=args.path, sub=args.sub, auth_method=args.auth_method
+        )
         print(json.dumps(response, indent=2, default=str))
         return 0
 
@@ -2079,14 +2084,16 @@ def cmd_egress_pat_delete(args: argparse.Namespace) -> int:
     Delete a stored per-user PAT (idempotent).
 
     Args:
-        args: Command arguments with path and optional sub.
+        args: Command arguments with path and optional sub / auth-method.
 
     Returns:
         Exit code (0 for success, 1 for failure)
     """
     try:
         client = _create_client(args)
-        response = client.delete_egress_pat(server_path=args.path, sub=args.sub)
+        response = client.delete_egress_pat(
+            server_path=args.path, sub=args.sub, auth_method=args.auth_method
+        )
         print(json.dumps(response, indent=2, default=str))
         return 0
 
@@ -6660,6 +6667,11 @@ Examples:
         help="Validity unit",
     )
     egress_pat_set_parser.add_argument("--sub", help="Admin-only: submit on another user's behalf")
+    egress_pat_set_parser.add_argument(
+        "--auth-method",
+        help="Admin-only (required with --sub): the target's ingress auth method "
+        "(e.g. oauth2), the vault partition the target vends from",
+    )
 
     # Egress PAT status command
     egress_pat_status_parser = subparsers.add_parser(
@@ -6669,6 +6681,10 @@ Examples:
         "--path", required=True, help="Server path (e.g., /github)"
     )
     egress_pat_status_parser.add_argument("--sub", help="Admin-only: query another user's status")
+    egress_pat_status_parser.add_argument(
+        "--auth-method",
+        help="Admin-only (required with --sub): the target's ingress auth method (e.g. oauth2)",
+    )
 
     # Egress PAT delete command
     egress_pat_delete_parser = subparsers.add_parser(
@@ -6678,6 +6694,10 @@ Examples:
         "--path", required=True, help="Server path (e.g., /github)"
     )
     egress_pat_delete_parser.add_argument("--sub", help="Admin-only: delete another user's PAT")
+    egress_pat_delete_parser.add_argument(
+        "--auth-method",
+        help="Admin-only (required with --sub): the target's ingress auth method (e.g. oauth2)",
+    )
 
     # Server search command
     server_search_parser = subparsers.add_parser(

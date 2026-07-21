@@ -127,39 +127,60 @@ def _resolve_pat_ttl_seconds(
     return seconds
 
 
-def _resolve_target_sub(
+def _resolve_target_principal(
     body_sub: str | None,
+    body_auth_method: str | None,
     user_context: dict,
-) -> str:
-    """Resolve the vault principal for a PAT mutation, admin-gating any override.
+) -> tuple[str, str]:
+    """Resolve the vault principal ``(auth_method, sub)`` for a PAT mutation.
 
-    ``sub`` always comes from the verified ingress identity unless the caller is
-    an admin AND supplied ``body.sub``. A non-admin supplying ``sub`` is rejected
-    403 (never a silent fall-back to self), so no user can store a PAT into
-    another user's bucket.
+    The vault key is partitioned by ``(auth_method, sub, provider, server_path)``,
+    where ``auth_method`` is the INGRESS auth method the target user logs in with
+    (e.g. ``oauth2``), NOT the egress mode. The vend path reads the target's own
+    ``auth_method`` from their verified claims, so a mutation MUST write to that
+    same partition or the credential silently never vends.
+
+    Self (no override): both ``auth_method`` and ``sub`` come from the caller's
+    verified identity. Admin on-behalf (``body_sub`` supplied): admin-gated, and
+    the admin MUST also state the target's ``auth_method`` -- the caller's own
+    (admin's) method is NOT assumed, because it may differ from the target's and
+    would land the PAT in a bucket the target never reads. Fail closed: a
+    non-admin override is 403, and an on-behalf write missing the target
+    ``auth_method`` is 400.
 
     Args:
-        body_sub: The optional ``sub`` override from the request body / query.
+        body_sub: Optional ``sub`` override from the request body / query.
+        body_auth_method: Optional target ``auth_method`` (required with a
+            ``sub`` override; ignored for self-submit).
         user_context: The verified ``nginx_proxied_auth`` context.
 
     Returns:
-        The resolved vault principal (canonical egress user).
+        The resolved ``(auth_method, sub)`` vault principal.
 
     Raises:
-        HTTPException: 403 if a non-admin supplied ``sub``; 401 if there is no
-            verified identity to fall back to.
+        HTTPException: 403 if a non-admin supplied ``sub``; 400 if an admin
+            override omits ``auth_method``; 401 if there is no verified identity.
     """
-    verified = user_context.get("egress_user") or user_context.get("username") or ""
+    verified_sub = user_context.get("egress_user") or user_context.get("username") or ""
+    verified_auth_method = user_context.get("auth_method") or ""
     if body_sub:
         if not user_context.get("is_admin"):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 detail="only an admin may submit a PAT on another user's behalf",
             )
-        return body_sub
-    if not verified:
+        if not body_auth_method:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "auth_method is required when submitting a PAT on another "
+                    "user's behalf (the target's ingress auth method, e.g. oauth2)"
+                ),
+            )
+        return body_auth_method, body_sub
+    if not verified_sub:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="no verified identity")
-    return verified
+    return verified_auth_method, verified_sub
 
 
 def _feature_enabled_or_404() -> None:
@@ -689,6 +710,9 @@ class EgressPatSetRequest(BaseModel):
     ttl_value: int  # REQUIRED positive integer validity amount
     ttl_unit: str  # REQUIRED: "minutes" | "hours" | "days"
     sub: str | None = None  # admin-only: submit on another user's behalf
+    # admin-only, REQUIRED with sub: the target's ingress auth method (the vault
+    # partition the target vends from, e.g. oauth2). Ignored for self-submit.
+    auth_method: str | None = None
 
 
 def _pat_status_view(
@@ -760,8 +784,9 @@ async def set_egress_pat(
     _feature_enabled_or_404()
     if not body.secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="secret is required")
-    # sub override is admin-only; a non-admin supplying sub -> 403 (no self fallback).
-    sub = _resolve_target_sub(body.sub, user_context)
+    # sub override is admin-only (403 for a non-admin, 400 if it omits the target
+    # auth_method); self-submit derives both from the verified identity.
+    auth_method, sub = _resolve_target_principal(body.sub, body.auth_method, user_context)
     try:
         ttl_seconds = _resolve_pat_ttl_seconds(body.ttl_value, body.ttl_unit)
     except ValueError as exc:
@@ -769,7 +794,8 @@ async def set_egress_pat(
 
     server_path, server = await _resolve_pat_server(server_path)
 
-    auth_method = user_context.get("auth_method") or ""
+    # The resolved auth_method is the vault partition (the target's for an
+    # on-behalf write); a non-per-user method can never own a per-user PAT.
     if not is_per_user_auth_method(auth_method):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="this caller cannot store a per-user PAT"
@@ -811,23 +837,24 @@ async def get_egress_pat_status(
     server_path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     sub: str | None = None,
+    auth_method: str | None = None,
 ):
     """Report whether the caller has a stored PAT and when it expires.
 
-    Never returns the secret. A non-admin passing ``?sub=`` is rejected 403.
+    Never returns the secret. A non-admin passing ``?sub=`` is rejected 403; an
+    admin passing ``?sub=`` must also pass ``?auth_method=`` (the target's).
     """
     _feature_enabled_or_404()
-    target_sub = _resolve_target_sub(sub, user_context)
+    target_auth_method, target_sub = _resolve_target_principal(sub, auth_method, user_context)
     server_path, server = await _resolve_pat_server(server_path)
-    auth_method = user_context.get("auth_method") or ""
-    if not is_per_user_auth_method(auth_method):
+    if not is_per_user_auth_method(target_auth_method):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="this caller cannot own a per-user PAT"
         )
     provider = server["egress_oauth"]["provider"]
     try:
         token = await get_egress_auth_service().get_pat_status(
-            auth_method=auth_method,
+            auth_method=target_auth_method,
             user_id=target_sub,
             provider=provider,
             server_path=server_path,
@@ -845,21 +872,25 @@ async def delete_egress_pat(
     server_path: str,
     user_context: Annotated[dict, Depends(nginx_proxied_auth)],
     sub: str | None = None,
+    auth_method: str | None = None,
     _csrf: Annotated[None, Depends(verify_csrf_token_flexible)] = None,
 ):
-    """Delete the caller's stored PAT (admin may target ``?sub=``). Idempotent."""
+    """Delete the caller's stored PAT. Idempotent.
+
+    An admin may target another user via ``?sub=`` + ``?auth_method=`` (the
+    target's ingress auth method); a non-admin passing ``?sub=`` is rejected 403.
+    """
     _feature_enabled_or_404()
-    target_sub = _resolve_target_sub(sub, user_context)
+    target_auth_method, target_sub = _resolve_target_principal(sub, auth_method, user_context)
     server_path, server = await _resolve_pat_server(server_path)
-    auth_method = user_context.get("auth_method") or ""
-    if not is_per_user_auth_method(auth_method):
+    if not is_per_user_auth_method(target_auth_method):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="this caller cannot own a per-user PAT"
         )
     provider = server["egress_oauth"]["provider"]
     try:
         await get_egress_auth_service().delete_pat(
-            auth_method=auth_method,
+            auth_method=target_auth_method,
             user_id=target_sub,
             provider=provider,
             server_path=server_path,

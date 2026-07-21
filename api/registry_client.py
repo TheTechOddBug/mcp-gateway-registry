@@ -3904,6 +3904,7 @@ class RegistryClient:
         ttl_value: int,
         ttl_unit: str,
         sub: str | None = None,
+        auth_method: str | None = None,
     ) -> dict[str, Any]:
         """Submit (or replace) a per-user PAT for a ``pat`` server (write-only).
 
@@ -3917,6 +3918,9 @@ class RegistryClient:
             ttl_value: Positive integer validity amount.
             ttl_unit: Validity unit (minutes, hours, or days).
             sub: Admin-only override to submit on another user's behalf.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method (the vault partition the target vends from, e.g.
+                "oauth2"). Ignored for self-submit.
 
         Returns:
             Status dict with path, configured, sub, updated_at, expires_at.
@@ -3924,7 +3928,8 @@ class RegistryClient:
 
         Raises:
             requests.HTTPError: If the request fails (e.g. 400 bad TTL/empty
-                secret, 403 non-admin sub, 409 server not in pat mode).
+                secret or on-behalf missing auth_method, 403 non-admin sub, 409
+                server not in pat mode).
         """
         encoded_path = quote(server_path.lstrip("/"), safe="")
         # Do NOT log the secret value.
@@ -3937,6 +3942,8 @@ class RegistryClient:
         }
         if sub is not None:
             body["sub"] = sub
+        if auth_method is not None:
+            body["auth_method"] = auth_method
 
         response = self._make_request(
             method="PUT",
@@ -3949,6 +3956,7 @@ class RegistryClient:
         self,
         server_path: str,
         sub: str | None = None,
+        auth_method: str | None = None,
     ) -> dict[str, Any]:
         """Report whether a per-user PAT is stored and when it expires.
 
@@ -3957,6 +3965,8 @@ class RegistryClient:
         Args:
             server_path: Server path (e.g., "/github" or "github").
             sub: Admin-only override to query another user's status.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method.
 
         Returns:
             Status dict with path, configured, expires_at, expired.
@@ -3968,11 +3978,15 @@ class RegistryClient:
         encoded_path = quote(server_path.lstrip("/"), safe="")
         logger.info(f"Fetching egress PAT status for /{encoded_path}")
 
-        params = {"sub": sub} if sub is not None else None
+        params: dict[str, Any] = {}
+        if sub is not None:
+            params["sub"] = sub
+        if auth_method is not None:
+            params["auth_method"] = auth_method
         response = self._make_request(
             method="GET",
             endpoint=f"/api/servers/{encoded_path}/egress-pat",
-            params=params,
+            params=params or None,
         )
         return response.json()
 
@@ -3980,6 +3994,7 @@ class RegistryClient:
         self,
         server_path: str,
         sub: str | None = None,
+        auth_method: str | None = None,
     ) -> dict[str, Any]:
         """Delete a stored per-user PAT (idempotent).
 
@@ -3988,6 +4003,8 @@ class RegistryClient:
         Args:
             server_path: Server path (e.g., "/github" or "github").
             sub: Admin-only override to delete another user's PAT.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method.
 
         Returns:
             Dict with path and configured (always False).
@@ -3999,11 +4016,15 @@ class RegistryClient:
         encoded_path = quote(server_path.lstrip("/"), safe="")
         logger.info(f"Deleting egress PAT for /{encoded_path}")
 
-        params = {"sub": sub} if sub is not None else None
+        params: dict[str, Any] = {}
+        if sub is not None:
+            params["sub"] = sub
+        if auth_method is not None:
+            params["auth_method"] = auth_method
         response = self._make_request(
             method="DELETE",
             endpoint=f"/api/servers/{encoded_path}/egress-pat",
-            params=params,
+            params=params or None,
         )
         return response.json()
 
