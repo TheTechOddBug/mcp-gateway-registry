@@ -4295,6 +4295,102 @@ class TestMcpProxyOboExchange:
         assert sent["authorization"] == "Bearer real-exchanged-token"
 
 
+class TestMcpProxyPatMode:
+    """pat egress mode in mcp_proxy.
+
+    A vended PAT arrives as {access_token: <PAT>} and flows through the SAME
+    generic inject branch as a vaulted OAuth token (no auth_server change for the
+    hit path). A miss arrives as {mode: "pat"} with no access_token/connect_url
+    and is answered by the terminal _pat_missing_response.
+    """
+
+    def test_pat_missing_response_shape(self):
+        import auth_server.server as server_module
+
+        resp = server_module._pat_missing_response("github", "tools/call", 7)
+        assert resp.status_code == 200
+        import json as _json
+
+        body = _json.loads(resp.body)
+        assert body["id"] == 7
+        # Terminal tool result (isError), NOT a -32042 URL elicitation.
+        assert "error" not in body
+        assert body["result"]["isError"] is True
+        text = body["result"]["content"][0]["text"]
+        assert "No PAT configured" in text
+        assert "Connected Accounts" in text
+        # No connect/authorize URL is offered (pat is not interactive).
+        assert "http" not in text.lower()
+
+    def test_pat_hit_injects_and_strips_ingress_creds(self):
+        import auth_server.server as server_module
+
+        async def _pat_vend(token, server):
+            return {"access_token": "ghp_the_pat"}
+
+        patch_httpx, captured = _capture_upstream_headers()
+        with (
+            patch.object(server_module.settings, "egress_auth_enabled", True),
+            patch.object(server_module, "_vend_egress_token", _pat_vend),
+            patch.object(server_module, "_read_mcp_filter_enabled", return_value=False),
+            _patch_scope_repo_allow_all(),
+            patch_httpx,
+        ):
+            client = TestClient(server_module.app)
+            response = client.post(
+                "/mcp-proxy/github",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "list_repos"},
+                },
+                headers={
+                    **_mcp_proxy_token_headers(server_name="github"),
+                    "X-Authorization": "Bearer raw-ingress-jwt",
+                    "Cookie": "session=secret",
+                },
+            )
+
+        assert response.status_code == 200
+        sent = {k.lower(): v for k, v in captured["headers"].items()}
+        # The PAT is injected via the generic access_token branch.
+        assert sent["authorization"] == "Bearer ghp_the_pat"
+        # Ingress gateway creds / internal identity are stripped before inject.
+        assert "x-authorization" not in sent
+        assert "cookie" not in sent
+        assert "x-internal-token" not in sent
+
+    def test_pat_miss_is_terminal_no_forward(self):
+        import auth_server.server as server_module
+
+        async def _pat_miss_vend(token, server):
+            return {"consent_required": True, "mode": "pat"}
+
+        patch_httpx, captured = _capture_upstream_headers()
+        with (
+            patch.object(server_module.settings, "egress_auth_enabled", True),
+            patch.object(server_module, "_vend_egress_token", _pat_miss_vend),
+            patch.object(server_module, "_read_mcp_filter_enabled", return_value=False),
+            _patch_scope_repo_allow_all(),
+            patch_httpx,
+        ):
+            client = TestClient(server_module.app)
+            response = client.post(
+                "/mcp-proxy/github",
+                json={"jsonrpc": "2.0", "id": 9, "method": "tools/call"},
+                headers=_mcp_proxy_token_headers(server_name="github"),
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == 9
+        assert body["result"]["isError"] is True
+        assert "No PAT configured" in body["result"]["content"][0]["text"]
+        # Nothing was forwarded upstream (terminal miss).
+        assert "headers" not in captured
+
+
 # =============================================================================
 # SCOPES STARTUP LOGGING TESTS (issue #1248)
 # =============================================================================
