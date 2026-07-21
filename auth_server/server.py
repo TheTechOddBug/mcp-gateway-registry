@@ -291,7 +291,9 @@ def _canonical_egress_user(validation_result: dict) -> str:
          this claim a Cursor/Claude bearer minted from a browser login would key
          the vault on the username while the cookie-consent path keyed on the OIDC
          sub, and the vend would miss the vaulted token ("0 tools"). Checked FIRST
-         so it wins over the self-signed token's username ``sub``.
+         so it wins over the self-signed token's username ``sub`` -- but ONLY when
+         the token is ``self_signed`` (minted by this gateway); it is ignored on
+         any other method so an external issuer cannot inject a vault key.
       2. ``data.sub`` -- the raw IdP subject. Bearer paths expose the verified
          claims here; the cookie path carries the sub persisted into the session
          at login (see create_session ``subject``).
@@ -301,8 +303,20 @@ def _canonical_egress_user(validation_result: dict) -> str:
          non-OIDC behavior unchanged; only OIDC callers change bucket).
     """
     data = validation_result.get("data") or {}
+    # ``egress_user`` is an identity-keying claim -- it selects which per-user
+    # egress-vault bucket the vend reads. Only trust it from a token THIS gateway
+    # minted itself (``self_signed``), where the claim's provenance is guaranteed.
+    # A JWT / M2M / other-issuer token could otherwise carry an attacker-chosen
+    # ``egress_user`` and key the vault on a victim's id -> a cross-user egress
+    # token vend. Gateway-built paths (session cookie, federation, network-trusted)
+    # never set ``egress_user``, so gating it here is a no-op for them and keeps
+    # the consent-write path resolving on ``sub``/``subject`` unchanged.
+    if validation_result.get("method") == AUTH_METHOD_SELF_SIGNED:
+        egress_user = data.get("egress_user")
+    else:
+        egress_user = None
     return (
-        data.get("egress_user")
+        egress_user
         or data.get("sub")
         or data.get("subject")
         or validation_result.get("sub")
