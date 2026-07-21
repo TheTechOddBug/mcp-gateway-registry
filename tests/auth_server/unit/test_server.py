@@ -4362,10 +4362,10 @@ class TestMcpProxyPatMode:
         assert "x-internal-token" not in sent
 
     def test_pat_hit_injects_custom_header_and_prefix(self):
-        """A pat server may override the inject header + value prefix (GitLab
-        PRIVATE-TOKEN with an empty prefix -> a bare token in a custom header),
-        and a client-supplied copy of that header is stripped so only the
-        gateway-injected value reaches the upstream."""
+        """The vend response carries the inject header derived from the server's
+        Backend Auth scheme (api_key -> PRIVATE-TOKEN with an empty prefix -> a
+        bare token in a custom header). mcp_proxy injects it and strips any
+        client-supplied copy so only the gateway-injected value reaches upstream."""
         import auth_server.server as server_module
 
         async def _pat_vend(token, server):

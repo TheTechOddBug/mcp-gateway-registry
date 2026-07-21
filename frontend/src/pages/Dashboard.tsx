@@ -313,8 +313,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     egress_custom_authorize_url: '',
     egress_custom_token_url: '',
     egress_target_audience: '',
-    egress_pat_header_name: '',
-    egress_pat_value_prefix: '',
   });
   const [egressEnabled, setEgressEnabled] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
@@ -1288,10 +1286,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
         egress_custom_authorize_url: serverDetails.egress_oauth?.custom_authorize_url || '',
         egress_custom_token_url: serverDetails.egress_oauth?.custom_token_url || '',
         egress_target_audience: serverDetails.egress_oauth?.target_audience || '',
-        // Preserve a stored value (including an explicit empty prefix); default
-        // to Authorization / "Bearer " for a fresh pat setup.
-        egress_pat_header_name: serverDetails.egress_oauth?.pat_header_name ?? 'Authorization',
-        egress_pat_value_prefix: serverDetails.egress_oauth?.pat_value_prefix ?? 'Bearer ',
       });
     } catch (error) {
       console.error('Failed to fetch server details:', error);
@@ -1323,8 +1317,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
         egress_custom_authorize_url: '',
         egress_custom_token_url: '',
         egress_target_audience: '',
-        egress_pat_header_name: 'Authorization',
-        egress_pat_value_prefix: 'Bearer ',
       });
     }
   }, []);
@@ -1541,10 +1533,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
               {
                 egress_auth_mode: 'pat',
                 egress_provider: editForm.egress_provider.trim(),
-                // Send the inject header config as typed. An empty prefix is
-                // meaningful (bare token), so it is sent verbatim, not trimmed away.
-                pat_header_name: editForm.egress_pat_header_name.trim(),
-                pat_value_prefix: editForm.egress_pat_value_prefix,
+                // The inject header is inherited from Backend Authentication at
+                // vend time, so it is not sent here.
               },
               { headers: csrfHeaders }
             );

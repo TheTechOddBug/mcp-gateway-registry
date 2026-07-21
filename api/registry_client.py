@@ -3826,8 +3826,6 @@ class RegistryClient:
         client_secret: str | None = None,
         scopes: list[str] | None = None,
         target_audience: str | None = None,
-        pat_header_name: str | None = None,
-        pat_value_prefix: str | None = None,
     ) -> dict[str, Any]:
         """Configure per-user egress auth on a server (admin only).
 
@@ -3843,10 +3841,6 @@ class RegistryClient:
             client_secret: OAuth client secret (oauth_user only, write-only).
             scopes: Optional list of OAuth scopes.
             target_audience: Target audience (obo_exchange only).
-            pat_header_name: pat only. Header to inject the PAT into (default
-                Authorization). E.g. "PRIVATE-TOKEN" for GitLab.
-            pat_value_prefix: pat only. Value prefix before the PAT (default
-                "Bearer "). Pass "" for a bare token (GitLab/X-API-Key style).
 
         Returns:
             Non-secret egress config view dict.
@@ -3869,10 +3863,6 @@ class RegistryClient:
             body["scopes"] = scopes
         if target_audience is not None:
             body["target_audience"] = target_audience
-        if pat_header_name is not None:
-            body["pat_header_name"] = pat_header_name
-        if pat_value_prefix is not None:
-            body["pat_value_prefix"] = pat_value_prefix
 
         response = self._make_request(
             method="POST",

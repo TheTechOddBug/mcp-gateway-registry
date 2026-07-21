@@ -62,57 +62,39 @@ router = APIRouter()
 # oversized value cannot bloat the key.
 _PAT_PROVIDER_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
-# pat header name is injected verbatim into the upstream request, so constrain it
-# to an RFC 7230 header token (no CR/LF/space/colon) to prevent header injection.
-# The value prefix (e.g. "Bearer ") is bounded and must not contain CR/LF either.
-_PAT_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$")
-_PAT_MAX_VALUE_PREFIX_LEN: int = 32
-_PAT_DEFAULT_HEADER_NAME: str = "Authorization"
-_PAT_DEFAULT_VALUE_PREFIX: str = "Bearer "
-
 # pat lifetime is mandatory and bounded: no "never expires", capped at 30 days.
 _PAT_MAX_TTL_SECONDS: int = 30 * 24 * 3600
 _TTL_UNIT_SECONDS: dict[str, int] = {"minutes": 60, "hours": 3600, "days": 86400}
 
 
-def _resolve_pat_header(
-    header_name: str | None,
-    value_prefix: str | None,
-) -> tuple[str, str]:
-    """Validate the pat inject header config and return (header_name, value_prefix).
+def _derive_pat_inject_header(server: dict) -> tuple[str, str]:
+    """Derive the (header_name, value_prefix) the PAT is injected with.
 
-    Defaults reproduce ``Authorization: Bearer <PAT>``. The header name is
-    constrained to an RFC 7230 token and the prefix is bounded and CR/LF-free so
-    a hostile config can never inject an extra header or split the request.
+    The PAT is injected into the SAME header the server's Backend Authentication
+    uses -- it is the same upstream, so the header contract is one thing. This
+    mirrors the registry's own health-check / tool-listing inject in
+    ``registry/core/mcp_client.py``:
+
+      - ``bearer``  -> ``<auth_header_name or "Authorization">: Bearer <PAT>``
+      - ``api_key`` -> ``<auth_header_name or "X-API-Key">: <PAT>`` (bare, no prefix)
+      - anything else (``none``/unset) -> ``Authorization: Bearer <PAT>`` (safe default)
+
+    So an operator configures the header ONCE, in Backend Authentication, and
+    ``pat`` egress inherits it; there is no separate egress header config.
 
     Args:
-        header_name: The header to inject the PAT into (None -> Authorization).
-        value_prefix: The scheme prefix before the PAT (None -> "Bearer ").
+        server: The server dict (carries ``auth_scheme`` / ``auth_header_name``).
 
     Returns:
-        The resolved (header_name, value_prefix).
-
-    Raises:
-        ValueError: If the header name is not a valid token, or the prefix is
-            too long or contains a CR/LF.
+        ``(header_name, value_prefix)`` for the inject.
     """
-    # Strip first so a whitespace-only value is treated as "omitted" (default),
-    # not as an invalid token.
-    name = (header_name or "").strip() or _PAT_DEFAULT_HEADER_NAME
-    if not _PAT_HEADER_NAME_RE.fullmatch(name):
-        raise ValueError(
-            "pat_header_name must be a valid HTTP header token "
-            "(letters, digits, and !#$%&'*+.^_`|~- ; <= 64 chars)"
-        )
-    # A None prefix means "use the default"; an explicit "" means "no prefix"
-    # (bare value, e.g. GitLab PRIVATE-TOKEN). Only fall back to the default
-    # when the field was omitted entirely.
-    prefix = _PAT_DEFAULT_VALUE_PREFIX if value_prefix is None else value_prefix
-    if len(prefix) > _PAT_MAX_VALUE_PREFIX_LEN:
-        raise ValueError(f"pat_value_prefix may not exceed {_PAT_MAX_VALUE_PREFIX_LEN} characters")
-    if "\r" in prefix or "\n" in prefix:
-        raise ValueError("pat_value_prefix must not contain CR or LF")
-    return name, prefix
+    scheme = server.get("auth_scheme") or "none"
+    if scheme == "bearer":
+        return server.get("auth_header_name") or "Authorization", "Bearer "
+    if scheme == "api_key":
+        return server.get("auth_header_name") or "X-API-Key", ""
+    # Backend Auth is none/unset: nothing to inherit -> safe default.
+    return "Authorization", "Bearer "
 
 
 def _resolve_pat_ttl_seconds(
@@ -301,9 +283,10 @@ class EgressTokenResponse(BaseModel):
         default=None,
         description="obo_exchange: audience-scoped scopes for the exchange request.",
     )
-    # pat: the header the vended PAT is injected into and its value prefix, so
-    # mcp_proxy can build "<pat_header_name>: <pat_value_prefix><PAT>" instead of
-    # the hard-coded "Authorization: Bearer". Only set on a pat hit.
+    # pat: the header the vended PAT is injected into and its value prefix,
+    # derived at vend time from the server's Backend Auth scheme, so mcp_proxy
+    # can build "<pat_header_name>: <pat_value_prefix><PAT>" instead of the
+    # hard-coded "Authorization: Bearer". Only set on a pat hit.
     pat_header_name: str | None = Field(
         default=None,
         description="pat: HTTP header to inject the PAT into (e.g. Authorization, PRIVATE-TOKEN).",
@@ -422,13 +405,10 @@ async def vend_egress_token(
             server_path=server_path,
         )
         if token is not None:
-            # Resolve the inject header from the stored config; a pat server
-            # configured before this field existed safely defaults to
-            # Authorization/Bearer.
-            header_name, value_prefix = _resolve_pat_header(
-                egress_oauth.get("pat_header_name"),
-                egress_oauth.get("pat_value_prefix"),
-            )
+            # The PAT is injected into the SAME header the server's Backend
+            # Authentication uses (same upstream, one header contract). Derived
+            # from auth_scheme/auth_header_name; no separate egress header config.
+            header_name, value_prefix = _derive_pat_inject_header(server)
             return EgressTokenResponse(
                 access_token=token,
                 pat_header_name=header_name,
@@ -517,12 +497,6 @@ class EgressConfigRequest(BaseModel):
     custom_resource: str | None = None  # RFC 8707 resource indicator (custom only)
     # obo_exchange only: the internal MCP server's audience (IdP-shaped).
     target_audience: str | None = None
-    # pat only: the HTTP header the PAT is injected into and an optional value
-    # prefix. Defaults reproduce ``Authorization: Bearer <PAT>`` (GitHub); a
-    # GitLab upstream is header ``PRIVATE-TOKEN`` with an empty prefix, an
-    # ``X-API-Key`` upstream is that header with an empty prefix, etc.
-    pat_header_name: str | None = None
-    pat_value_prefix: str | None = None
 
 
 def _egress_config_view(server: dict) -> dict:
@@ -538,9 +512,6 @@ def _egress_config_view(server: dict) -> dict:
         "custom_authorize_url": eo.get("custom_authorize_url"),
         "custom_token_url": eo.get("custom_token_url"),
         "custom_resource": eo.get("custom_resource"),
-        # pat inject header config (non-secret); lets the edit UI pre-fill.
-        "pat_header_name": eo.get("pat_header_name"),
-        "pat_value_prefix": eo.get("pat_value_prefix"),
     }
 
 
@@ -677,19 +648,11 @@ async def configure_egress_auth(
                 detail="pat mode requires a provider slug matching ^[a-z0-9_-]{1,64}$ "
                 "(namespace/display key)",
             )
-        try:
-            header_name, value_prefix = _resolve_pat_header(
-                body.pat_header_name, body.pat_value_prefix
-            )
-        except ValueError as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        # The PAT inject header is NOT configured here: it is inherited from the
+        # server's Backend Authentication (auth_scheme/auth_header_name) at vend
+        # time (see _derive_pat_inject_header), since it is the same upstream.
         server["egress_auth_mode"] = "pat"
-        server["egress_oauth"] = {
-            "provider": provider,
-            "scopes": body.scopes or [],
-            "pat_header_name": header_name,
-            "pat_value_prefix": value_prefix,
-        }
+        server["egress_oauth"] = {"provider": provider, "scopes": body.scopes or []}
     else:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid egress_auth_mode")
 

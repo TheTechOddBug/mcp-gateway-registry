@@ -6,50 +6,42 @@ days. This exercises the accept/reject boundary table.
 
 import pytest
 
-import pytest as _pytest
-
 from registry.api.egress_auth_routes import (
     _PAT_MAX_TTL_SECONDS,
-    _resolve_pat_header,
+    _derive_pat_inject_header,
     _resolve_pat_ttl_seconds,
 )
 
 
-class TestResolvePatHeader:
-    """Validation/defaulting of the pat inject header + value prefix."""
+class TestDerivePatInjectHeader:
+    """The pat inject header inherits from the server's Backend Auth scheme."""
 
-    def test_defaults_to_authorization_bearer(self):
-        assert _resolve_pat_header(None, None) == ("Authorization", "Bearer ")
+    def test_bearer_scheme_uses_authorization_bearer(self):
+        server = {"auth_scheme": "bearer"}
+        assert _derive_pat_inject_header(server) == ("Authorization", "Bearer ")
 
-    def test_custom_header_with_empty_prefix(self):
-        # GitLab: bare token in a custom header. Explicit "" must be preserved,
-        # NOT replaced by the default prefix.
-        assert _resolve_pat_header("PRIVATE-TOKEN", "") == ("PRIVATE-TOKEN", "")
+    def test_bearer_scheme_honors_custom_header_name(self):
+        server = {"auth_scheme": "bearer", "auth_header_name": "X-Auth"}
+        assert _derive_pat_inject_header(server) == ("X-Auth", "Bearer ")
 
-    def test_custom_header_keeps_default_prefix_when_omitted(self):
-        assert _resolve_pat_header("X-API-Key", None) == ("X-API-Key", "Bearer ")
+    def test_api_key_scheme_uses_bare_token(self):
+        # api_key: bare token, no prefix, into the configured header.
+        server = {"auth_scheme": "api_key", "auth_header_name": "PRIVATE-TOKEN"}
+        assert _derive_pat_inject_header(server) == ("PRIVATE-TOKEN", "")
 
-    @_pytest.mark.parametrize(
-        "bad",
-        ["bad header", "has:colon", "x" * 65, "with\nnewline", "tab\ttab"],
-    )
-    def test_bad_header_name_raises(self, bad):
-        with _pytest.raises(ValueError):
-            _resolve_pat_header(bad, None)
+    def test_api_key_scheme_defaults_header_name(self):
+        server = {"auth_scheme": "api_key"}
+        assert _derive_pat_inject_header(server) == ("X-API-Key", "")
 
-    def test_empty_header_name_defaults_to_authorization(self):
-        # An empty/whitespace header name means "use the default", not an error
-        # (the edit UI may send an untouched field). It defaults to Authorization.
-        assert _resolve_pat_header("", None) == ("Authorization", "Bearer ")
-        assert _resolve_pat_header("   ", None) == ("Authorization", "Bearer ")
+    def test_none_scheme_defaults_to_authorization_bearer(self):
+        # Fail-safe: Backend Auth "none" still yields a usable default.
+        assert _derive_pat_inject_header({"auth_scheme": "none"}) == (
+            "Authorization",
+            "Bearer ",
+        )
 
-    def test_prefix_with_crlf_raises(self):
-        with _pytest.raises(ValueError):
-            _resolve_pat_header("Authorization", "Bearer \r\nX-Evil: 1")
-
-    def test_prefix_too_long_raises(self):
-        with _pytest.raises(ValueError):
-            _resolve_pat_header("Authorization", "x" * 33)
+    def test_missing_scheme_defaults_to_authorization_bearer(self):
+        assert _derive_pat_inject_header({}) == ("Authorization", "Bearer ")
 
 
 @pytest.mark.unit

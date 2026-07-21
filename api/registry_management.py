@@ -1992,8 +1992,6 @@ def cmd_egress_configure(args: argparse.Namespace) -> int:
             client_secret=args.client_secret,
             scopes=_parse_scopes(args.scopes),
             target_audience=args.target_audience,
-            pat_header_name=args.pat_header_name,
-            pat_value_prefix=args.pat_value_prefix,
         )
         print(json.dumps(response, indent=2, default=str))
         return 0
@@ -6631,16 +6629,6 @@ Examples:
     )
     egress_configure_parser.add_argument(
         "--target-audience", help="Target audience (obo_exchange only)"
-    )
-    egress_configure_parser.add_argument(
-        "--pat-header-name",
-        help="pat only: header to inject the PAT into (default Authorization; "
-        "e.g. PRIVATE-TOKEN for GitLab)",
-    )
-    egress_configure_parser.add_argument(
-        "--pat-value-prefix",
-        help="pat only: value prefix before the PAT (default 'Bearer '; "
-        "pass an empty string for a bare token)",
     )
 
     # Get egress config command

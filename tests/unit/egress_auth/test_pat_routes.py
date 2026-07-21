@@ -331,8 +331,9 @@ class TestConfigurePatMode:
         )
         assert r.status_code == 400
 
-    def test_configure_pat_defaults_header_to_authorization_bearer(self, client, monkeypatch):
-        # Omitting the header fields yields the Authorization/Bearer default.
+    def test_configure_pat_does_not_store_inject_header(self, client, monkeypatch):
+        # The inject header is inherited from Backend Auth at vend time, so pat
+        # config stores only the provider (no header fields on the stored config).
         monkeypatch.setattr(routes.server_service, "update_server", AsyncMock(return_value=True))
         c = client(ADMIN, server=_server(egress_auth_mode="none", egress_oauth=None))
         r = c.post(
@@ -341,51 +342,5 @@ class TestConfigurePatMode:
         )
         assert r.status_code == 200
         body = r.json()
-        assert body["pat_header_name"] == "Authorization"
-        assert body["pat_value_prefix"] == "Bearer "
-
-    def test_configure_pat_custom_header_and_empty_prefix(self, client, monkeypatch):
-        # GitLab-style: custom header, explicit empty prefix (bare token).
-        monkeypatch.setattr(routes.server_service, "update_server", AsyncMock(return_value=True))
-        c = client(ADMIN, server=_server(egress_auth_mode="none", egress_oauth=None))
-        r = c.post(
-            "/api/servers/gitlab/egress-auth",
-            json={
-                "egress_auth_mode": "pat",
-                "egress_provider": "gitlab",
-                "pat_header_name": "PRIVATE-TOKEN",
-                "pat_value_prefix": "",
-            },
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body["pat_header_name"] == "PRIVATE-TOKEN"
-        assert body["pat_value_prefix"] == ""
-
-    @pytest.mark.parametrize(
-        "header_name",
-        ["bad header", "has:colon", "x" * 65, "with\nnewline"],
-    )
-    def test_configure_pat_bad_header_name_400(self, client, header_name):
-        c = client(ADMIN, server=_server())
-        r = c.post(
-            "/api/servers/gitlab/egress-auth",
-            json={
-                "egress_auth_mode": "pat",
-                "egress_provider": "gitlab",
-                "pat_header_name": header_name,
-            },
-        )
-        assert r.status_code == 400
-
-    def test_configure_pat_value_prefix_with_crlf_400(self, client):
-        c = client(ADMIN, server=_server())
-        r = c.post(
-            "/api/servers/gitlab/egress-auth",
-            json={
-                "egress_auth_mode": "pat",
-                "egress_provider": "gitlab",
-                "pat_value_prefix": "Bearer \r\nX-Evil: 1",
-            },
-        )
-        assert r.status_code == 400
+        assert "pat_header_name" not in body
+        assert "pat_value_prefix" not in body

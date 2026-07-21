@@ -105,19 +105,18 @@ class TestPatVend:
         # pat runs via get_pat, NEVER the OAuth refresh path.
         assert client._svc.get_pat_called
         assert not client._svc.get_valid_token_called
-        # Default inject header is echoed so mcp_proxy builds Authorization: Bearer.
+        # With no Backend Auth scheme set, the inject header defaults to
+        # Authorization: Bearer so mcp_proxy can still build the header.
         assert body["pat_header_name"] == "Authorization"
         assert body["pat_value_prefix"] == "Bearer "
 
-    def test_hit_echoes_custom_header_config(self, make_client):
-        # A server configured with a custom inject header returns it on the hit
-        # so mcp_proxy injects "<header>: <prefix><PAT>".
+    def test_hit_inherits_inject_header_from_backend_auth(self, make_client):
+        # The inject header is derived from the server's Backend Auth scheme:
+        # api_key -> "<header>: <bare-PAT>" (no prefix). No per-mode config.
         server = _server(
-            egress_oauth={
-                "provider": "gitlab",
-                "pat_header_name": "PRIVATE-TOKEN",
-                "pat_value_prefix": "",
-            }
+            egress_oauth={"provider": "gitlab"},
+            auth_scheme="api_key",
+            auth_header_name="PRIVATE-TOKEN",
         )
         client = make_client(_claims(), server, pat_token="glpat_vended")
         r = _post(client)
