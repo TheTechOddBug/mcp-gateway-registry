@@ -72,6 +72,7 @@ import type {
 import axios from 'axios';
 import { getBaseURL } from '../utils/basePath';
 import { isEgressAuthEnabled, loadEgressCardState, type EgressCardState } from '../utils/egressAuth';
+import { EgressConnectProvider } from '../contexts/EgressConnectContext';
 import {
   buildLocalRuntimeForm,
   buildLocalRuntimeJson,
@@ -2652,7 +2653,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
   }
 
   return (
-    <>
+    <EgressConnectProvider value={{ stateByPath: egressStateByPath, reload: reloadEgressState }}>
       {/* Toast Notification */}
       {toast && (
         <Toast
@@ -3149,7 +3150,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
         isLoading={customDeleteLoading}
       />
 
-    </>
+    </EgressConnectProvider>
   );
 };
 

@@ -15,6 +15,7 @@ import {
 import PlugIcon from './icons/PlugIcon';
 import { isSafeUrl } from '../utils/safeUrl';
 import type { EgressCardState } from '../utils/egressAuth';
+import { useEgressConnect } from '../contexts/EgressConnectContext';
 import ServerConfigModal from './ServerConfigModal';
 import SecurityScanModal from './SecurityScanModal';
 import StarRatingWidget from './StarRatingWidget';
@@ -257,9 +258,15 @@ function EgressConnectButton({
   );
 }
 
-const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, onEdit, canModify, canHealthCheck = true, canToggle = true, canDelete, onRefreshSuccess, onShowToast, onServerUpdate, onDelete, authToken, egressConnect, onEgressChanged }) => {
+const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, onEdit, canModify, canHealthCheck = true, canToggle = true, canDelete, onRefreshSuccess, onShowToast, onServerUpdate, onDelete, authToken, egressConnect: egressConnectProp, onEgressChanged: onEgressChangedProp }) => {
   const { user } = useAuth();
   const isAdmin = user?.is_admin === true;
+  // Egress connect state: prefer the explicit prop (dashboard grid passes it),
+  // else fall back to the shared context so render paths that don't thread the
+  // prop (discover/search rows via DiscoverListRow) still show the affordance.
+  const egressCtx = useEgressConnect();
+  const egressConnect = egressConnectProp ?? egressCtx.stateByPath.get(server.path);
+  const onEgressChanged = onEgressChangedProp ?? egressCtx.reload;
   const [tools, setTools] = useState<Tool[]>([]);
   const [loadingTools, setLoadingTools] = useState(false);
   const [showTools, setShowTools] = useState(false);
