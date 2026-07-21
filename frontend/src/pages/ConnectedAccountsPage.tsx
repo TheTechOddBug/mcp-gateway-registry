@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   LinkIcon,
   TrashIcon,
@@ -29,6 +29,7 @@ import { isSafeUrl } from '../utils/safeUrl';
  */
 const ConnectedAccountsPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [connections, setConnections] = useState<EgressConnection[]>([]);
   const [available, setAvailable] = useState<AvailableEgressServer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +90,13 @@ const ConnectedAccountsPage: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Preselect the dropdown when a server is passed via ?server= (from the card
+  // icon / connect-modal callout), so the user lands ready to connect/submit.
+  useEffect(() => {
+    const s = searchParams.get('server');
+    if (s) setServerPath(s);
+  }, [searchParams]);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
