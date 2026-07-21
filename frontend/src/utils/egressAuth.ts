@@ -20,6 +20,13 @@ export interface AvailableEgressServer {
   server_path: string;
   server_name: string;
   provider: string;
+  egress_auth_mode?: string;
+}
+
+export interface PatStatus {
+  configured: boolean;
+  expires_at: string | null;
+  expired: boolean;
 }
 
 async function csrfHeaders(): Promise<Record<string, string>> {
@@ -55,6 +62,40 @@ export async function initiateConsent(serverPath: string): Promise<string> {
     { headers }
   );
   return resp.data.authorize_url as string;
+}
+
+/**
+ * Submit (or replace) the current user's static PAT / API key for a `pat`-mode
+ * server. The secret is write-only: it is never returned or logged here.
+ */
+export async function setEgressPat(
+  serverPath: string,
+  secret: string,
+  ttlValue: number,
+  ttlUnit: string
+): Promise<{ configured: boolean; expires_at: string | null }> {
+  const headers = await csrfHeaders();
+  const path = serverPath.replace(/^\//, '');
+  const resp = await axios.put(
+    `/api/servers/${path}/egress-pat`,
+    { secret, ttl_value: ttlValue, ttl_unit: ttlUnit },
+    { headers }
+  );
+  return resp.data as { configured: boolean; expires_at: string | null };
+}
+
+/** Get the PAT status for a server (presence + expiry only; never the secret). */
+export async function getEgressPatStatus(serverPath: string): Promise<PatStatus> {
+  const path = serverPath.replace(/^\//, '');
+  const resp = await axios.get(`/api/servers/${path}/egress-pat`);
+  return resp.data as PatStatus;
+}
+
+/** Delete the current user's stored PAT for a server. */
+export async function deleteEgressPat(serverPath: string): Promise<void> {
+  const headers = await csrfHeaders();
+  const path = serverPath.replace(/^\//, '');
+  await axios.delete(`/api/servers/${path}/egress-pat`, { headers });
 }
 
 /** Disconnect (revoke + delete the vault entry) for a (provider, server). */

@@ -34,8 +34,8 @@ export interface ServerEditForm {
   deployment: 'remote' | 'local';
   local_runtime: LocalRuntimeFormData;
   custom_headers: Array<{ name: string; value: string }>;
-  // Egress auth to the upstream (admin config). 'none' | 'oauth_user' | 'obo_exchange'.
-  egress_auth_mode: 'none' | 'oauth_user' | 'obo_exchange';
+  // Egress auth to the upstream (admin config). 'none' | 'oauth_user' | 'obo_exchange' | 'pat'.
+  egress_auth_mode: 'none' | 'oauth_user' | 'obo_exchange' | 'pat';
   // oauth_user (3LO vault) fields:
   egress_provider: string;
   egress_client_id: string;
@@ -245,6 +245,7 @@ const ServerEditModal: React.FC<ServerEditModalProps> = ({
                     <option value="none">Disabled</option>
                     <option value="oauth_user">Per-user OAuth (3LO)</option>
                     <option value="obo_exchange">OBO exchange (same IdP)</option>
+                    <option value="pat">Per-user PAT / API key</option>
                   </select>
                 </div>
                 {form.egress_auth_mode === 'obo_exchange' && (
@@ -262,6 +263,25 @@ const ServerEditModal: React.FC<ServerEditModalProps> = ({
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       The internal MCP server&apos;s App ID URI (Entra) or client id (Keycloak).
                       Must differ from the gateway&apos;s own IdP client id.
+                    </p>
+                  </div>
+                )}
+                {form.egress_auth_mode === 'pat' && (
+                  <div>
+                    <label className={LABEL}>Provider</label>
+                    <input
+                      type="text"
+                      value={form.egress_provider}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, egress_provider: e.target.value }))
+                      }
+                      placeholder="github"
+                      className={FIELD}
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      A short namespace/display key for the PAT (lowercase letters, digits,
+                      hyphen, underscore). Each user submits their own token on the Connected
+                      Accounts page.
                     </p>
                   </div>
                 )}

@@ -1957,6 +1957,144 @@ def cmd_server_connect_config(args: argparse.Namespace) -> int:
         return 1
 
 
+def _parse_scopes(raw: str | None) -> list[str] | None:
+    """Turn a comma-separated --scopes value into a list of scope strings.
+
+    Args:
+        raw: Comma-separated scopes, or None.
+
+    Returns:
+        List of non-empty scope strings, or None when nothing was provided.
+    """
+    if not raw:
+        return None
+    scopes = [s.strip() for s in raw.split(",") if s.strip()]
+    return scopes or None
+
+
+def cmd_egress_configure(args: argparse.Namespace) -> int:
+    """
+    Configure per-user egress auth on a server (admin only).
+
+    Args:
+        args: Command arguments with path, mode, and mode-specific options.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.configure_egress_auth(
+            server_path=args.path,
+            mode=args.mode,
+            provider=args.provider,
+            client_id=args.client_id,
+            client_secret=args.client_secret,
+            scopes=_parse_scopes(args.scopes),
+            target_audience=args.target_audience,
+        )
+        print(json.dumps(response, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to configure egress auth: {e}")
+        return 1
+
+
+def cmd_egress_config_get(args: argparse.Namespace) -> int:
+    """
+    Fetch the (non-secret) egress auth config for a server.
+
+    Args:
+        args: Command arguments with path.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.get_egress_auth_config(server_path=args.path)
+        print(json.dumps(response, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to fetch egress auth config: {e}")
+        return 1
+
+
+def cmd_egress_pat_set(args: argparse.Namespace) -> int:
+    """
+    Submit (or replace) a per-user PAT for a server (write-only).
+
+    The secret value is never logged. The server enforces admin-gating of
+    ``--sub``; a non-admin supplying it is rejected 403.
+
+    Args:
+        args: Command arguments with path, secret, ttl-value, ttl-unit, sub.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.set_egress_pat(
+            server_path=args.path,
+            secret=args.secret,
+            ttl_value=args.ttl_value,
+            ttl_unit=args.ttl_unit,
+            sub=args.sub,
+        )
+        # The response never contains the secret; safe to print as-is.
+        print(json.dumps(response, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to submit egress PAT: {e}")
+        return 1
+
+
+def cmd_egress_pat_status(args: argparse.Namespace) -> int:
+    """
+    Report whether a per-user PAT is stored and when it expires.
+
+    Args:
+        args: Command arguments with path and optional sub.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.get_egress_pat_status(server_path=args.path, sub=args.sub)
+        print(json.dumps(response, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to fetch egress PAT status: {e}")
+        return 1
+
+
+def cmd_egress_pat_delete(args: argparse.Namespace) -> int:
+    """
+    Delete a stored per-user PAT (idempotent).
+
+    Args:
+        args: Command arguments with path and optional sub.
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    try:
+        client = _create_client(args)
+        response = client.delete_egress_pat(server_path=args.path, sub=args.sub)
+        print(json.dumps(response, indent=2, default=str))
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to delete egress PAT: {e}")
+        return 1
+
+
 def _parse_ard_filter(pairs: list[str] | None) -> dict[str, Any] | None:
     """Turn repeated ``key=value`` CLI filters into an ARD query.filter dict."""
     if not pairs:
@@ -6464,6 +6602,83 @@ Examples:
     )
     server_connect_config_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
+    # Egress Auth Commands (per-user egress credential vault)
+
+    # Configure egress auth command
+    egress_configure_parser = subparsers.add_parser(
+        "egress-configure", help="Configure per-user egress auth on a server (admin only)"
+    )
+    egress_configure_parser.add_argument(
+        "--path", required=True, help="Server path (e.g., /github)"
+    )
+    egress_configure_parser.add_argument(
+        "--mode",
+        required=True,
+        choices=["none", "oauth_user", "obo_exchange", "pat"],
+        help="Egress auth mode",
+    )
+    egress_configure_parser.add_argument(
+        "--provider", help="Provider slug/name (required for oauth_user and pat)"
+    )
+    egress_configure_parser.add_argument("--client-id", help="OAuth client id (oauth_user only)")
+    egress_configure_parser.add_argument(
+        "--client-secret", help="OAuth client secret (oauth_user only, write-only)"
+    )
+    egress_configure_parser.add_argument(
+        "--scopes", help="Comma-separated OAuth scopes (e.g., repo,read:org)"
+    )
+    egress_configure_parser.add_argument(
+        "--target-audience", help="Target audience (obo_exchange only)"
+    )
+
+    # Get egress config command
+    egress_config_get_parser = subparsers.add_parser(
+        "egress-config-get", help="Fetch the (non-secret) egress auth config for a server"
+    )
+    egress_config_get_parser.add_argument(
+        "--path", required=True, help="Server path (e.g., /github)"
+    )
+
+    # Submit egress PAT command
+    egress_pat_set_parser = subparsers.add_parser(
+        "egress-pat-set", help="Submit (or replace) a per-user PAT for a server (write-only)"
+    )
+    egress_pat_set_parser.add_argument("--path", required=True, help="Server path (e.g., /github)")
+    egress_pat_set_parser.add_argument(
+        "--secret", required=True, help="The PAT / API key to store (never logged)"
+    )
+    egress_pat_set_parser.add_argument(
+        "--ttl-value",
+        required=True,
+        type=int,
+        help="Positive integer validity amount (capped at 30 days)",
+    )
+    egress_pat_set_parser.add_argument(
+        "--ttl-unit",
+        required=True,
+        choices=["minutes", "hours", "days"],
+        help="Validity unit",
+    )
+    egress_pat_set_parser.add_argument("--sub", help="Admin-only: submit on another user's behalf")
+
+    # Egress PAT status command
+    egress_pat_status_parser = subparsers.add_parser(
+        "egress-pat-status", help="Report whether a per-user PAT is stored and when it expires"
+    )
+    egress_pat_status_parser.add_argument(
+        "--path", required=True, help="Server path (e.g., /github)"
+    )
+    egress_pat_status_parser.add_argument("--sub", help="Admin-only: query another user's status")
+
+    # Egress PAT delete command
+    egress_pat_delete_parser = subparsers.add_parser(
+        "egress-pat-delete", help="Delete a stored per-user PAT (idempotent)"
+    )
+    egress_pat_delete_parser.add_argument(
+        "--path", required=True, help="Server path (e.g., /github)"
+    )
+    egress_pat_delete_parser.add_argument("--sub", help="Admin-only: delete another user's PAT")
+
     # Server search command
     server_search_parser = subparsers.add_parser(
         "server-search",
@@ -7646,6 +7861,11 @@ Examples:
         "rescan": cmd_rescan,
         "server-update-credential": cmd_server_update_credential,
         "server-connect-config": cmd_server_connect_config,
+        "egress-configure": cmd_egress_configure,
+        "egress-config-get": cmd_egress_config_get,
+        "egress-pat-set": cmd_egress_pat_set,
+        "egress-pat-status": cmd_egress_pat_status,
+        "egress-pat-delete": cmd_egress_pat_delete,
         "server-search": cmd_server_search,
         "ard-search": cmd_ard_search,
         "ard-agents": cmd_ard_agents,

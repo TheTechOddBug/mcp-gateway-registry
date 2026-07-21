@@ -148,6 +148,14 @@ describe('ServerEditModal', () => {
     expect(screen.queryByText('Target Audience')).not.toBeInTheDocument();
   });
 
+  it('shows a provider input in pat mode, not the target audience', () => {
+    render(<Harness initial={{ ...baseForm, egress_auth_mode: 'pat' }} egressEnabled />);
+    expect(screen.getByText('Provider')).toBeInTheDocument();
+    expect(screen.queryByText('Target Audience')).not.toBeInTheDocument();
+    // pat needs only a provider (no client id/secret fields).
+    expect(screen.queryByText('Client ID')).not.toBeInTheDocument();
+  });
+
   it('shows neither provider nor target audience when egress mode is none', () => {
     render(<Harness initial={{ ...baseForm, egress_auth_mode: 'none' }} egressEnabled />);
     expect(screen.getByText('Egress Auth')).toBeInTheDocument();
