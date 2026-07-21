@@ -4361,6 +4361,55 @@ class TestMcpProxyPatMode:
         assert "cookie" not in sent
         assert "x-internal-token" not in sent
 
+    def test_pat_hit_injects_custom_header_and_prefix(self):
+        """A pat server may override the inject header + value prefix (GitLab
+        PRIVATE-TOKEN with an empty prefix -> a bare token in a custom header),
+        and a client-supplied copy of that header is stripped so only the
+        gateway-injected value reaches the upstream."""
+        import auth_server.server as server_module
+
+        async def _pat_vend(token, server):
+            return {
+                "access_token": "glpat_the_pat",
+                "pat_header_name": "PRIVATE-TOKEN",
+                "pat_value_prefix": "",
+            }
+
+        patch_httpx, captured = _capture_upstream_headers()
+        with (
+            patch.object(server_module.settings, "egress_auth_enabled", True),
+            patch.object(server_module, "_vend_egress_token", _pat_vend),
+            patch.object(server_module, "_read_mcp_filter_enabled", return_value=False),
+            _patch_scope_repo_allow_all(),
+            patch_httpx,
+        ):
+            client = TestClient(server_module.app)
+            response = client.post(
+                "/mcp-proxy/gitlab",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "list_projects"},
+                },
+                headers={
+                    **_mcp_proxy_token_headers(server_name="gitlab"),
+                    # A hostile/stale client copy of the custom header must not survive.
+                    "PRIVATE-TOKEN": "attacker-supplied",
+                    "X-Authorization": "Bearer raw-ingress-jwt",
+                },
+            )
+
+        assert response.status_code == 200
+        sent = {k.lower(): v for k, v in captured["headers"].items()}
+        # Bare token in the custom header (no "Bearer " prefix).
+        assert sent["private-token"] == "glpat_the_pat"
+        # The client-supplied copy of the custom header was dropped, not merged.
+        assert "attacker-supplied" not in sent.get("private-token", "")
+        # No stray Authorization was injected for a custom-header pat server.
+        assert "authorization" not in sent
+        assert "x-authorization" not in sent
+
     def test_pat_miss_is_terminal_no_forward(self):
         import auth_server.server as server_module
 

@@ -45,6 +45,9 @@ export interface ServerEditForm {
   egress_custom_token_url: string;
   // obo_exchange (same-IdP OBO hop 1) field:
   egress_target_audience: string;
+  // pat inject header config (admin). Blank = server defaults (Authorization / Bearer).
+  egress_pat_header_name: string;
+  egress_pat_value_prefix: string;
 }
 
 interface ServerEditModalProps {
@@ -267,22 +270,62 @@ const ServerEditModal: React.FC<ServerEditModalProps> = ({
                   </div>
                 )}
                 {form.egress_auth_mode === 'pat' && (
-                  <div>
-                    <label className={LABEL}>Provider</label>
-                    <input
-                      type="text"
-                      value={form.egress_provider}
-                      onChange={(e) =>
-                        setForm((prev) => ({ ...prev, egress_provider: e.target.value }))
-                      }
-                      placeholder="github"
-                      className={FIELD}
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      A short namespace/display key for the PAT (lowercase letters, digits,
-                      hyphen, underscore). Each user submits their own token on the Connected
-                      Accounts page.
-                    </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className={LABEL}>Provider (vault key)</label>
+                      <input
+                        type="text"
+                        value={form.egress_provider}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, egress_provider: e.target.value }))
+                        }
+                        placeholder="github"
+                        className={FIELD}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        A short namespace/display key that identifies this credential in the
+                        vault (lowercase letters, digits, hyphen, underscore). This is NOT the
+                        token: each user submits their own PAT on the Connected Accounts page.
+                      </p>
+                    </div>
+                    <div>
+                      <label className={LABEL}>Auth header name</label>
+                      <input
+                        type="text"
+                        value={form.egress_pat_header_name}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            egress_pat_header_name: e.target.value,
+                          }))
+                        }
+                        placeholder="Authorization"
+                        className={FIELD}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        The upstream header the PAT is injected into. Blank = Authorization.
+                        Use PRIVATE-TOKEN for GitLab, X-API-Key for key-based APIs.
+                      </p>
+                    </div>
+                    <div>
+                      <label className={LABEL}>Value prefix</label>
+                      <input
+                        type="text"
+                        value={form.egress_pat_value_prefix}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            egress_pat_value_prefix: e.target.value,
+                          }))
+                        }
+                        placeholder="Bearer "
+                        className={FIELD}
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Text placed before the token in the header value. Blank = "Bearer "
+                        (leave for GitHub; set empty for a bare token like GitLab/X-API-Key).
+                      </p>
+                    </div>
                   </div>
                 )}
                 {form.egress_auth_mode === 'oauth_user' && (

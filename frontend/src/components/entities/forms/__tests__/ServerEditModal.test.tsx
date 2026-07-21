@@ -34,6 +34,8 @@ const baseForm: ServerEditForm = {
   egress_custom_authorize_url: '',
   egress_custom_token_url: '',
   egress_target_audience: '',
+  egress_pat_header_name: '',
+  egress_pat_value_prefix: '',
 };
 
 // Harness that owns the form state so controlled-input edits are observable.
@@ -148,9 +150,12 @@ describe('ServerEditModal', () => {
     expect(screen.queryByText('Target Audience')).not.toBeInTheDocument();
   });
 
-  it('shows a provider input in pat mode, not the target audience', () => {
+  it('shows provider + inject header fields in pat mode, not the target audience', () => {
     render(<Harness initial={{ ...baseForm, egress_auth_mode: 'pat' }} egressEnabled />);
-    expect(screen.getByText('Provider')).toBeInTheDocument();
+    expect(screen.getByText('Provider (vault key)')).toBeInTheDocument();
+    // pat exposes a configurable inject header + value prefix.
+    expect(screen.getByText('Auth header name')).toBeInTheDocument();
+    expect(screen.getByText('Value prefix')).toBeInTheDocument();
     expect(screen.queryByText('Target Audience')).not.toBeInTheDocument();
     // pat needs only a provider (no client id/secret fields).
     expect(screen.queryByText('Client ID')).not.toBeInTheDocument();

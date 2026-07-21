@@ -6909,12 +6909,25 @@ async def mcp_proxy(
             elif vend and vend.get("access_token"):
                 # Token is vaulted (consent done): strip the user's gateway
                 # credentials/identity and inject the vaulted upstream token.
+                # oauth_user/obo use "Authorization: Bearer"; a pat server may
+                # override the header name + value prefix (e.g. GitLab
+                # "PRIVATE-TOKEN: <t>" bare, or "X-API-Key: <t>"). Defaults
+                # reproduce "Authorization: Bearer <t>".
+                inject_header = vend.get("pat_header_name") or "Authorization"
+                inject_prefix = (
+                    vend["pat_value_prefix"]
+                    if vend.get("pat_value_prefix") is not None
+                    else "Bearer "
+                )
                 forward_headers = {
                     k: v
                     for k, v in forward_headers.items()
-                    if k.lower() not in _EGRESS_STRIP_HEADERS
+                    # Drop the standard ingress creds AND, for a custom pat header,
+                    # any client-supplied copy of that exact header so only the
+                    # gateway-injected value reaches the upstream.
+                    if k.lower() not in _EGRESS_STRIP_HEADERS and k.lower() != inject_header.lower()
                 }
-                forward_headers["Authorization"] = f"Bearer {vend['access_token']}"
+                forward_headers[inject_header] = f"{inject_prefix}{vend['access_token']}"
                 egress_token_injected = True
             elif vend and vend.get("mode") == "pat":
                 # pat miss (no access_token): never submitted OR expired. There is
