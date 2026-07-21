@@ -79,8 +79,7 @@ class TestAvailableServersConnectUrl:
         rows = client.get("/egress-auth/available-servers").json()
         slack = next(r for r in rows if r["server_path"] == "/slack")
         assert (
-            slack["connect_url"]
-            == "https://gw.example.com/oauth2/egress/connect?server=%2Fslack"
+            slack["connect_url"] == "https://gw.example.com/oauth2/egress/connect?server=%2Fslack"
         )
 
     def test_pat_row_connect_url_is_none(self, make_client):
@@ -94,9 +93,7 @@ class TestAvailableServersConnectUrl:
         client = make_client(_ctx(), _servers(), registry_url="http://localhost:9999")
         rows = client.get("/egress-auth/available-servers").json()
         slack = next(r for r in rows if r["server_path"] == "/slack")
-        assert slack["connect_url"].startswith(
-            "http://localhost:9999/oauth2/egress/connect"
-        )
+        assert slack["connect_url"].startswith("http://localhost:9999/oauth2/egress/connect")
 
     def test_non_egress_server_absent(self, make_client):
         client = make_client(_ctx(), _servers())
