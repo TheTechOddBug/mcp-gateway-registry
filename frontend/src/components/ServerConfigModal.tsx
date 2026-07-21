@@ -1,5 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { ClipboardDocumentIcon, KeyIcon, PowerIcon } from '@heroicons/react/24/outline';
+import { ClipboardDocumentIcon, KeyIcon } from '@heroicons/react/24/outline';
+import PlugIcon from './icons/PlugIcon';
 import axios from 'axios';
 import type { Server } from './ServerCard';
 import { useRegistryConfig } from '../hooks/useRegistryConfig';
@@ -109,7 +110,7 @@ function EgressConnectCallout({
   if (state.mode === 'pat') {
     return (
       <div className="flex items-center gap-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20 p-4">
-        <PowerIcon className="h-5 w-5 flex-shrink-0 text-purple-600 dark:text-purple-400" />
+        <PlugIcon className="h-5 w-5 flex-shrink-0 text-purple-600 dark:text-purple-400" />
         <span className="text-sm text-purple-900 dark:text-purple-100">
           This server needs a personal access token before its tools appear.
         </span>
@@ -134,7 +135,7 @@ function EgressConnectCallout({
             : 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20'
         }`}
       >
-        <PowerIcon
+        <PlugIcon
           className={`h-5 w-5 flex-shrink-0 ${
             warn ? 'text-amber-500' : 'text-purple-600 dark:text-purple-400'
           }`}
@@ -158,7 +159,7 @@ function EgressConnectCallout({
 
   return (
     <div className="flex items-center gap-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-4">
-      <PowerIcon className="h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
+      <PlugIcon className="h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
       <span className="text-sm text-green-900 dark:text-green-100">
         Connected to {providerLabel}. This server can act on your behalf.
       </span>

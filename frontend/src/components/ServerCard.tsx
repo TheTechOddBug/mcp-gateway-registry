@@ -7,12 +7,12 @@ import {
   PencilIcon,
   ClockIcon,
   LinkIcon,
-  PowerIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
   TrashIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
+import PlugIcon from './icons/PlugIcon';
 import { isSafeUrl } from '../utils/safeUrl';
 import type { EgressCardState } from '../utils/egressAuth';
 import ServerConfigModal from './ServerConfigModal';
@@ -252,7 +252,7 @@ function EgressConnectButton({
       title={tooltip}
       aria-label={`${label} for ${serverName}`}
     >
-      <PowerIcon className={iconClass} />
+      <PlugIcon className={iconClass} />
     </button>
   );
 }
