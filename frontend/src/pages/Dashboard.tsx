@@ -71,7 +71,7 @@ import type {
 } from '../types/customEntity';
 import axios from 'axios';
 import { getBaseURL } from '../utils/basePath';
-import { isEgressAuthEnabled } from '../utils/egressAuth';
+import { isEgressAuthEnabled, loadEgressCardState, type EgressCardState } from '../utils/egressAuth';
 import {
   buildLocalRuntimeForm,
   buildLocalRuntimeJson,
@@ -315,6 +315,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     egress_target_audience: '',
   });
   const [egressEnabled, setEgressEnabled] = useState(false);
+  // Per-server egress connect state (card icon + connect-modal callout). Keyed by
+  // server path; empty when the feature is off or the caller is not per-user.
+  const [egressStateByPath, setEgressStateByPath] = useState<Map<string, EgressCardState>>(new Map());
   const [editLoading, setEditLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -373,6 +376,17 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
       active = false;
     };
   }, []);
+
+  // Load the per-server egress connect state for the card icon + modal callout.
+  // Returns an empty map when the feature is off or the caller is not per-user.
+  // Extracted so the modal can re-run it after a connect/disconnect.
+  const reloadEgressState = useCallback(() => {
+    void loadEgressCardState().then(setEgressStateByPath);
+  }, []);
+
+  useEffect(() => {
+    reloadEgressState();
+  }, [reloadEgressState]);
 
   // Reset viewFilter to 'discover' when the active tab is hidden by the
   // deployment feature flag. For servers and custom-entity types we ALSO redirect
@@ -2224,6 +2238,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                       onShowToast={showToast}
                       onServerUpdate={handleServerUpdate}
                       authToken={agentApiToken}
+                      egressConnect={egressStateByPath.get(server.path)}
+                      onEgressChanged={reloadEgressState}
                     />
                   );
 
@@ -2549,6 +2565,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
               onServerUpdate={handleServerUpdate}
               onDelete={handleDeleteServer}
               authToken={agentApiToken}
+              egressConnect={egressStateByPath.get(server.path)}
+              onEgressChanged={reloadEgressState}
             />
           )}
           renderAgentCard={(agent) => (

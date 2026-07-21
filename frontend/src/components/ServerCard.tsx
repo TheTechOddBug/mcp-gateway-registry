@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   WrenchScrewdriverIcon,
@@ -6,11 +7,14 @@ import {
   PencilIcon,
   ClockIcon,
   LinkIcon,
+  PowerIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
   TrashIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
+import { isSafeUrl } from '../utils/safeUrl';
+import type { EgressCardState } from '../utils/egressAuth';
 import ServerConfigModal from './ServerConfigModal';
 import SecurityScanModal from './SecurityScanModal';
 import StarRatingWidget from './StarRatingWidget';
@@ -167,6 +171,10 @@ interface ServerCardProps {
   onServerUpdate?: (path: string, updates: Partial<Server>) => void;
   onDelete?: (path: string) => Promise<void>;
   authToken?: string | null;
+  // Per-user egress state for this server (undefined => not eligible / no icon).
+  egressConnect?: EgressCardState;
+  // Called after a connect/disconnect in the modal so the dashboard refreshes.
+  onEgressChanged?: () => void;
 }
 
 interface Tool {
@@ -175,7 +183,81 @@ interface Tool {
   schema?: any;
 }
 
-const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, onEdit, canModify, canHealthCheck = true, canToggle = true, canDelete, onRefreshSuccess, onShowToast, onServerUpdate, onDelete, authToken }) => {
+
+/**
+ * Compact per-server egress affordance in the card header. Reflects three
+ * states (not-connected / connected / needs-reconnect) with a mode-aware label,
+ * from the shared EgressCardState so the card and the connect-modal callout
+ * never disagree.
+ */
+function EgressConnectButton({
+  serverPath,
+  serverName,
+  state,
+  onShowToast,
+}: {
+  serverPath: string;
+  serverName: string;
+  state: EgressCardState;
+  onShowToast?: (message: string, type: 'success' | 'error') => void;
+}) {
+  const navigate = useNavigate();
+  const connected = state.connected;
+
+  let label: string;
+  let tooltip: string;
+  if (state.needsReconnect) {
+    label = 'Reconnect';
+    tooltip = 'Connection expired or failed — reconnect';
+  } else if (connected) {
+    label = 'Connected';
+    tooltip = 'Account connected — manage on Connected Accounts';
+  } else if (state.mode === 'pat') {
+    label = 'Submit token';
+    tooltip = 'Submit a personal access token for this server';
+  } else {
+    label = 'Link account';
+    tooltip = 'Link your account for this server';
+  }
+
+  const handleClick = () => {
+    // PAT cannot use an OAuth redirect, and a healthy connected 3LO just needs
+    // management: route both to Connected Accounts (server preselected).
+    if (state.mode === 'pat' || (connected && !state.needsReconnect)) {
+      navigate(`/connected-accounts?server=${encodeURIComponent(serverPath)}`);
+      return;
+    }
+    // Not-connected or needs-reconnect 3LO: open the gateway front door.
+    // MANDATORY isSafeUrl guard before window.open (defense in depth): connect_url
+    // is server-built but is technically influenceable via a crafted admin path,
+    // so never open it unguarded. Fail closed on unsafe/empty.
+    if (!isSafeUrl(state.connectUrl)) {
+      onShowToast?.('Cannot open the connect URL for this server.', 'error');
+      return;
+    }
+    window.open(state.connectUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const iconClass = state.needsReconnect
+    ? 'h-4 w-4 text-amber-500'
+    : connected
+      ? 'h-4 w-4 text-green-600 dark:text-green-400'
+      : 'h-4 w-4 text-gray-400';
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-all duration-200 flex-shrink-0"
+      title={tooltip}
+      aria-label={`${label} for ${serverName}`}
+    >
+      <PowerIcon className={iconClass} />
+    </button>
+  );
+}
+
+const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, onEdit, canModify, canHealthCheck = true, canToggle = true, canDelete, onRefreshSuccess, onShowToast, onServerUpdate, onDelete, authToken, egressConnect, onEgressChanged }) => {
   const { user } = useAuth();
   const isAdmin = user?.is_admin === true;
   const [tools, setTools] = useState<Tool[]>([]);
@@ -579,6 +661,17 @@ const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, on
               </button>
             )}
 
+            {/* Egress "Link account" affordance — only for servers with per-user
+                egress auth the current user can reach (egressConnect defined). */}
+            {egressConnect && !isArdDiscovery && (
+              <EgressConnectButton
+                serverPath={server.path}
+                serverName={server.name}
+                state={egressConnect}
+                onShowToast={onShowToast}
+              />
+            )}
+
             {/* Full JSON Details + Security Scan — interactive actions, hidden for
                 ARD discovery-only imports so the card is fully read-only. */}
             {!isArdDiscovery && (
@@ -909,6 +1002,8 @@ const ServerCard: React.FC<ServerCardProps> = React.memo(({ server, onToggle, on
         isOpen={showConfig}
         onClose={() => setShowConfig(false)}
         onShowToast={onShowToast}
+        egressConnect={egressConnect}
+        onEgressChanged={onEgressChanged}
       />
 
       <SecurityScanModal

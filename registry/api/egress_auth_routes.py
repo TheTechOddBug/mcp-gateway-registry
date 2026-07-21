@@ -946,6 +946,12 @@ async def list_available_egress_servers(
                 "server_name": server.get("server_name") or path,
                 "provider": eo.get("provider") or "custom",
                 "egress_auth_mode": mode,
+                # Server-built gateway front door, using settings.registry_url so
+                # the browser never guesses the base URL (correct on all deploy
+                # surfaces). Only oauth_user can use /oauth2/egress/connect; a pat
+                # server 400s there, so its connect_url is None (the UI routes pat
+                # to the Connected Accounts token form instead).
+                "connect_url": _build_connect_url(path) if mode == "oauth_user" else None,
             }
         )
     results.sort(key=lambda r: r["server_name"].lower())

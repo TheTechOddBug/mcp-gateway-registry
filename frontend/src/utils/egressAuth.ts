@@ -21,6 +21,25 @@ export interface AvailableEgressServer {
   server_name: string;
   provider: string;
   egress_auth_mode?: string;
+  // Server-built gateway front-door URL (oauth_user only; null for pat). Built
+  // from the configured registry_url so the browser never guesses the base.
+  connect_url?: string | null;
+}
+
+/**
+ * Merged per-server egress state consumed by BOTH the server-card icon and the
+ * connect-modal callout, so the two surfaces never disagree.
+ */
+export interface EgressCardState {
+  mode: 'oauth_user' | 'pat';
+  provider: string;
+  connectUrl: string; // from connect_url (oauth_user); '' for pat (never opened)
+  connected: boolean; // a connection exists for this server_path
+  status: string | null; // connection status: 'active' | 'refresh_failed' | ... (null if not connected)
+  expiresAt: string | null; // connection expiry ISO string (null if not connected)
+  // Connected but the token is dead (refresh_failed or past expiry): drives the
+  // one-click "Reconnect" affordance so it stops being a silent "0 tools".
+  needsReconnect: boolean;
 }
 
 export interface PatStatus {
@@ -51,6 +70,53 @@ export async function listConnections(): Promise<EgressConnection[]> {
 export async function listAvailableServers(): Promise<AvailableEgressServer[]> {
   const resp = await axios.get('/api/egress-auth/available-servers');
   return resp.data as AvailableEgressServer[];
+}
+
+/**
+ * Fetch the two per-user egress lists once and merge them into a per-server-path
+ * map, consumed by BOTH the server-card icon and the connect-modal callout.
+ * Returns an empty map when the feature is disabled (available-servers 404s) or
+ * the caller is not a per-user principal (returns []).
+ */
+export async function loadEgressCardState(): Promise<Map<string, EgressCardState>> {
+  const byPath = new Map<string, EgressCardState>();
+  let available: AvailableEgressServer[] = [];
+  try {
+    available = await listAvailableServers();
+  } catch {
+    // 404 = feature disabled; anything else = treat as "no egress affordance".
+    return byPath;
+  }
+  let connections: EgressConnection[] = [];
+  try {
+    connections = await listConnections();
+  } catch {
+    connections = [];
+  }
+  // Index connections by server_path for O(1) lookup of status/expiry.
+  const connByPath = new Map(connections.map(c => [c.server_path, c]));
+  const nowMs = Date.now();
+  for (const s of available) {
+    const mode = s.egress_auth_mode === 'pat' ? 'pat' : 'oauth_user';
+    const conn = connByPath.get(s.server_path);
+    const connected = !!conn;
+    const status = conn?.status ?? null;
+    const expiresAt = conn?.expires_at ?? null;
+    // A dead token (refresh_failed or expired) is still "connected" but needs a
+    // one-click reconnect so it stops being a silent "0 tools".
+    const expired = !!expiresAt && Date.parse(expiresAt) < nowMs;
+    const needsReconnect = connected && (status === 'refresh_failed' || expired);
+    byPath.set(s.server_path, {
+      mode,
+      provider: s.provider,
+      connectUrl: s.connect_url || '', // '' for pat (backend sends null); pat never opens it
+      connected,
+      status,
+      expiresAt,
+      needsReconnect,
+    });
+  }
+  return byPath;
 }
 
 /** Begin consent for a server; returns the provider authorize URL to open. */
