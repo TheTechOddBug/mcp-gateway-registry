@@ -276,3 +276,31 @@ class TestAttachMcpProxyTokenMarker:
         )
         claims = _decode(resp.headers["X-Internal-Token"])
         assert claims["egress_user"] == "00000000-sub-alice"
+
+
+@pytest.mark.unit
+class TestCanonicalEgressUser:
+    """The vault-keying id must agree between the consent-write and vend paths."""
+
+    def test_explicit_egress_user_claim_wins_over_username_sub(self):
+        # A gateway-issued self-signed USER token carries sub=username but stamps
+        # the OIDC sub as egress_user. Without egress_user winning, a Cursor/Claude
+        # bearer would key the vault on the username and miss the browser-consented
+        # token (the "0 tools" bug). egress_user MUST take precedence over sub.
+        vr = {"data": {"egress_user": "oidc-sub-xyz", "sub": "alice@example.com"}}
+        assert server._canonical_egress_user(vr) == "oidc-sub-xyz"
+
+    def test_cookie_session_subject_used_when_no_egress_user(self):
+        # Cookie path: session_data has no sub/egress_user, only the persisted
+        # OIDC subject -> that is the canonical id.
+        vr = {"data": {"subject": "oidc-sub-abc"}, "username": "alice@example.com"}
+        assert server._canonical_egress_user(vr) == "oidc-sub-abc"
+
+    def test_bearer_sub_used_when_no_egress_user(self):
+        # OIDC bearer path: verified claims expose sub directly.
+        vr = {"data": {"sub": "oidc-sub-idp"}}
+        assert server._canonical_egress_user(vr) == "oidc-sub-idp"
+
+    def test_username_fallback_preserves_non_oidc_behavior(self):
+        vr = {"data": {}, "username": "svc-account"}
+        assert server._canonical_egress_user(vr) == "svc-account"
