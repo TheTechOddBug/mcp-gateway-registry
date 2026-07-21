@@ -1800,6 +1800,8 @@ class RegistryClient:
             or endpoint == "/api/servers/groups/import"
             or "/auth-credential" in endpoint
             or "/versions" in endpoint
+            or "/egress-auth" in endpoint
+            or "/egress-pat" in endpoint
             # The server rate endpoint (POST /api/servers/{path}/rate) takes a
             # JSON RatingRequest body, not form data.
             or endpoint.endswith("/rate")
@@ -3811,6 +3813,219 @@ class RegistryClient:
             method="GET", endpoint=f"/api/servers/{encoded_path}/versions"
         )
 
+        return response.json()
+
+    # Egress Auth Methods (per-user egress credential vault)
+
+    def configure_egress_auth(
+        self,
+        server_path: str,
+        mode: str,
+        provider: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        scopes: list[str] | None = None,
+        target_audience: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure per-user egress auth on a server (admin only).
+
+        Wraps POST /api/servers/{path}/egress-auth. Sets the egress auth mode
+        and the mode-specific parameters. For ``pat`` mode, pass ``mode="pat"``
+        and ``provider=<slug>``.
+
+        Args:
+            server_path: Server path (e.g., "/github" or "github").
+            mode: Egress auth mode (none, oauth_user, obo_exchange, pat).
+            provider: Provider slug/name. Required for oauth_user and pat.
+            client_id: OAuth client id (oauth_user only).
+            client_secret: OAuth client secret (oauth_user only, write-only).
+            scopes: Optional list of OAuth scopes.
+            target_audience: Target audience (obo_exchange only).
+
+        Returns:
+            Non-secret egress config view dict.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 400 invalid config,
+                403 admin required, 404 server not found).
+        """
+        encoded_path = quote(server_path.lstrip("/"), safe="")
+        logger.info(f"Configuring egress auth for /{encoded_path}: mode={mode}")
+
+        body: dict[str, Any] = {"egress_auth_mode": mode}
+        if provider is not None:
+            body["egress_provider"] = provider
+        if client_id is not None:
+            body["client_id"] = client_id
+        if client_secret is not None:
+            body["client_secret"] = client_secret
+        if scopes is not None:
+            body["scopes"] = scopes
+        if target_audience is not None:
+            body["target_audience"] = target_audience
+
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/servers/{encoded_path}/egress-auth",
+            data=body,
+        )
+        return response.json()
+
+    def get_egress_auth_config(
+        self,
+        server_path: str,
+    ) -> dict[str, Any]:
+        """Fetch the (non-secret) egress auth config for a server.
+
+        Wraps GET /api/servers/{path}/egress-auth.
+
+        Args:
+            server_path: Server path (e.g., "/github" or "github").
+
+        Returns:
+            Non-secret egress config view dict.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 404 server not found).
+        """
+        encoded_path = quote(server_path.lstrip("/"), safe="")
+        logger.info(f"Fetching egress auth config for /{encoded_path}")
+
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/servers/{encoded_path}/egress-auth",
+        )
+        return response.json()
+
+    def set_egress_pat(
+        self,
+        server_path: str,
+        secret: str,
+        ttl_value: int,
+        ttl_unit: str,
+        sub: str | None = None,
+        auth_method: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit (or replace) a per-user PAT for a ``pat`` server (write-only).
+
+        Wraps PUT /api/servers/{path}/egress-pat. The secret is stored, never
+        returned. ``sub`` is passed through; the server enforces admin-gating
+        (a non-admin supplying ``sub`` is rejected 403).
+
+        Args:
+            server_path: Server path (e.g., "/github" or "github").
+            secret: The PAT / API key to store.
+            ttl_value: Positive integer validity amount.
+            ttl_unit: Validity unit (minutes, hours, or days).
+            sub: Admin-only override to submit on another user's behalf.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method (the vault partition the target vends from, e.g.
+                "oauth2"). Ignored for self-submit.
+
+        Returns:
+            Status dict with path, configured, sub, updated_at, expires_at.
+            The secret is never echoed.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 400 bad TTL/empty
+                secret or on-behalf missing auth_method, 403 non-admin sub, 409
+                server not in pat mode).
+        """
+        encoded_path = quote(server_path.lstrip("/"), safe="")
+        # Do NOT log the secret value.
+        logger.info(f"Submitting egress PAT for /{encoded_path}: ttl={ttl_value} {ttl_unit}")
+
+        body: dict[str, Any] = {
+            "secret": secret,
+            "ttl_value": ttl_value,
+            "ttl_unit": ttl_unit,
+        }
+        if sub is not None:
+            body["sub"] = sub
+        if auth_method is not None:
+            body["auth_method"] = auth_method
+
+        response = self._make_request(
+            method="PUT",
+            endpoint=f"/api/servers/{encoded_path}/egress-pat",
+            data=body,
+        )
+        return response.json()
+
+    def get_egress_pat_status(
+        self,
+        server_path: str,
+        sub: str | None = None,
+        auth_method: str | None = None,
+    ) -> dict[str, Any]:
+        """Report whether a per-user PAT is stored and when it expires.
+
+        Wraps GET /api/servers/{path}/egress-pat. Never returns the secret.
+
+        Args:
+            server_path: Server path (e.g., "/github" or "github").
+            sub: Admin-only override to query another user's status.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method.
+
+        Returns:
+            Status dict with path, configured, expires_at, expired.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 403 non-admin sub,
+                409 server not in pat mode).
+        """
+        encoded_path = quote(server_path.lstrip("/"), safe="")
+        logger.info(f"Fetching egress PAT status for /{encoded_path}")
+
+        params: dict[str, Any] = {}
+        if sub is not None:
+            params["sub"] = sub
+        if auth_method is not None:
+            params["auth_method"] = auth_method
+        response = self._make_request(
+            method="GET",
+            endpoint=f"/api/servers/{encoded_path}/egress-pat",
+            params=params or None,
+        )
+        return response.json()
+
+    def delete_egress_pat(
+        self,
+        server_path: str,
+        sub: str | None = None,
+        auth_method: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete a stored per-user PAT (idempotent).
+
+        Wraps DELETE /api/servers/{path}/egress-pat.
+
+        Args:
+            server_path: Server path (e.g., "/github" or "github").
+            sub: Admin-only override to delete another user's PAT.
+            auth_method: Admin-only, REQUIRED with ``sub``: the target's ingress
+                auth method.
+
+        Returns:
+            Dict with path and configured (always False).
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 403 non-admin sub,
+                409 server not in pat mode).
+        """
+        encoded_path = quote(server_path.lstrip("/"), safe="")
+        logger.info(f"Deleting egress PAT for /{encoded_path}")
+
+        params: dict[str, Any] = {}
+        if sub is not None:
+            params["sub"] = sub
+        if auth_method is not None:
+            params["auth_method"] = auth_method
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/servers/{encoded_path}/egress-pat",
+            params=params or None,
+        )
         return response.json()
 
     # Management API Methods (IAM/User Management)

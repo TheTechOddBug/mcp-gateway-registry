@@ -6287,6 +6287,46 @@ def _obo_error_response(req_id: object, detail: str):
     )
 
 
+def _pat_missing_response(
+    server_name: str,
+    incoming_method: str | None,
+    req_id: object,
+):
+    """Terminal tool result for a ``pat`` server with no usable PAT.
+
+    Unlike the ``oauth_user`` consent path there is no interactive flow the
+    gateway can initiate for a PAT (the user must generate one at the provider),
+    so a miss (never submitted OR expired) is TERMINAL. We return a SUCCESSFUL
+    JSON-RPC result with ``isError=true`` (works on every MCP client, no -32042
+    URL elicitation) whose text tells the human where to submit a PAT.
+    """
+    logger.info(
+        "mcp_proxy: pat server=%s method=%s has no usable PAT; returning terminal "
+        "isError=true tool result (submit via Connected Accounts)",
+        server_name,
+        incoming_method,
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "No PAT configured for this server. Submit one via the "
+                            "Registry Connected Accounts page, then retry."
+                        ),
+                    }
+                ],
+                "isError": True,
+            },
+        },
+    )
+
+
 # Protocol version the gateway advertises when it answers `initialize` locally
 # (the fallback used if the client did not state one). The handshake is a
 # capability negotiation between the client and THIS server (the gateway); per
@@ -6869,13 +6909,33 @@ async def mcp_proxy(
             elif vend and vend.get("access_token"):
                 # Token is vaulted (consent done): strip the user's gateway
                 # credentials/identity and inject the vaulted upstream token.
+                # oauth_user/obo use "Authorization: Bearer"; a pat server may
+                # override the header name + value prefix (e.g. GitLab
+                # "PRIVATE-TOKEN: <t>" bare, or "X-API-Key: <t>"). Defaults
+                # reproduce "Authorization: Bearer <t>".
+                inject_header = vend.get("pat_header_name") or "Authorization"
+                inject_prefix = (
+                    vend["pat_value_prefix"]
+                    if vend.get("pat_value_prefix") is not None
+                    else "Bearer "
+                )
                 forward_headers = {
                     k: v
                     for k, v in forward_headers.items()
-                    if k.lower() not in _EGRESS_STRIP_HEADERS
+                    # Drop the standard ingress creds AND, for a custom pat header,
+                    # any client-supplied copy of that exact header so only the
+                    # gateway-injected value reaches the upstream.
+                    if k.lower() not in _EGRESS_STRIP_HEADERS and k.lower() != inject_header.lower()
                 }
-                forward_headers["Authorization"] = f"Bearer {vend['access_token']}"
+                forward_headers[inject_header] = f"{inject_prefix}{vend['access_token']}"
                 egress_token_injected = True
+            elif vend and vend.get("mode") == "pat":
+                # pat miss (no access_token): never submitted OR expired. There is
+                # no interactive flow to offer (unlike oauth_user), so this is
+                # terminal -- return the actionable "no PAT configured" message
+                # rather than forwarding stripped credentials to a 401ing upstream.
+                req_id = incoming_payload.get("id") if isinstance(incoming_payload, dict) else None
+                return _pat_missing_response(server_name, incoming_method, req_id)
             elif vend and (vend.get("connect_url") or vend.get("authorize_url")):
                 # Egress is configured for this server but the user has no usable
                 # token, and the upstream is itself an OAuth resource server that

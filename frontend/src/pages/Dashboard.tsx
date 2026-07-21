@@ -305,7 +305,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
     },
     custom_headers: [] as Array<{ name: string; value: string }>,
     // Egress auth to the upstream (admin config).
-    egress_auth_mode: 'none' as 'none' | 'oauth_user' | 'obo_exchange',
+    egress_auth_mode: 'none' as 'none' | 'oauth_user' | 'obo_exchange' | 'pat',
     egress_provider: '',
     egress_client_id: '',
     egress_client_secret: '',  // write-only; blank on edit keeps the stored one
@@ -1278,7 +1278,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
         deployment,
         local_runtime: buildLocalRuntimeForm(localRuntimeRaw),
         custom_headers: (serverDetails.custom_header_names || []).map((name: string) => ({ name, value: '' })),
-        egress_auth_mode: (serverDetails.egress_auth_mode || 'none') as 'none' | 'oauth_user' | 'obo_exchange',
+        egress_auth_mode: (serverDetails.egress_auth_mode || 'none') as 'none' | 'oauth_user' | 'obo_exchange' | 'pat',
         egress_provider: serverDetails.egress_oauth?.provider || '',
         egress_client_id: serverDetails.egress_oauth?.client_id || '',
         egress_client_secret: '',  // never round-trip the secret
@@ -1524,6 +1524,17 @@ const Dashboard: React.FC<DashboardProps> = ({ activeFilter = 'all', setActiveFi
                 scopes: scopesList,
                 custom_authorize_url: editForm.egress_custom_authorize_url || undefined,
                 custom_token_url: editForm.egress_custom_token_url || undefined,
+              },
+              { headers: csrfHeaders }
+            );
+          } else if (mode === 'pat') {
+            await axios.post(
+              `/api/servers${editingServer.path}/egress-auth`,
+              {
+                egress_auth_mode: 'pat',
+                egress_provider: editForm.egress_provider.trim(),
+                // The inject header is inherited from Backend Authentication at
+                // vend time, so it is not sent here.
               },
               { headers: csrfHeaders }
             );
