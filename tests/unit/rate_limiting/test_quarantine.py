@@ -9,7 +9,6 @@ from registry.rate_limiting.backend import IncrResult, RateLimiterBackend
 from registry.rate_limiting.limiter import RateLimiter
 from registry.rate_limiting.models import (
     QUARANTINE_CALLER_GROUP,
-    QUARANTINE_TARGET_GROUP,
 )
 
 

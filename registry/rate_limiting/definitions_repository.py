@@ -255,6 +255,7 @@ class DefinitionsRepository:
         groups are always visible in the API/UI; enforcement is still feature-gated.
         """
         from .models import (
+            MIN_WINDOW_SECONDS,
             QUARANTINE_CALLER_GROUP,
             QUARANTINE_TARGET_GROUP,
         )
