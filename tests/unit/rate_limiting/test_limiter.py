@@ -357,6 +357,75 @@ class TestRateLimiter:
         assert allowed == 2
         assert backend.counts.get("tgt:a2a_agent:booking:60") == 2
 
+    async def test_server_group_keys_bucket_per_member_server(self):
+        """A server_group limit buckets per the LIVE server (tgt:server_group:<server>:w).
+
+        The counter key uses the request's server name, so each member server gets
+        its own independent bucket even though they share one definition.
+        """
+        backend = _FakeBackend()
+        group_def = RateLimitDefinition(
+            axis="target",
+            entity_type="server_group",
+            name="fragile",
+            max_requests=2,
+            window_seconds=60,
+            members=["mcpgw", "atlas"],
+        )
+        # Stub: the group def is returned for any of its member servers, mirroring
+        # the real repo's $or expansion.
+        limiter = _make_limiter(backend)
+
+        async def _list_target_limits(entity_type, name):
+            if entity_type == "mcp_server" and name in group_def.members:
+                return [group_def]
+            return []
+
+        limiter._definitions.list_target_limits = _list_target_limits  # type: ignore[attr-defined]
+
+        # Exhaust mcpgw's own bucket (2/60s).
+        mcpgw_allowed = await _count_allowed(
+            limiter, 5, username="u", client_id=None,
+            target_entity_type="mcp_server", target_name="mcpgw",
+        )
+        assert mcpgw_allowed == 2
+        assert backend.counts.get("tgt:server_group:mcpgw:60") == 2
+        # atlas has its OWN independent bucket (per-member uniform, not pooled).
+        atlas_allowed = await _count_allowed(
+            limiter, 5, username="u", client_id=None,
+            target_entity_type="mcp_server", target_name="atlas",
+        )
+        assert atlas_allowed == 2
+        assert backend.counts.get("tgt:server_group:atlas:60") == 2
+
+    async def test_server_group_and_individual_target_are_independent_buckets(self):
+        """A server in a group AND with its own mcp_server limit gets two buckets, both enforced."""
+        backend = _FakeBackend()
+        group_def = RateLimitDefinition(
+            axis="target", entity_type="server_group", name="grp",
+            max_requests=5, window_seconds=60, members=["mcpgw"],
+        )
+        indiv_def = RateLimitDefinition(
+            axis="target", entity_type="mcp_server", name="mcpgw",
+            max_requests=2, window_seconds=60,
+        )
+        limiter = _make_limiter(backend)
+
+        async def _list_target_limits(entity_type, name):
+            if entity_type == "mcp_server" and name == "mcpgw":
+                return [group_def, indiv_def]
+            return []
+
+        limiter._definitions.list_target_limits = _list_target_limits  # type: ignore[attr-defined]
+        # The tighter individual limit (2) governs; both buckets exist.
+        allowed = await _count_allowed(
+            limiter, 6, username="u", client_id=None,
+            target_entity_type="mcp_server", target_name="mcpgw",
+        )
+        assert allowed == 2
+        assert backend.counts.get("tgt:mcp_server:mcpgw:60") == 2
+        assert "tgt:server_group:mcpgw:60" in backend.counts
+
     async def test_caller_and_target_gates_stack(self):
         """When both a caller and a target gate apply, the tighter one governs."""
         backend = _FakeBackend()

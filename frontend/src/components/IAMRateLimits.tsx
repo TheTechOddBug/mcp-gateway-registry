@@ -17,6 +17,8 @@ import {
   RateLimitAxis,
   AXIS_LABELS,
   TARGET_ENTITY_TYPES,
+  TARGET_ENTITY_TYPE_LABELS,
+  SERVER_GROUP_ENTITY_TYPE,
 } from '../hooks/useRateLimits';
 import DeleteConfirmation from './DeleteConfirmation';
 import ListStateBoundary from './iam/ListStateBoundary';
@@ -76,8 +78,16 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
   const [formUserMax, setFormUserMax] = useState('');
   const [formAgentMax, setFormAgentMax] = useState('');
   const [formTargetMax, setFormTargetMax] = useState('');
+  // server_group members: the server paths this group covers (each limited
+  // individually to formTargetMax). Only used when isServerGroup.
+  const [formMembers, setFormMembers] = useState<string[]>([]);
   const [formFailClosed, setFormFailClosed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // A server_group is a target-axis definition naming a set of servers; each
+  // member gets its own bucket. Drives the member multi-select in the form.
+  const isServerGroup =
+    formAxis === 'target' && formEntityType === SERVER_GROUP_ENTITY_TYPE;
 
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
@@ -129,6 +139,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
     setFormUserMax('');
     setFormAgentMax('');
     setFormTargetMax('');
+    setFormMembers([]);
     setFormFailClosed(false);
   }, []);
 
@@ -146,6 +157,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
     setFormUserMax(d.user_max_requests != null ? String(d.user_max_requests) : '');
     setFormAgentMax(d.agent_max_requests != null ? String(d.agent_max_requests) : '');
     setFormTargetMax(d.max_requests != null ? String(d.max_requests) : '');
+    setFormMembers(d.members ?? []);
     setFormFailClosed(d.fail_closed);
     setView('form');
   };
@@ -156,6 +168,10 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
       return;
     }
     const isGroup = GROUP_AXES.includes(formAxis);
+    if (isServerGroup && formMembers.length === 0) {
+      onShowToast('Add at least one server to the group', 'error');
+      return;
+    }
     const def: RateLimitDefinition = {
       axis: formAxis,
       entity_type: isGroup ? 'group' : formEntityType,
@@ -166,6 +182,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
       max_requests: formAxis === 'target' && formTargetMax ? Number(formTargetMax) : null,
       user_max_requests: isGroup && formUserMax ? Number(formUserMax) : null,
       agent_max_requests: isGroup && formAgentMax ? Number(formAgentMax) : null,
+      members: isServerGroup ? formMembers : null,
     };
     setIsSaving(true);
     try {
@@ -211,6 +228,10 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
       if (d.agent_max_requests != null) parts.push(`agent ${d.agent_max_requests}`);
       return `${parts.join(', ')} / ${w}`;
     }
+    if (d.entity_type === SERVER_GROUP_ENTITY_TYPE) {
+      const n = d.members?.length ?? 0;
+      return `${d.max_requests} / ${w} · each of ${n} server${n === 1 ? '' : 's'}`;
+    }
     return `${d.max_requests} / ${w}`;
   };
 
@@ -249,7 +270,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
             >
               <option value="caller">{AXIS_LABELS.caller} (a group of users/agents, across all targets)</option>
               <option value="caller_target">{AXIS_LABELS.caller_target} (each member gets an independent quota per target)</option>
-              <option value="target">{AXIS_LABELS.target} (an MCP server / A2A agent, across all callers)</option>
+              <option value="target">{AXIS_LABELS.target} (an MCP server, A2A agent, or server group, across all callers)</option>
             </select>
           </div>
 
@@ -263,7 +284,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
                 className={inputBase}
               >
                 {TARGET_ENTITY_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>{TARGET_ENTITY_TYPE_LABELS[t] ?? t}</option>
                 ))}
               </select>
             </div>
@@ -271,15 +292,18 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
 
           <div>
             <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-              {isGroup ? 'Group name' : 'Target name (server path / agent path)'}
+              {isGroup || isServerGroup
+                ? 'Group name'
+                : 'Target name (server path / agent path)'}
             </label>
-            {isGroup ? (
+            {isGroup || isServerGroup ? (
+              // Group name is an arbitrary label (not a registered path).
               <input
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
                 disabled={!!editingId}
-                placeholder="e.g. rate-limited-testers"
+                placeholder={isServerGroup ? 'e.g. fragile-backends' : 'e.g. rate-limited-testers'}
                 className={inputBase}
               />
             ) : editingId ? (
@@ -302,6 +326,50 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
               />
             )}
           </div>
+
+          {isServerGroup && (
+            <div>
+              <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                Servers in this group
+              </label>
+              {/* Add-a-server typeahead: each pick is appended as a removable chip. */}
+              <SearchableSelect
+                options={targetOptions}
+                value=""
+                onChange={(path) =>
+                  setFormMembers((prev) => (prev.includes(path) ? prev : [...prev, path]))
+                }
+                isLoading={serversLoading}
+                allowCustom
+                placeholder="Add a server path… (e.g. mcpgw)"
+              />
+              {formMembers.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {formMembers.map((m) => (
+                    <span
+                      key={m}
+                      className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-mono text-blue-800 dark:text-blue-200"
+                    >
+                      {m}
+                      <button
+                        type="button"
+                        onClick={() => setFormMembers((prev) => prev.filter((x) => x !== m))}
+                        className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-100"
+                        aria-label={`Remove ${m}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-xs text-gray-400">
+                Each server in this group is limited to the Max requests/window below{' '}
+                <strong>individually</strong> (a separate bucket per server). This is NOT a
+                shared or pooled limit across the group.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">

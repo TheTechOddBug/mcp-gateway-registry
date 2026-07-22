@@ -1098,10 +1098,14 @@ def cmd_rate_limit_set(args: argparse.Namespace) -> int:
     """Create or update a rate-limit definition.
 
     Caller (group) axis uses --user-max-requests / --agent-max-requests (at least
-    one). Target axis uses --max-requests.
+    one). Target axis uses --max-requests. A server_group target entity also takes
+    --members (comma-separated server paths); each member gets its own bucket.
     """
     try:
         client = _create_client(args)
+        members = None
+        if getattr(args, "members", None):
+            members = [m.strip() for m in args.members.split(",") if m.strip()]
         result = client.set_rate_limit(
             axis=args.axis,
             entity_type=args.entity_type,
@@ -1112,6 +1116,7 @@ def cmd_rate_limit_set(args: argparse.Namespace) -> int:
             window_seconds=args.window_seconds,
             fail_closed=args.fail_closed,
             enabled=not args.disabled,
+            members=members,
         )
         logger.info("Rate-limit definition stored")
         print(json.dumps(result, indent=2))
@@ -6336,16 +6341,28 @@ Examples:
         "--entity-type",
         required=True,
         dest="entity_type",
-        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent'",
+        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent' | 'server_group'",
     )
     rate_limit_set_parser.add_argument(
-        "--name", required=True, help="Group name, server path, or agent path"
+        "--name", required=True, help="Group name, server path, agent path, or server-group name"
     )
     rate_limit_set_parser.add_argument(
         "--max-requests",
         type=int,
         dest="max_requests",
-        help="TARGET axis: max requests per window across all callers",
+        help=(
+            "TARGET axis: max requests per window across all callers. For a "
+            "server_group, applies to EACH member server individually."
+        ),
+    )
+    rate_limit_set_parser.add_argument(
+        "--members",
+        dest="members",
+        help=(
+            "server_group target entity only: comma-separated server paths. Each "
+            "listed server gets its own independent max-requests/window bucket "
+            "(per-member uniform, not a shared pool)."
+        ),
     )
     rate_limit_set_parser.add_argument(
         "--user-max-requests",

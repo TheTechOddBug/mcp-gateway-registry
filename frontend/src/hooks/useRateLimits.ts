@@ -31,6 +31,10 @@ export interface RateLimitDefinition {
   scope?: 'caller' | 'target' | null;
   fail_closed: boolean;
   enabled: boolean;
+  // server_group target entity only: the set of server paths the definition
+  // covers. Each member is limited to max_requests/window INDIVIDUALLY (its own
+  // bucket), not a shared pool. Absent for every other definition.
+  members?: string[] | null;
 }
 
 // A rate-limit membership: maps a caller (user/client) OR a target (server/agent)
@@ -48,7 +52,15 @@ export interface QuarantineList {
 }
 
 export const CALLER_ENTITY_TYPE = 'group';
-export const TARGET_ENTITY_TYPES = ['mcp_server', 'a2a_agent'];
+export const TARGET_ENTITY_TYPES = ['mcp_server', 'a2a_agent', 'server_group'];
+export const SERVER_GROUP_ENTITY_TYPE = 'server_group';
+
+// Friendly labels for target entity types (never render the raw enum).
+export const TARGET_ENTITY_TYPE_LABELS: Record<string, string> = {
+  mcp_server: 'MCP server',
+  a2a_agent: 'A2A agent',
+  server_group: 'Server group (per-member uniform)',
+};
 export const CALLER_SUBJECT_TYPES = ['user', 'client'];
 export const TARGET_SUBJECT_TYPES = ['server', 'agent'];
 export const QUARANTINE_CALLER_GROUP = 'quarantine-callers';

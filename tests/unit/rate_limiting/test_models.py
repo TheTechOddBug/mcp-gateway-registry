@@ -59,6 +59,87 @@ class TestRateLimitDefinition:
         )
         assert d.entity_type == "a2a_agent"
 
+    def test_valid_server_group_definition(self):
+        """A server_group target with max_requests + non-empty members is accepted."""
+        d = RateLimitDefinition(
+            axis="target",
+            entity_type="server_group",
+            name="fragile-backends",
+            max_requests=100,
+            window_seconds=60,
+            members=["airegistry-tools", "aws-kb"],
+        )
+        assert d.build_id() == "target:server_group:fragile-backends:60"
+        assert d.members == ["airegistry-tools", "aws-kb"]
+
+    def test_server_group_requires_members(self):
+        """A server_group with no members (or empty list) is rejected."""
+        with pytest.raises(ValidationError, match="non-empty members"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="empty",
+                max_requests=100,
+            )
+        with pytest.raises(ValidationError, match="non-empty members"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="empty",
+                max_requests=100,
+                members=[],
+            )
+
+    def test_server_group_requires_max_requests(self):
+        """A server_group still needs the single target max_requests."""
+        with pytest.raises(ValidationError, match="must set max_requests"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="grp",
+                members=["mcpgw"],
+            )
+
+    def test_server_group_rejects_duplicate_and_blank_members(self):
+        """Members must be clean: no duplicates, no blank strings."""
+        with pytest.raises(ValidationError, match="duplicates"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="dup",
+                max_requests=100,
+                members=["mcpgw", "mcpgw"],
+            )
+        with pytest.raises(ValidationError, match="non-empty server-path"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="blank",
+                max_requests=100,
+                members=["mcpgw", "  "],
+            )
+
+    def test_single_target_rejects_members(self):
+        """members is only valid for server_group; a plain mcp_server def rejects it."""
+        with pytest.raises(ValidationError, match="only valid for a server_group"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="mcp_server",
+                name="mcpgw",
+                max_requests=500,
+                members=["mcpgw"],
+            )
+
+    def test_legacy_target_has_no_members(self):
+        """A pre-existing mcp_server def (no members key) parses with members=None."""
+        d = RateLimitDefinition(
+            axis="target",
+            entity_type="mcp_server",
+            name="mcpgw",
+            max_requests=500,
+        )
+        assert d.members is None
+
     def test_daily_volume_window_is_allowed(self):
         """A full-day window (volume cap) is within bounds."""
         d = RateLimitDefinition(

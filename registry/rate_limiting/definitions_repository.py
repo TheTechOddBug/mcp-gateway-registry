@@ -20,7 +20,10 @@ from ..repositories.documentdb.client import (
     get_collection_name,
     get_documentdb_client,
 )
-from .models import RateLimitDefinition
+from .models import (
+    SERVER_GROUP_ENTITY_TYPE,
+    RateLimitDefinition,
+)
 
 # Configure logging with basicConfig
 logging.basicConfig(
@@ -155,16 +158,30 @@ class DefinitionsRepository:
         entity_type: str,
         name: str,
     ) -> list[RateLimitDefinition]:
-        """Return all enabled target-axis definitions (all windows) for one target entity."""
+        """Return all enabled target-axis definitions (all windows) for one target entity.
+
+        For an ``mcp_server`` target this ALSO returns enabled ``server_group``
+        definitions whose ``members`` array contains this server, so a server picks
+        up any group limit it belongs to. Each such definition is keyed per this
+        individual server by the limiter (``tgt:server_group:<server>:<window>``),
+        giving per-member uniform buckets rather than a shared pool. The exact-name
+        arm and the group arm are unioned via ``$or``; both a per-server and a
+        per-group definition can apply at once (independent buckets, all enforced).
+        """
         cache_key = f"target:{entity_type}:{name}"
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
+        # Exact single-target match always applies. Only server targets can belong
+        # to a server_group, so the group arm is added only for mcp_server (agent /
+        # tool / skill lookups keep their single-arm behavior, unchanged).
+        or_clauses: list[dict] = [{"entity_type": entity_type, "name": name}]
+        if entity_type == "mcp_server":
+            or_clauses.append({"entity_type": SERVER_GROUP_ENTITY_TYPE, "members": name})
         query = {
             "axis": "target",
-            "entity_type": entity_type,
-            "name": name,
             "enabled": True,
+            "$or": or_clauses,
         }
         definitions = await self._find_definitions(query)
         self._cache_put(cache_key, definitions)

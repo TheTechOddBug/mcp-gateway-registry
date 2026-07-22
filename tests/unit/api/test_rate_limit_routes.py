@@ -96,6 +96,60 @@ class TestPutRateLimit:
         assert resp.status_code == 200
         assert resp.json()["user_max_requests"] == 25
 
+    def test_put_valid_server_group(self, client, mock_auth_admin, mock_repository):
+        """A server_group target with members is stored and echoes members back."""
+        from registry.rate_limiting.models import RateLimitDefinition
+
+        definition = RateLimitDefinition(
+            axis="target",
+            entity_type="server_group",
+            name="fragile",
+            max_requests=100,
+            window_seconds=60,
+            members=["airegistry-tools", "aws-kb"],
+        )
+        mock_repository.upsert.return_value = definition
+        body = {
+            "axis": "target",
+            "entity_type": "server_group",
+            "name": "fragile",
+            "max_requests": 100,
+            "window_seconds": 60,
+            "members": ["airegistry-tools", "aws-kb"],
+        }
+        resp = client.put("/api/rate-limits/target:server_group:fragile:60", json=body)
+        assert resp.status_code == 200
+        assert resp.json()["members"] == ["airegistry-tools", "aws-kb"]
+
+    def test_put_server_group_without_members_rejected(
+        self, client, mock_auth_admin, mock_repository
+    ):
+        """A server_group with no members is a 400 (model validation)."""
+        body = {
+            "axis": "target",
+            "entity_type": "server_group",
+            "name": "empty",
+            "max_requests": 100,
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/target:server_group:empty:60", json=body)
+        assert resp.status_code == 400
+
+    def test_put_single_target_with_members_rejected(
+        self, client, mock_auth_admin, mock_repository
+    ):
+        """A plain mcp_server def carrying members is a 400 (members is server_group-only)."""
+        body = {
+            "axis": "target",
+            "entity_type": "mcp_server",
+            "name": "mcpgw",
+            "max_requests": 500,
+            "window_seconds": 60,
+            "members": ["mcpgw"],
+        }
+        resp = client.put("/api/rate-limits/target:mcp_server:mcpgw:60", json=body)
+        assert resp.status_code == 400
+
     def test_put_url_id_mismatch_rejected(self, client, mock_auth_admin, mock_repository):
         """A body that builds a different _id than the URL id is a 400."""
         body = {

@@ -239,11 +239,32 @@ The target axis is **entity-type-generic**. v1 enforces two target kinds:
 
 The model also reserves `mcp_tool` and `a2a_skill` (name = `<parent>:<leaf>`) for a later phase; those require reading the JSON-RPC payload and are not enforced in v1 (the admin API rejects them with a clear message so an operator never gets a silently inert limit).
 
+- **Target-group (`server_group`) — per-member uniform, a convenience label.** A single `target`-axis definition can name a **set of servers** instead of one, via an on-definition `members: list[str]` (server paths). The semantics are **per-member uniform**: each server in the group gets its **own independent `max_requests`/window bucket** — this is *not* a shared or pooled limit across the group. It exists so an admin writes one definition (and maintains one membership list) instead of one definition per server, and can add or remove servers later with no new definitions. Because the counter subject at enforcement time is always the *live request's* server, a `server_group` limit for server `foo` keys as `tgt:server_group:foo:<window>` — a distinct bucket per member, and distinct from any individual `target:mcp_server:foo` limit. A server that is both in a group **and** has its own `mcp_server` target limit therefore gets **two independent buckets, both enforced** (all-must-pass). Overlapping groups stack the same way (one bucket per group). `server_group` is servers-only in this version (agents are a later phase); a member need not be a currently-registered server (an unregistered path simply never produces a gate). Create it with `--axis target --entity-type server_group --members "srvA,srvB"`. It is not admin-bypassable (like every target limit).
+
 - **Caller-target axis (Limit C, issue #1504):** a caller gets its own **independent quota per target**. Neither the caller axis (which pools a caller's traffic across all targets) nor the target axis (which pools all callers against one target) can express "caller A may call server X only N times/min, with a *separate* N/min against server Y, and caller B's usage of X does not consume A's." A `caller_target` definition is a **group** carrying per-caller-type limits exactly like the caller axis; the difference is only the counter subject, which is the composite `<identity>|<target_entity_type>:<target_name>`. It is data-plane only, admin-bypassed (like the caller axis), and subject to the same config-time floor. Create it with `--axis caller_target`.
 
 - **Quarantine (kill switch, issue #1504):** an absolute, immediate block of all data-plane traffic from a caller or to a target — not a rate. Modeled as **two reserved, auto-seeded rate-limit groups**, `quarantine-callers` and `quarantine-targets`, created empty at first startup so an operator never has to create anything: they just **move a subject into the group** (`rate-limit-quarantine-add --subject-type <user|client|server|agent> --subject <s>`). A quarantined subject is denied as an **early return before any counter work**, and — critically — as a **plain 403 without the `X-RateLimit-Throttled` marker**, so nginx returns a plain 403 rather than rewriting to a 429 (quarantine is an access decision, not a throttle). A quarantined **caller** is admin-bypassable (no self-lockout); a quarantined **target** is not (out of rotation for everyone). Disabling a reserved group's sentinel is the **global off-switch**. The reserved groups cannot be deleted or shadowed by a rate definition. Quarantine follows the limiter's fail-open policy by default (a memberships-store error allows), with an opt-in `RATE_LIMIT_QUARANTINE_FAIL_CLOSED` to deny instead; it is best-effort, **not breach containment** — pair it with IdP credential revocation.
 
 **Windows and volume limits.** A window is any length from one second up to a full day (`window_seconds` ≤ 86400). A per-day volume cap ("no more than 5000 calls/day") is therefore the *same mechanism* as a per-second burst cap, just a longer window. A single subject may hold **several limits at different windows at once** — e.g. `100/min` *and* `5000/day`. Each window is enforced as its own independent gate, and all applicable gates must pass. Most-restrictive resolution applies only *within* the same window.
+
+## Supported Use-Cases
+
+These are the traffic-management use-cases the rate limiter supports today. Each maps to one primitive (axis + entity type); pick the row that matches the intent, then configure as shown.
+
+| Use case (intent) | Primitive | How to configure | Bucket semantics |
+|-------------------|-----------|------------------|------------------|
+| Cap one caller's total rate across **all** servers (contain a runaway/looping agent) | `caller` group | Define a `caller` group limit, add the user/client as a membership | One bucket per caller (all targets pooled) |
+| Each member of a group gets its own quota **per server** (fairness / don't punish healthy fan-out) | `caller_target` group | Define a `caller_target` group limit, add members | One bucket per (caller, server) pair |
+| Protect **one** server from combined load (capacity protection) | `target` / `mcp_server` | Define a `target` limit naming the server | One shared bucket for that server, across all callers |
+| Protect **one** A2A agent from combined load | `target` / `a2a_agent` | Define a `target` limit naming the agent path | One shared bucket for that agent, across all callers |
+| Apply the **same** per-server cap to a **set** of servers, each individually (server tiers, e.g. "fragile backends") — **NEW** | `target` / `server_group` | Define a `target` `server_group` with `--members`; each member limited to `max_requests` individually | One independent bucket **per member server** (not pooled) |
+| Instantly block all traffic from a caller or to a target (incident response kill switch) | `quarantine` | `rate-limit-quarantine-add` the subject into the reserved group | No rate; hard 403 drop until removed |
+| Layer a burst cap and a volume cap on the same subject | any axis, two windows | Define two definitions at different `--window-seconds` (e.g. 60 and 86400) | Independent gate per window; all must pass |
+
+**Deliberately NOT supported** (by design, to avoid config explosion and confusing semantics):
+
+- **Differentiated limits per named server for the same caller** ("caller A gets N1 to server X but N2 to server Y"). Use per-server `target` limits, or a `caller_target` group (uniform N per server). Tiering by server class is expressed with `server_group`, not per-pair rules.
+- **A single shared/pooled budget across a group of servers or callers** ("the whole team gets 100/min combined to the finance servers"). Every group primitive here is per-member; there is no cross-member shared counter. A pooled bucket would be a separate future axis.
 
 ## Data Model
 
@@ -256,16 +277,19 @@ Each document is one `RateLimitDefinition`:
 ```python
 class RateLimitDefinition(BaseModel):
     axis: str            # "caller" | "target" | "caller_target" | "quarantine"
-    entity_type: str     # group axes: "group"; target: "mcp_server" | "a2a_agent" | "mcp_tool" | "a2a_skill"
+    entity_type: str     # group axes: "group"; target: "mcp_server" | "a2a_agent" | "mcp_tool" | "a2a_skill" | "server_group"
     name: str            # group name, server path, or agent path (reserved for quarantine sentinels)
-    max_requests: int    # target axis, >= 1
+    max_requests: int    # target axis, >= 1 (server_group: applied to EACH member individually)
     user_max_requests: int   # group axes (caller / caller_target)
     agent_max_requests: int  # group axes (caller / caller_target)
     window_seconds: int  # 1 .. 86400
+    members: list[str]   # server_group target entity ONLY: the member server paths
     scope: str           # quarantine axis only: "caller" | "target"
     fail_closed: bool    # deny on backend error (security-critical only); default false
     enabled: bool        # toggle without deleting; default true
 ```
+
+`members` is present only on a `server_group` target definition (absent/`None` on every other definition, which is what keeps pre-existing documents behaving identically). It is **not** part of the `_id`, so editing the member list replaces the same document — adding or removing a server never changes the definition's identity.
 
 The `caller_target` axis reuses the group shape (`user_max_requests` / `agent_max_requests`); only its counter subject differs (the `<identity>|<entity_type>:<name>` composite). The `quarantine` axis is a **sentinel**: it carries no rate, only a `scope`, and its power is its reserved `name` (`quarantine-callers` / `quarantine-targets`), recognized by the limiter as a kill switch. Quarantine membership reuses the existing `rate_limit_memberships` `groups[]` (a caller adds `quarantine-callers`; a `server:`/`agent:` subject joins `quarantine-targets`).
 
@@ -280,6 +304,7 @@ Ephemeral, TTL-expiring documents. The `_id` encodes axis abbreviation, entity t
 ```
 _id = "clr:group:alice@example.com:60:474320"     (a caller, 60s window)
       "tgt:a2a_agent:booking-agent:86400:329"      (a target, daily window)
+      "tgt:server_group:mcpgw:60:474320"           (a server_group member; one bucket PER member server)
 count        = <int>          # atomically incremented
 window_start = <datetime>     # start of the fixed window
 expire_at    = <datetime>     # window_start + 2*window; TTL index target
@@ -293,7 +318,7 @@ On each `/validate` call, when `RATE_LIMITING_ENABLED`:
 
 1. **Identity** is taken from the validated token only — the `client_id` **claim** (present only on a genuine M2M/`client_credentials` token) ⇒ agent keyed on that client; otherwise `username` ⇒ user. The `azp`-derived `client_id` that every OIDC token carries is deliberately NOT used for this (it would misclassify humans as agents and bucket all web users under one client). It is **never** read from a client-supplied header. This is a hard security property: keying on a client-controlled value would let a caller split load across fabricated identities.
 2. **Target classification** maps the request to `(entity_type, name)`: an `/agent/...` path → `("a2a_agent", agent_path)`; otherwise a server path → `("mcp_server", server_name)`; neither → skip the target axis.
-3. **Gates are built.** Caller definitions (all windows for the caller's groups) are fetched in one cached query and grouped by window; within each window the most-restrictive wins. Target definitions (all windows for the classified entity) are fetched in one cached query. Each `(axis, window)` becomes a gate.
+3. **Gates are built.** Caller definitions (all windows for the caller's groups) are fetched in one cached query and grouped by window; within each window the most-restrictive wins. Target definitions (all windows for the classified entity) are fetched in one cached query — for an `mcp_server` target this also matches any enabled `server_group` definition whose `members` list contains this server, so a server picks up its group limits automatically (each keyed per this individual server). Each `(axis, window)` becomes a gate.
 4. **Gates are enforced sequentially, tightest-window-first**, stopping at the first denial.
 5. On denial, the auth-server raises `HTTPException(403)` with `X-RateLimit-Throttled: 1`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `Connection: close`. The 403 (not 429) is deliberate: nginx `auth_request` forwards only 401/403 from the subrequest and would turn a 429 into a 500. The `@forbidden_error` nginx location detects the `X-RateLimit-Throttled` marker and rewrites the response into a real **429 + Retry-After** for the client (see "Why the throttle leaves `/validate` as a 403" above).
 
@@ -420,6 +445,14 @@ uv run python registry_management.py rate-limit-set \
 # 500 requests/minute aggregate to the "mcpgw" MCP server, across all callers
 uv run python registry_management.py rate-limit-set \
   --axis target --entity-type mcp_server --name mcpgw --max-requests 500 --window-seconds 60
+
+# 100 requests/minute to EACH server in the "fragile-backends" group, individually
+# (per-member uniform: airegistry-tools gets its own 100/min bucket, aws-kb gets its
+# own 100/min bucket -- not a shared pool). Add/remove servers by re-running with an
+# updated --members list; no new definitions needed.
+uv run python registry_management.py rate-limit-set \
+  --axis target --entity-type server_group --name fragile-backends \
+  --max-requests 100 --window-seconds 60 --members "airegistry-tools,aws-kb"
 
 uv run python registry_management.py rate-limit-list
 uv run python registry_management.py rate-limit-get --id caller:group:developers:60

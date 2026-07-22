@@ -40,6 +40,15 @@ TARGET_ENTITY_TYPES: frozenset[str] = frozenset(
     {"mcp_server", "a2a_agent", "mcp_tool", "a2a_skill"}
 )
 
+# A "server group" is a convenience label on the target axis: a single definition
+# names a SET of servers (via the on-definition ``members`` list), and EACH member
+# gets its OWN independent per-window bucket (per-member uniform N, NOT a shared
+# pool). It is never a request-classified target (a live request always classifies
+# to mcp_server / a2a_agent), so it is deliberately NOT in TARGET_ENTITY_TYPES; it
+# only exists as a definition whose limit is surfaced for each member server at
+# lookup time. See docs/design/rate-limiting.md.
+SERVER_GROUP_ENTITY_TYPE: str = "server_group"
+
 # Fine-grained target kinds whose enforcement classifier is not wired in v1.
 # The admin API accepts these only when explicitly acknowledged, so an operator
 # never gets a silently-inert limit. See lld.md API Design.
@@ -114,6 +123,14 @@ class RateLimitDefinition(BaseModel):
         ge=1,
         description="Target-axis: max requests per window across all callers",
     )
+    # server_group target entity only: the set of server paths the definition
+    # covers. Each member gets its OWN independent max_requests/window bucket
+    # (per-member uniform, not a shared pool). None/absent for every other
+    # definition -- this is the backward-compatibility anchor for pre-existing docs.
+    members: list[str] | None = Field(
+        default=None,
+        description="server_group only: server paths, each getting its own N/window bucket",
+    )
     # Caller (group) axis uses these per-caller-type limits. At least one required.
     user_max_requests: int | None = Field(
         default=None,
@@ -162,7 +179,11 @@ class RateLimitDefinition(BaseModel):
                 f"for a '{self.axis}' definition"
             )
 
-        allowed = CALLER_ENTITY_TYPES if self.axis in GROUP_AXES else TARGET_ENTITY_TYPES
+        allowed = (
+            CALLER_ENTITY_TYPES
+            if self.axis in GROUP_AXES
+            else (TARGET_ENTITY_TYPES | {SERVER_GROUP_ENTITY_TYPE})
+        )
         if self.entity_type not in allowed:
             raise ValueError(
                 f"entity_type '{self.entity_type}' invalid for axis '{self.axis}' "
@@ -180,7 +201,23 @@ class RateLimitDefinition(BaseModel):
             # Target axis uses the single max_requests.
             if self.max_requests is None:
                 raise ValueError("a target definition must set max_requests")
+            self._check_members()
         return self
+
+    def _check_members(self) -> None:
+        """Validate the ``members`` list: required and clean for server_group, absent otherwise."""
+        if self.entity_type == SERVER_GROUP_ENTITY_TYPE:
+            # A server_group must name at least one member; each gets its own bucket.
+            if not self.members:
+                raise ValueError("a server_group definition must set a non-empty members list")
+            if any(not isinstance(m, str) or not m.strip() for m in self.members):
+                raise ValueError("server_group members must be non-empty server-path strings")
+            if len(set(self.members)) != len(self.members):
+                raise ValueError("server_group members must not contain duplicates")
+        elif self.members is not None:
+            # members is meaningless for a single-target definition; reject it so a
+            # caller can't set a field that would be silently ignored.
+            raise ValueError("members is only valid for a server_group definition")
 
     def _check_quarantine(self) -> "RateLimitDefinition":
         """Validate a quarantine sentinel: reserved name, group entity, scope, no rate."""

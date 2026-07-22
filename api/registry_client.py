@@ -2221,12 +2221,15 @@ class RegistryClient:
         window_seconds: int = 60,
         fail_closed: bool = False,
         enabled: bool = True,
+        members: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create or update a rate-limit definition (admin only).
 
         Caller (group) axis: pass ``user_max_requests`` and/or ``agent_max_requests``.
-        Target axis: pass ``max_requests``. The ``_id`` is derived server-side; this
-        client builds the matching URL id.
+        Target axis: pass ``max_requests``. For a ``server_group`` target entity, also
+        pass ``members`` (a list of server paths); each listed server gets its own
+        independent ``max_requests``/window bucket (per-member uniform, not pooled).
+        The ``_id`` is derived server-side; this client builds the matching URL id.
 
         Raises:
             requests.HTTPError: If the request fails (e.g. 400 invalid definition).
@@ -2248,6 +2251,8 @@ class RegistryClient:
             body["user_max_requests"] = user_max_requests
         if agent_max_requests is not None:
             body["agent_max_requests"] = agent_max_requests
+        if members is not None:
+            body["members"] = members
         logger.info(f"Setting rate-limit definition {definition_id}")
         response = self._make_request(
             method="PUT",

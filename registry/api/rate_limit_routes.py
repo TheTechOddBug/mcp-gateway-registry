@@ -61,6 +61,8 @@ def _validate_enforceable(
 
     ``mcp_tool`` / ``a2a_skill`` are modeled but their classifier is a later phase,
     so accepting them would create a silently-inert limit. Reject with a clear message.
+    ``server_group`` IS enforced (surfaced per-member at target lookup time), so it is
+    intentionally NOT in UNENFORCED_ENTITY_TYPES and passes this guard.
     """
     if definition.entity_type in UNENFORCED_ENTITY_TYPES:
         raise HTTPException(
