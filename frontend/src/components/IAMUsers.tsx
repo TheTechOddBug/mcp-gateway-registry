@@ -49,7 +49,14 @@ const IAMUsers: React.FC<IAMUsersProps> = ({ onShowToast }) => {
   const rlGroupOptions = useMemo(() => {
     const names = new Set<string>();
     for (const d of rlDefinitions) {
-      if (d.axis === 'caller' && d.entity_type === CALLER_ENTITY_TYPE) names.add(d.name);
+      // Both caller and caller_target are caller-side group memberships a user can
+      // join; the limiter matches a caller's groups against both axes.
+      if (
+        (d.axis === 'caller' || d.axis === 'caller_target') &&
+        d.entity_type === CALLER_ENTITY_TYPE
+      ) {
+        names.add(d.name);
+      }
     }
     return Array.from(names).sort().map((n) => ({ value: n, label: n }));
   }, [rlDefinitions]);
