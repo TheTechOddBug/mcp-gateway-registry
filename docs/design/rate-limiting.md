@@ -106,6 +106,55 @@ uv run python tests/scripts/call_mcp_tool.py \
 
 For full end-to-end walkthroughs (including the response headers, metrics, floors, per-agent M2M, target limits, and failure modes), see the [Testing](#testing) guides below.
 
+### Per-caller-per-target limits (the `caller_target` axis)
+
+To cap each caller *independently per target* (a shared multi-tenant backend where one noisy caller against server X must not consume another caller's headroom against X, and X and Y are counted separately), create a `caller_target` group and add members exactly as for the caller axis — only the `--axis` differs:
+
+```bash
+# Each member may call ANY single target at most 60/min (humans) / 30/min (agents),
+# with an independent counter per target.
+cd api && uv run python registry_management.py \
+  rate-limit-set --axis caller_target --entity-type group --name per-server-cap \
+  --user-max-requests 60 --agent-max-requests 30 --window-seconds 60 \
+  --token-file ../.token --registry-url "$REG"
+
+# Add a caller (same membership mechanism as the caller axis).
+uv run python registry_management.py rate-limit-member-set \
+  --subject-type user --subject alice --groups per-server-cap \
+  --token-file ../.token --registry-url "$REG"
+```
+
+Verify: burst `alice` against server X past 60 → 429s for X; her quota against server Y is untouched; and a second caller `bob` against X is unaffected by alice.
+
+### Quarantine (kill switch): block a caller or a target immediately
+
+Quarantine drops **all** data-plane traffic from a caller or to a target — an absolute block, not a rate. The two reserved groups (`quarantine-callers`, `quarantine-targets`) are **auto-seeded empty at startup**, so there is nothing to create: you just move a subject in.
+
+```bash
+cd api
+# Quarantine a compromised agent (client_id) — all its calls are dropped instantly.
+uv run python registry_management.py rate-limit-quarantine-add \
+  --subject-type client --subject <client_id> --token-file ../.token --registry-url "$REG"
+
+# Quarantine a user, or take an MCP server / A2A agent out of rotation:
+#   --subject-type user   --subject alice
+#   --subject-type server --subject mcpgw
+#   --subject-type agent  --subject /booking-agent
+
+# List everything quarantined; remove when done.
+uv run python registry_management.py rate-limit-quarantine-list --token-file ../.token --registry-url "$REG"
+uv run python registry_management.py rate-limit-quarantine-remove \
+  --subject-type client --subject <client_id> --token-file ../.token --registry-url "$REG"
+```
+
+Operational notes:
+- A quarantined subject is denied as a **plain 403** (no `X-RateLimit-*` headers, no 429 rewrite) — it is an access decision, not a throttle. Callers see `403 Access forbidden`.
+- A quarantined **caller** who is an admin is NOT blocked (no self-lockout); a quarantined **target** is blocked for everyone, admins included.
+- Changes take effect within one cache TTL (~30s).
+- **Global off-switch:** disable a reserved group's definition (`rate-limit-disable --id quarantine:group:quarantine-callers:1`) to turn the whole caller/target kill switch off without emptying the group. The groups cannot be deleted.
+- Quarantine only acts while `RATE_LIMITING_ENABLED=true` and is **fail-open by default** (a memberships-store outage allows traffic); set `RATE_LIMIT_QUARANTINE_FAIL_CLOSED=true` to fail closed. It is best-effort containment — pair it with IdP credential revocation.
+- UI: **Settings → IAM → Rate Limits → Quarantine** shows both groups with live member counts, a per-member remove, and the global on/off toggle. See also the [FAQ: How do I quarantine a user, agent, or MCP server?](../faq/quarantine-a-caller-or-target.md).
+
 ---
 
 ## What This Is (and Is Not)
@@ -190,6 +239,10 @@ The target axis is **entity-type-generic**. v1 enforces two target kinds:
 
 The model also reserves `mcp_tool` and `a2a_skill` (name = `<parent>:<leaf>`) for a later phase; those require reading the JSON-RPC payload and are not enforced in v1 (the admin API rejects them with a clear message so an operator never gets a silently inert limit).
 
+- **Caller-target axis (Limit C, issue #1504):** a caller gets its own **independent quota per target**. Neither the caller axis (which pools a caller's traffic across all targets) nor the target axis (which pools all callers against one target) can express "caller A may call server X only N times/min, with a *separate* N/min against server Y, and caller B's usage of X does not consume A's." A `caller_target` definition is a **group** carrying per-caller-type limits exactly like the caller axis; the difference is only the counter subject, which is the composite `<identity>|<target_entity_type>:<target_name>`. It is data-plane only, admin-bypassed (like the caller axis), and subject to the same config-time floor. Create it with `--axis caller_target`.
+
+- **Quarantine (kill switch, issue #1504):** an absolute, immediate block of all data-plane traffic from a caller or to a target — not a rate. Modeled as **two reserved, auto-seeded rate-limit groups**, `quarantine-callers` and `quarantine-targets`, created empty at first startup so an operator never has to create anything: they just **move a subject into the group** (`rate-limit-quarantine-add --subject-type <user|client|server|agent> --subject <s>`). A quarantined subject is denied as an **early return before any counter work**, and — critically — as a **plain 403 without the `X-RateLimit-Throttled` marker**, so nginx returns a plain 403 rather than rewriting to a 429 (quarantine is an access decision, not a throttle). A quarantined **caller** is admin-bypassable (no self-lockout); a quarantined **target** is not (out of rotation for everyone). Disabling a reserved group's sentinel is the **global off-switch**. The reserved groups cannot be deleted or shadowed by a rate definition. Quarantine follows the limiter's fail-open policy by default (a memberships-store error allows), with an opt-in `RATE_LIMIT_QUARANTINE_FAIL_CLOSED` to deny instead; it is best-effort, **not breach containment** — pair it with IdP credential revocation.
+
 **Windows and volume limits.** A window is any length from one second up to a full day (`window_seconds` ≤ 86400). A per-day volume cap ("no more than 5000 calls/day") is therefore the *same mechanism* as a per-second burst cap, just a longer window. A single subject may hold **several limits at different windows at once** — e.g. `100/min` *and* `5000/day`. Each window is enforced as its own independent gate, and all applicable gates must pass. Most-restrictive resolution applies only *within* the same window.
 
 ## Data Model
@@ -202,14 +255,19 @@ Each document is one `RateLimitDefinition`:
 
 ```python
 class RateLimitDefinition(BaseModel):
-    axis: str            # "caller" | "target"
-    entity_type: str     # caller: "group"; target: "mcp_server" | "a2a_agent" | "mcp_tool" | "a2a_skill"
-    name: str            # group name, server path, or agent path
-    max_requests: int    # >= 1
+    axis: str            # "caller" | "target" | "caller_target" | "quarantine"
+    entity_type: str     # group axes: "group"; target: "mcp_server" | "a2a_agent" | "mcp_tool" | "a2a_skill"
+    name: str            # group name, server path, or agent path (reserved for quarantine sentinels)
+    max_requests: int    # target axis, >= 1
+    user_max_requests: int   # group axes (caller / caller_target)
+    agent_max_requests: int  # group axes (caller / caller_target)
     window_seconds: int  # 1 .. 86400
+    scope: str           # quarantine axis only: "caller" | "target"
     fail_closed: bool    # deny on backend error (security-critical only); default false
     enabled: bool        # toggle without deleting; default true
 ```
+
+The `caller_target` axis reuses the group shape (`user_max_requests` / `agent_max_requests`); only its counter subject differs (the `<identity>|<entity_type>:<name>` composite). The `quarantine` axis is a **sentinel**: it carries no rate, only a `scope`, and its power is its reserved `name` (`quarantine-callers` / `quarantine-targets`), recognized by the limiter as a kill switch. Quarantine membership reuses the existing `rate_limit_memberships` `groups[]` (a caller adds `quarantine-callers`; a `server:`/`agent:` subject joins `quarantine-targets`).
 
 The document `_id` is `"<axis>:<entity_type>:<name>:<window_seconds>"` — for example `caller:group:developers:60` or `target:a2a_agent:booking-agent:60`. Putting the window in the `_id` is what lets a subject carry a burst limit and a daily limit as two separate documents.
 
@@ -293,12 +351,16 @@ All labels are bounded (no per-user/per-server *name* labels, which would be unb
 
 | Metric | Type | Labels | Meaning |
 |--------|------|--------|---------|
-| `mcpgw_rate_limit_throttled_total` | Counter | `axis`, `entity_type`, `window_seconds` | Times an axis entity was throttled (a gate denied). "How many times did a caller / an mcp_server / an a2a_agent get rate-limited?" |
-| `mcpgw_rate_limit_checks_total` | Counter | `axis`, `entity_type`, `outcome` | Total gate checks (allow/deny) — the denominator for a throttle rate. |
-| `mcpgw_rate_limit_errors_total` | Counter | `axis` | Backend errors (fail-open events). |
+| `mcpgw_rate_limit_throttled_total` | Counter | `axis` (`clr` / `tgt` / `ctg`), `entity_type`, `window_seconds` | Times an axis entity was throttled (a gate denied). Split by `axis` to see caller vs target vs **caller_target** throttles. "How many times did a caller / a target / a caller-per-target quota get rate-limited?" |
+| `mcpgw_rate_limit_quarantine_denied_total` | Counter | `scope` (`caller` / `target`), `entity_type` | Requests dropped because a caller or target is **quarantined** (kill switch). "How many calls were blocked by quarantine, split by whether the caller or the target was quarantined?" |
+| `mcpgw_rate_limit_quarantine_members` | ObservableGauge | `group` (`quarantine-callers` / `quarantine-targets`) | Current member count of each kill-switch group, sampled each export cycle (correct across replicas; not on the request path). "How many callers / targets are currently quarantined?" |
+| `mcpgw_rate_limit_checks_total` | Counter | `axis`, `entity_type`, `outcome` | Total gate checks (allow/deny) — the denominator for a throttle rate. `ctg` appears in `axis`. |
+| `mcpgw_rate_limit_errors_total` | Counter | `axis` (incl. `qtn` for a quarantine-read error) | Backend errors (fail-open/closed events). |
 | `mcpgw_rate_limit_backend_duration_ms` | Histogram | `backend`, `op` | Per-op latency of the counter-store round trip. |
 
-Recommended alerts: sustained `mcpgw_rate_limit_errors_total` (limiter effectively off), and `mcpgw_rate_limit_backend_duration_ms` p99 approaching the timeout.
+The new caller_target axis needs **no new throttle metric** — it reuses `mcpgw_rate_limit_throttled_total` with `axis="ctg"`. Quarantine adds two dedicated series (`_quarantine_denied_total`, `_quarantine_members`). All labels stay bounded (no subject-name label); per-subject attribution stays in the WARNING app log and the `GET /api/rate-limit-quarantine` list.
+
+Recommended alerts: sustained `mcpgw_rate_limit_errors_total` (limiter effectively off), `mcpgw_rate_limit_backend_duration_ms` p99 approaching the timeout, and any nonzero `mcpgw_rate_limit_quarantine_denied_total` if quarantine is meant to be a rare, deliberate action.
 
 ## Configuration
 
@@ -309,6 +371,7 @@ All parameters are off-by-default-safe and wired across Docker Compose, Terrafor
 | `RATE_LIMITING_ENABLED` | `false` | both | Master switch. |
 | `RATE_LIMIT_BACKEND` | `documentdb` | both | Counter backend (only `documentdb` in v1). |
 | `RATE_LIMIT_FAIL_OPEN` | `true` | both | Global fail-open on backend error. |
+| `RATE_LIMIT_QUARANTINE_FAIL_CLOSED` | `false` | both | Deny on a quarantine-membership read error (default fail-open). Best-effort containment, not breach containment. |
 | `RATE_LIMIT_DEFINITIONS_CACHE_TTL_SECONDS` | `30` | both | In-process definitions cache TTL. |
 | `RATE_LIMIT_BACKEND_TIMEOUT_MS` | `250` | both | Hard per-op counter timeout. |
 | `RATE_LIMIT_USER_FLOOR_PER_MIN` | `20` | registry | Config-time floor: a caller group's `user_max_requests` on a window `<= 60s` must be `>=` this, else the definition is rejected. Registry-only (validates definitions). |

@@ -46,6 +46,7 @@ Common questions and answers about the MCP Gateway Registry.
 - [How do I restrict which MCP servers a user can see based on their Entra ID group?](restrict-server-visibility-by-entra-group.md)
 - [How do I create a non-admin group that can register servers and run health checks but cannot toggle, edit, or delete them?](read-write-non-admin-group.md)
 - [How do I set up a self-service workflow for AI assets (draft to review to active)?](self-service-asset-lifecycle-workflow.md)
+- [How do I quarantine a user, an agent, or an MCP server (kill switch)?](quarantine-a-caller-or-target.md)
 
 ## Authentication and API Access
 
