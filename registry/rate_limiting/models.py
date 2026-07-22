@@ -46,7 +46,32 @@ TARGET_ENTITY_TYPES: frozenset[str] = frozenset(
 UNENFORCED_ENTITY_TYPES: frozenset[str] = frozenset({"mcp_tool", "a2a_skill"})
 
 # Axis abbreviations used in counter keys (kept short and stable).
-AXIS_ABBREVIATION: dict[str, str] = {"caller": "clr", "target": "tgt"}
+#   caller        -> per-caller quota across all targets
+#   target        -> per-target quota across all callers
+#   caller_target -> per-caller-per-target composite quota (each caller gets its
+#                    own independent quota against each specific target)
+#   quarantine    -> sentinel group with NO rate; membership drops all traffic
+AXIS_ABBREVIATION: dict[str, str] = {
+    "caller": "clr",
+    "target": "tgt",
+    "caller_target": "ctg",
+    "quarantine": "qtn",
+}
+
+# Axes whose definition is a "group" carrying per-caller-type limits (a caller is
+# subject to it by membership). Both caller and caller_target share this shape.
+GROUP_AXES: frozenset[str] = frozenset({"caller", "caller_target"})
+
+# Reserved rate-limit group names. Membership in one of these DROPS all
+# data-plane traffic from the caller / to the target (a kill switch, not a rate).
+# Seeded empty at startup; operators cannot create a normal definition with these
+# names, and the groups cannot be deleted (only disabled = global off-switch).
+QUARANTINE_CALLER_GROUP: str = "quarantine-callers"
+QUARANTINE_TARGET_GROUP: str = "quarantine-targets"
+RESERVED_GROUP_NAMES: frozenset[str] = frozenset({QUARANTINE_CALLER_GROUP, QUARANTINE_TARGET_GROUP})
+
+# Scopes for the quarantine sentinel axis.
+QUARANTINE_SCOPES: frozenset[str] = frozenset({"caller", "target"})
 
 # Bounds for window_seconds: 1 second up to one full day.
 MIN_WINDOW_SECONDS: int = 1
@@ -106,6 +131,11 @@ class RateLimitDefinition(BaseModel):
         le=MAX_WINDOW_SECONDS,
         description="Window length in seconds (up to one day)",
     )
+    # Quarantine sentinel axis only: which side the kill-switch group applies to.
+    scope: str | None = Field(
+        default=None,
+        description="quarantine axis only: 'caller' | 'target'",
+    )
     fail_closed: bool = Field(
         default=False,
         description="If true, deny on backend error (security-critical only)",
@@ -121,24 +151,53 @@ class RateLimitDefinition(BaseModel):
         if self.axis not in AXIS_ABBREVIATION:
             raise ValueError(f"axis must be one of {sorted(AXIS_ABBREVIATION)}, got '{self.axis}'")
 
-        allowed = CALLER_ENTITY_TYPES if self.axis == "caller" else TARGET_ENTITY_TYPES
+        if self.axis == "quarantine":
+            return self._check_quarantine()
+
+        # Non-quarantine axes may not use a reserved kill-switch group name (an
+        # operator must not be able to shadow a quarantine group with a rate group).
+        if self.name in RESERVED_GROUP_NAMES:
+            raise ValueError(
+                f"'{self.name}' is a reserved quarantine group name and cannot be used "
+                f"for a '{self.axis}' definition"
+            )
+
+        allowed = CALLER_ENTITY_TYPES if self.axis in GROUP_AXES else TARGET_ENTITY_TYPES
         if self.entity_type not in allowed:
             raise ValueError(
                 f"entity_type '{self.entity_type}' invalid for axis '{self.axis}' "
                 f"(allowed: {sorted(allowed)})"
             )
 
-        if self.axis == "caller":
-            # A group must set at least one of the per-caller-type limits.
+        if self.axis in GROUP_AXES:
+            # A group (caller or caller_target) must set at least one per-caller-type limit.
             if self.user_max_requests is None and self.agent_max_requests is None:
                 raise ValueError(
-                    "a caller (group) definition must set user_max_requests and/or "
+                    f"a {self.axis} (group) definition must set user_max_requests and/or "
                     "agent_max_requests"
                 )
         else:
             # Target axis uses the single max_requests.
             if self.max_requests is None:
                 raise ValueError("a target definition must set max_requests")
+        return self
+
+    def _check_quarantine(self) -> "RateLimitDefinition":
+        """Validate a quarantine sentinel: reserved name, group entity, scope, no rate."""
+        if self.entity_type != "group":
+            raise ValueError("a quarantine definition must use entity_type 'group'")
+        if self.name not in RESERVED_GROUP_NAMES:
+            raise ValueError(
+                f"a quarantine definition name must be one of {sorted(RESERVED_GROUP_NAMES)}"
+            )
+        if self.scope not in QUARANTINE_SCOPES:
+            raise ValueError(f"quarantine scope must be one of {sorted(QUARANTINE_SCOPES)}")
+        if (
+            self.max_requests is not None
+            or self.user_max_requests is not None
+            or self.agent_max_requests is not None
+        ):
+            raise ValueError("a quarantine definition must not set any rate limit")
         return self
 
     def limit_for_caller_type(
@@ -155,9 +214,14 @@ class RateLimitDefinition(BaseModel):
         return f"{self.axis}:{self.entity_type}:{self.name}:{self.window_seconds}"
 
 
-# Subject kinds for a rate-limit membership: a human user (by username) or an
-# agent / M2M client (by client_id). Rejected if outside this set (fail closed).
-MEMBERSHIP_SUBJECT_TYPES: frozenset[str] = frozenset({"user", "client"})
+# Subject kinds for a rate-limit membership.
+#   Callers: a human user (by username) or an agent / M2M client (by client_id).
+#   Targets: an mcp_server (subject "server:<name>") or a2a_agent ("agent:<path>")
+#            -- used ONLY to place a target into the quarantine-targets group.
+# Rejected if outside this set (fail closed).
+CALLER_SUBJECT_TYPES: frozenset[str] = frozenset({"user", "client"})
+TARGET_SUBJECT_TYPES: frozenset[str] = frozenset({"server", "agent"})
+MEMBERSHIP_SUBJECT_TYPES: frozenset[str] = CALLER_SUBJECT_TYPES | TARGET_SUBJECT_TYPES
 
 
 class RateLimitMembership(BaseModel):
@@ -186,12 +250,25 @@ class RateLimitMembership(BaseModel):
 
     @model_validator(mode="after")
     def _check_subject_type(self) -> "RateLimitMembership":
-        """Reject a subject_type outside the allowlist (fail closed)."""
+        """Reject a subject_type outside the allowlist and a mis-scoped quarantine (fail closed)."""
         if self.subject_type not in MEMBERSHIP_SUBJECT_TYPES:
             raise ValueError(
                 f"subject_type must be one of {sorted(MEMBERSHIP_SUBJECT_TYPES)}, "
                 f"got '{self.subject_type}'"
             )
+        # A target subject (server/agent) exists ONLY to be quarantined: it may
+        # belong to nothing other than the target quarantine group.
+        if self.subject_type in TARGET_SUBJECT_TYPES:
+            if self.groups and self.groups != [QUARANTINE_TARGET_GROUP]:
+                raise ValueError(
+                    "a server/agent subject may only join the quarantine-targets group"
+                )
+        # A caller may not join the target quarantine group, and vice versa
+        # (fail closed: a mis-scoped quarantine must not silently do nothing).
+        if QUARANTINE_TARGET_GROUP in self.groups and self.subject_type in CALLER_SUBJECT_TYPES:
+            raise ValueError("quarantine-targets is for server/agent subjects only")
+        if QUARANTINE_CALLER_GROUP in self.groups and self.subject_type in TARGET_SUBJECT_TYPES:
+            raise ValueError("quarantine-callers is for user/client subjects only")
         return self
 
     def build_id(self) -> str:
@@ -214,6 +291,10 @@ class RateLimitDecision(BaseModel):
     remaining: int = 0
     reset_epoch: int = 0
     retry_after: int = 0
+    # A hard quarantine block (not a throttle). Drives the response branch at the
+    # enforcement hook: quarantine -> plain 403 (no X-RateLimit-Throttled marker,
+    # so nginx does NOT rewrite it to 429); a throttle -> 403 + marker -> 429.
+    quarantined: bool = False
 
     @classmethod
     def allow(
@@ -222,6 +303,15 @@ class RateLimitDecision(BaseModel):
     ) -> "RateLimitDecision":
         """Build an allow decision. ``remaining`` is best-effort headroom for headers."""
         return cls(allowed=True, remaining=max(0, remaining))
+
+    @classmethod
+    def quarantine_deny(
+        cls,
+        axis: str,
+        entity_type: str,
+    ) -> "RateLimitDecision":
+        """Build a hard-block decision (no rate metadata -> a plain 403, never a 429)."""
+        return cls(allowed=False, axis=axis, entity_type=entity_type, quarantined=True)
 
     def headers(self) -> dict[str, str]:
         """Build the ``X-RateLimit-*`` / ``Retry-After`` headers for a throttle response.

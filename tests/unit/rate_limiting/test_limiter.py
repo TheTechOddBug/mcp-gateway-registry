@@ -82,8 +82,15 @@ class _FakeDefs:
     async def list_caller_limits(self, entity_type, names):
         return [d for d in self._caller_defs if d.entity_type == entity_type and d.name in names]
 
+    async def list_caller_target_limits(self, entity_type, names):
+        # Existing limiter tests do not exercise the caller_target axis.
+        return []
+
     async def list_target_limits(self, entity_type, name):
         return [d for d in self._target_defs if d.entity_type == entity_type and d.name == name]
+
+    async def is_quarantine_group_enabled(self, group):
+        return True
 
 
 class _FakeMemberships:
@@ -104,6 +111,10 @@ class _FakeMemberships:
         if client_id and client_id in self._by_client:
             groups.extend(self._by_client[client_id])
         return groups
+
+    async def is_target_quarantined(self, target_entity_type, target_name):
+        # Existing limiter tests do not exercise target quarantine.
+        return False
 
 
 def _make_limiter(
