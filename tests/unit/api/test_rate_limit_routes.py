@@ -348,3 +348,150 @@ class TestMemberships:
         """A non-admin gets 403 on membership list."""
         resp = client.get("/api/rate-limit-memberships")
         assert resp.status_code == 403
+
+
+@pytest.mark.unit
+class TestCallerTargetAxisRoute:
+    """PUT accepts the caller_target axis and applies the caller floor."""
+
+    def test_put_caller_target_definition(self, client, mock_auth_admin, mock_repository):
+        from registry.rate_limiting.models import RateLimitDefinition
+
+        definition = RateLimitDefinition(
+            axis="caller_target",
+            entity_type="group",
+            name="per-server-cap",
+            user_max_requests=60,
+            window_seconds=60,
+        )
+        mock_repository.upsert.return_value = definition
+        body = {
+            "axis": "caller_target",
+            "entity_type": "group",
+            "name": "per-server-cap",
+            "user_max_requests": 60,
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/caller_target:group:per-server-cap:60", json=body)
+        assert resp.status_code == 200
+        assert resp.json()["axis"] == "caller_target"
+
+    def test_caller_target_floor_applied(self, client, mock_auth_admin, mock_repository):
+        """A caller_target group below the user floor on a short window is rejected (400)."""
+        body = {
+            "axis": "caller_target",
+            "entity_type": "group",
+            "name": "tiny",
+            "user_max_requests": 1,
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/caller_target:group:tiny:60", json=body)
+        assert resp.status_code == 400
+
+
+@pytest.mark.unit
+class TestReservedGroupProtection:
+    """A reserved kill-switch group cannot be shadowed by a rate def, nor deleted."""
+
+    def test_reserved_name_rejected_on_rate_axis(self, client, mock_auth_admin, mock_repository):
+        body = {
+            "axis": "caller",
+            "entity_type": "group",
+            "name": "quarantine-callers",
+            "user_max_requests": 25,
+            "window_seconds": 60,
+        }
+        resp = client.put("/api/rate-limits/caller:group:quarantine-callers:60", json=body)
+        assert resp.status_code == 400
+
+    def test_reserved_group_cannot_be_deleted(self, client, mock_auth_admin, mock_repository):
+        resp = client.delete("/api/rate-limits/quarantine:group:quarantine-callers:1")
+        assert resp.status_code == 409
+
+
+@pytest.mark.unit
+class TestQuarantineEndpoints:
+    """Quarantine add/remove/list convenience endpoints."""
+
+    def test_add_caller_quarantine(self, client, mock_auth_admin, mock_memberships_repository):
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.get_by_id.return_value = None
+        stored = RateLimitMembership(
+            subject_type="user", subject="alice", groups=["quarantine-callers"]
+        )
+        mock_memberships_repository.upsert.return_value = stored
+        mock_memberships_repository.count_group_members.return_value = 1
+
+        resp = client.post("/api/rate-limit-quarantine/user:alice")
+        assert resp.status_code == 200
+        assert resp.json()["groups"] == ["quarantine-callers"]
+
+    def test_add_target_quarantine(self, client, mock_auth_admin, mock_memberships_repository):
+        from registry.rate_limiting.models import RateLimitMembership
+
+        stored = RateLimitMembership(
+            subject_type="server", subject="mcpgw", groups=["quarantine-targets"]
+        )
+        mock_memberships_repository.upsert.return_value = stored
+        mock_memberships_repository.count_group_members.return_value = 1
+
+        resp = client.post("/api/rate-limit-quarantine/server:mcpgw")
+        assert resp.status_code == 200
+        assert resp.json()["groups"] == ["quarantine-targets"]
+
+    def test_add_quarantine_bad_subject_type(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        resp = client.post("/api/rate-limit-quarantine/bogus:x")
+        assert resp.status_code == 400
+
+    def test_remove_quarantine_target_deletes(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.get_by_id.return_value = RateLimitMembership(
+            subject_type="server", subject="mcpgw", groups=["quarantine-targets"]
+        )
+        mock_memberships_repository.delete.return_value = True
+        mock_memberships_repository.count_group_members.return_value = 0
+
+        resp = client.delete("/api/rate-limit-quarantine/server:mcpgw")
+        assert resp.status_code == 200
+        assert resp.json()["removed"] is True
+
+    def test_remove_quarantine_not_present(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        mock_memberships_repository.get_by_id.return_value = None
+        resp = client.delete("/api/rate-limit-quarantine/user:nobody")
+        assert resp.status_code == 200
+        assert resp.json()["removed"] is False
+
+    def test_list_quarantine(self, client, mock_auth_admin, mock_memberships_repository):
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.list_group_members.side_effect = [
+            [
+                RateLimitMembership(
+                    subject_type="client", subject="c1", groups=["quarantine-callers"]
+                )
+            ],
+            [
+                RateLimitMembership(
+                    subject_type="server", subject="mcpgw", groups=["quarantine-targets"]
+                )
+            ],
+        ]
+        resp = client.get("/api/rate-limit-quarantine")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["callers"]) == 1
+        assert len(body["targets"]) == 1
+
+    def test_quarantine_requires_admin(
+        self, client, mock_auth_regular, mock_memberships_repository
+    ):
+        resp = client.post("/api/rate-limit-quarantine/user:alice")
+        assert resp.status_code == 403

@@ -1243,6 +1243,44 @@ def cmd_rate_limit_member_delete(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_rate_limit_quarantine_add(args: argparse.Namespace) -> int:
+    """Quarantine a caller or target (drops ALL its data-plane traffic)."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_add(args.subject_type, args.subject)
+        logger.info(f"Quarantined {args.subject_type}:{args.subject}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to quarantine: {e}")
+        return 1
+
+
+def cmd_rate_limit_quarantine_remove(args: argparse.Namespace) -> int:
+    """Remove a caller or target from quarantine."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_remove(args.subject_type, args.subject)
+        logger.info(f"Removed quarantine for {args.subject_type}:{args.subject}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to remove quarantine: {e}")
+        return 1
+
+
+def cmd_rate_limit_quarantine_list(args: argparse.Namespace) -> int:
+    """List everything currently quarantined (callers + targets)."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_list()
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to list quarantine: {e}")
+        return 1
+
+
 def cmd_add_to_groups(args: argparse.Namespace) -> int:
     """
     Add server to user groups.
@@ -6289,7 +6327,10 @@ Examples:
         "rate-limit-set", help="Create or update a rate-limit definition (admin)"
     )
     rate_limit_set_parser.add_argument(
-        "--axis", required=True, choices=["caller", "target"], help="Which side of the call"
+        "--axis",
+        required=True,
+        choices=["caller", "target", "caller_target"],
+        help="Which side: 'caller', 'target', or 'caller_target' (per-caller-per-target)",
     )
     rate_limit_set_parser.add_argument(
         "--entity-type",
@@ -6404,6 +6445,41 @@ Examples:
     )
     rate_limit_member_delete_parser.add_argument(
         "--id", required=True, help="Membership id, e.g. 'user:alice' or 'client:my-agent-id'"
+    )
+
+    # Quarantine (kill-switch) commands: drop ALL data-plane traffic from a caller
+    # or to a target. The server picks the reserved group from the subject type.
+    rate_limit_quarantine_add_parser = subparsers.add_parser(
+        "rate-limit-quarantine-add",
+        help="Quarantine a caller or target: drops ALL its data-plane traffic (admin)",
+    )
+    rate_limit_quarantine_add_parser.add_argument(
+        "--subject-type",
+        required=True,
+        choices=["user", "client", "server", "agent"],
+        dest="subject_type",
+        help="'user'/'client' (caller) or 'server'/'agent' (target)",
+    )
+    rate_limit_quarantine_add_parser.add_argument(
+        "--subject", required=True, help="username / client_id / server name / agent path"
+    )
+
+    rate_limit_quarantine_remove_parser = subparsers.add_parser(
+        "rate-limit-quarantine-remove", help="Remove a caller or target from quarantine (admin)"
+    )
+    rate_limit_quarantine_remove_parser.add_argument(
+        "--subject-type",
+        required=True,
+        choices=["user", "client", "server", "agent"],
+        dest="subject_type",
+        help="'user'/'client' (caller) or 'server'/'agent' (target)",
+    )
+    rate_limit_quarantine_remove_parser.add_argument(
+        "--subject", required=True, help="username / client_id / server name / agent path"
+    )
+
+    subparsers.add_parser(
+        "rate-limit-quarantine-list", help="List everything currently quarantined (admin)"
     )
 
     # Add to groups command
@@ -7865,6 +7941,9 @@ Examples:
         "rate-limit-member-set": cmd_rate_limit_member_set,
         "rate-limit-member-list": cmd_rate_limit_member_list,
         "rate-limit-member-delete": cmd_rate_limit_member_delete,
+        "rate-limit-quarantine-add": cmd_rate_limit_quarantine_add,
+        "rate-limit-quarantine-remove": cmd_rate_limit_quarantine_remove,
+        "rate-limit-quarantine-list": cmd_rate_limit_quarantine_list,
         "add-to-groups": cmd_add_to_groups,
         "remove-from-groups": cmd_remove_from_groups,
         "create-group": cmd_create_group,

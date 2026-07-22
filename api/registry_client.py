@@ -2382,6 +2382,58 @@ class RegistryClient:
         )
         return response.json()
 
+    def quarantine_add(
+        self,
+        subject_type: str,
+        subject: str,
+    ) -> dict[str, Any]:
+        """Quarantine a subject (drops ALL its data-plane traffic). Admin only.
+
+        ``subject_type`` is one of user/client (caller) or server/agent (target);
+        the server picks the correct reserved group from it.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 400 invalid subject_type).
+        """
+        subject_id = f"{subject_type}:{subject}"
+        logger.info(f"Quarantining {subject_id}")
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/rate-limit-quarantine/{subject_id}",
+        )
+        return response.json()
+
+    def quarantine_remove(
+        self,
+        subject_type: str,
+        subject: str,
+    ) -> dict[str, Any]:
+        """Remove a subject from quarantine (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails.
+        """
+        subject_id = f"{subject_type}:{subject}"
+        logger.info(f"Removing quarantine for {subject_id}")
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/rate-limit-quarantine/{subject_id}",
+        )
+        return response.json()
+
+    def quarantine_list(self) -> dict[str, Any]:
+        """List everything currently quarantined (callers + targets). Admin only.
+
+        Raises:
+            requests.HTTPError: If the request fails.
+        """
+        logger.info("Listing quarantined subjects")
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/rate-limit-quarantine",
+        )
+        return response.json()
+
     def get_well_known_registry_card(self) -> RegistryCardResponse:
         """
         Get the Registry Card via .well-known discovery endpoint.
