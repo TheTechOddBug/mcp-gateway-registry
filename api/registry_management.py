@@ -1098,10 +1098,14 @@ def cmd_rate_limit_set(args: argparse.Namespace) -> int:
     """Create or update a rate-limit definition.
 
     Caller (group) axis uses --user-max-requests / --agent-max-requests (at least
-    one). Target axis uses --max-requests.
+    one). Target axis uses --max-requests. A server_group target entity also takes
+    --members (comma-separated server paths); each member gets its own bucket.
     """
     try:
         client = _create_client(args)
+        members = None
+        if getattr(args, "members", None):
+            members = [m.strip() for m in args.members.split(",") if m.strip()]
         result = client.set_rate_limit(
             axis=args.axis,
             entity_type=args.entity_type,
@@ -1112,6 +1116,7 @@ def cmd_rate_limit_set(args: argparse.Namespace) -> int:
             window_seconds=args.window_seconds,
             fail_closed=args.fail_closed,
             enabled=not args.disabled,
+            members=members,
         )
         logger.info("Rate-limit definition stored")
         print(json.dumps(result, indent=2))
@@ -1240,6 +1245,44 @@ def cmd_rate_limit_member_delete(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         logger.error(f"Failed to delete rate-limit membership: {e}")
+        return 1
+
+
+def cmd_rate_limit_quarantine_add(args: argparse.Namespace) -> int:
+    """Quarantine a caller or target (drops ALL its data-plane traffic)."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_add(args.subject_type, args.subject)
+        logger.info(f"Quarantined {args.subject_type}:{args.subject}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to quarantine: {e}")
+        return 1
+
+
+def cmd_rate_limit_quarantine_remove(args: argparse.Namespace) -> int:
+    """Remove a caller or target from quarantine."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_remove(args.subject_type, args.subject)
+        logger.info(f"Removed quarantine for {args.subject_type}:{args.subject}")
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to remove quarantine: {e}")
+        return 1
+
+
+def cmd_rate_limit_quarantine_list(args: argparse.Namespace) -> int:
+    """List everything currently quarantined (callers + targets)."""
+    try:
+        client = _create_client(args)
+        result = client.quarantine_list()
+        print(json.dumps(result, indent=2))
+        return 0
+    except Exception as e:
+        logger.error(f"Failed to list quarantine: {e}")
         return 1
 
 
@@ -6289,22 +6332,37 @@ Examples:
         "rate-limit-set", help="Create or update a rate-limit definition (admin)"
     )
     rate_limit_set_parser.add_argument(
-        "--axis", required=True, choices=["caller", "target"], help="Which side of the call"
+        "--axis",
+        required=True,
+        choices=["caller", "target", "caller_target"],
+        help="Which side: 'caller', 'target', or 'caller_target' (per-caller-per-target)",
     )
     rate_limit_set_parser.add_argument(
         "--entity-type",
         required=True,
         dest="entity_type",
-        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent'",
+        help="caller: 'group'; target: 'mcp_server' | 'a2a_agent' | 'server_group'",
     )
     rate_limit_set_parser.add_argument(
-        "--name", required=True, help="Group name, server path, or agent path"
+        "--name", required=True, help="Group name, server path, agent path, or server-group name"
     )
     rate_limit_set_parser.add_argument(
         "--max-requests",
         type=int,
         dest="max_requests",
-        help="TARGET axis: max requests per window across all callers",
+        help=(
+            "TARGET axis: max requests per window across all callers. For a "
+            "server_group, applies to EACH member server individually."
+        ),
+    )
+    rate_limit_set_parser.add_argument(
+        "--members",
+        dest="members",
+        help=(
+            "server_group target entity only: comma-separated server paths. Each "
+            "listed server gets its own independent max-requests/window bucket "
+            "(per-member uniform, not a shared pool)."
+        ),
     )
     rate_limit_set_parser.add_argument(
         "--user-max-requests",
@@ -6404,6 +6462,41 @@ Examples:
     )
     rate_limit_member_delete_parser.add_argument(
         "--id", required=True, help="Membership id, e.g. 'user:alice' or 'client:my-agent-id'"
+    )
+
+    # Quarantine (kill-switch) commands: drop ALL data-plane traffic from a caller
+    # or to a target. The server picks the reserved group from the subject type.
+    rate_limit_quarantine_add_parser = subparsers.add_parser(
+        "rate-limit-quarantine-add",
+        help="Quarantine a caller or target: drops ALL its data-plane traffic (admin)",
+    )
+    rate_limit_quarantine_add_parser.add_argument(
+        "--subject-type",
+        required=True,
+        choices=["user", "client", "server", "agent"],
+        dest="subject_type",
+        help="'user'/'client' (caller) or 'server'/'agent' (target)",
+    )
+    rate_limit_quarantine_add_parser.add_argument(
+        "--subject", required=True, help="username / client_id / server name / agent path"
+    )
+
+    rate_limit_quarantine_remove_parser = subparsers.add_parser(
+        "rate-limit-quarantine-remove", help="Remove a caller or target from quarantine (admin)"
+    )
+    rate_limit_quarantine_remove_parser.add_argument(
+        "--subject-type",
+        required=True,
+        choices=["user", "client", "server", "agent"],
+        dest="subject_type",
+        help="'user'/'client' (caller) or 'server'/'agent' (target)",
+    )
+    rate_limit_quarantine_remove_parser.add_argument(
+        "--subject", required=True, help="username / client_id / server name / agent path"
+    )
+
+    subparsers.add_parser(
+        "rate-limit-quarantine-list", help="List everything currently quarantined (admin)"
     )
 
     # Add to groups command
@@ -7865,6 +7958,9 @@ Examples:
         "rate-limit-member-set": cmd_rate_limit_member_set,
         "rate-limit-member-list": cmd_rate_limit_member_list,
         "rate-limit-member-delete": cmd_rate_limit_member_delete,
+        "rate-limit-quarantine-add": cmd_rate_limit_quarantine_add,
+        "rate-limit-quarantine-remove": cmd_rate_limit_quarantine_remove,
+        "rate-limit-quarantine-list": cmd_rate_limit_quarantine_list,
         "add-to-groups": cmd_add_to_groups,
         "remove-from-groups": cmd_remove_from_groups,
         "create-group": cmd_create_group,

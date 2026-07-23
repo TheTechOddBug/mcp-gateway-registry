@@ -442,6 +442,7 @@ CONFIG_GROUPS: dict[str, dict[str, Any]] = {
             ("rate_limiting_enabled", "Enabled", False),
             ("rate_limit_backend", "Counter Backend", False),
             ("rate_limit_fail_open", "Fail Open on Backend Error", False),
+            ("rate_limit_quarantine_fail_closed", "Quarantine Fail Closed", False),
             ("rate_limit_definitions_cache_ttl_seconds", "Definitions Cache TTL (seconds)", False),
             ("rate_limit_backend_timeout_ms", "Backend Op Timeout (ms)", False),
         ],

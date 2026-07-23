@@ -1586,6 +1586,14 @@ async def _enforce_rate_limit(
         return
 
     if not decision.allowed:
+        if decision.quarantined:
+            # A hard quarantine block, NOT a throttle: return a plain 403 with NO
+            # X-RateLimit-Throttled marker, so nginx @forbidden_error returns a plain
+            # 403 (never a 429 rewrite). Quarantine is an access decision, not a rate.
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "quarantined", "axis": decision.axis},
+            )
         # NOTE: /validate is nginx's internal auth_request subrequest, never a
         # client-facing endpoint. nginx's auth_request module only forwards 401
         # and 403 from the subrequest; any other status (including 429) is turned

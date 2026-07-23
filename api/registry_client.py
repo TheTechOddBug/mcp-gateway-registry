@@ -2221,12 +2221,15 @@ class RegistryClient:
         window_seconds: int = 60,
         fail_closed: bool = False,
         enabled: bool = True,
+        members: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create or update a rate-limit definition (admin only).
 
         Caller (group) axis: pass ``user_max_requests`` and/or ``agent_max_requests``.
-        Target axis: pass ``max_requests``. The ``_id`` is derived server-side; this
-        client builds the matching URL id.
+        Target axis: pass ``max_requests``. For a ``server_group`` target entity, also
+        pass ``members`` (a list of server paths); each listed server gets its own
+        independent ``max_requests``/window bucket (per-member uniform, not pooled).
+        The ``_id`` is derived server-side; this client builds the matching URL id.
 
         Raises:
             requests.HTTPError: If the request fails (e.g. 400 invalid definition).
@@ -2248,6 +2251,8 @@ class RegistryClient:
             body["user_max_requests"] = user_max_requests
         if agent_max_requests is not None:
             body["agent_max_requests"] = agent_max_requests
+        if members is not None:
+            body["members"] = members
         logger.info(f"Setting rate-limit definition {definition_id}")
         response = self._make_request(
             method="PUT",
@@ -2379,6 +2384,58 @@ class RegistryClient:
         response = self._make_request(
             method="DELETE",
             endpoint=f"/api/rate-limit-memberships/{membership_id}",
+        )
+        return response.json()
+
+    def quarantine_add(
+        self,
+        subject_type: str,
+        subject: str,
+    ) -> dict[str, Any]:
+        """Quarantine a subject (drops ALL its data-plane traffic). Admin only.
+
+        ``subject_type`` is one of user/client (caller) or server/agent (target);
+        the server picks the correct reserved group from it.
+
+        Raises:
+            requests.HTTPError: If the request fails (e.g. 400 invalid subject_type).
+        """
+        subject_id = f"{subject_type}:{subject}"
+        logger.info(f"Quarantining {subject_id}")
+        response = self._make_request(
+            method="POST",
+            endpoint=f"/api/rate-limit-quarantine/{subject_id}",
+        )
+        return response.json()
+
+    def quarantine_remove(
+        self,
+        subject_type: str,
+        subject: str,
+    ) -> dict[str, Any]:
+        """Remove a subject from quarantine (admin only).
+
+        Raises:
+            requests.HTTPError: If the request fails.
+        """
+        subject_id = f"{subject_type}:{subject}"
+        logger.info(f"Removing quarantine for {subject_id}")
+        response = self._make_request(
+            method="DELETE",
+            endpoint=f"/api/rate-limit-quarantine/{subject_id}",
+        )
+        return response.json()
+
+    def quarantine_list(self) -> dict[str, Any]:
+        """List everything currently quarantined (callers + targets). Admin only.
+
+        Raises:
+            requests.HTTPError: If the request fails.
+        """
+        logger.info("Listing quarantined subjects")
+        response = self._make_request(
+            method="GET",
+            endpoint="/api/rate-limit-quarantine",
         )
         return response.json()
 

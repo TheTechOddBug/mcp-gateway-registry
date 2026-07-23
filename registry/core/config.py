@@ -1525,6 +1525,14 @@ class Settings(BaseSettings):
         default=True,
         description="Global fail-open on rate-limit backend error (per-limit fail_closed overrides).",
     )
+    rate_limit_quarantine_fail_closed: bool = Field(
+        default=False,
+        description=(
+            "Deny (fail closed) on a backend error reading quarantine membership, "
+            "instead of the default fail-open. Best-effort quarantine, not breach "
+            "containment; pair with IdP credential revocation."
+        ),
+    )
     rate_limit_definitions_cache_ttl_seconds: int = Field(
         default=30,
         ge=1,
