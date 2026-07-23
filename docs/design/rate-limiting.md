@@ -436,11 +436,15 @@ A **read-only** view of the current definitions also appears on the **Settings â
 CLI equivalents:
 
 ```bash
-# 100 requests/minute for the "developers" group, plus a 5000/day volume cap
+# 100 requests/minute for the "developers" group, plus a 5000/day volume cap.
+# Caller/group axes take per-caller-type limits (--user-max-requests / --agent-max-requests,
+# at least one), NOT --max-requests (that is the target axis).
 uv run python registry_management.py rate-limit-set \
-  --axis caller --entity-type group --name developers --max-requests 100 --window-seconds 60
+  --axis caller --entity-type group --name developers \
+  --user-max-requests 100 --agent-max-requests 100 --window-seconds 60
 uv run python registry_management.py rate-limit-set \
-  --axis caller --entity-type group --name developers --max-requests 5000 --window-seconds 86400
+  --axis caller --entity-type group --name developers \
+  --user-max-requests 5000 --agent-max-requests 5000 --window-seconds 86400
 
 # 500 requests/minute aggregate to the "mcpgw" MCP server, across all callers
 uv run python registry_management.py rate-limit-set \
@@ -467,9 +471,10 @@ in the `rate_limit_memberships` collection (separate from authz groups) and are
 managed with the `rate-limit-member-*` commands / `/api/rate-limit-memberships`:
 
 ```bash
-# 1. Define the group's limit
+# 1. Define the group's limit (caller/group axis uses per-caller-type limits)
 uv run python registry_management.py rate-limit-set \
-  --axis caller --entity-type group --name rate-limited-testers --max-requests 3 --window-seconds 60
+  --axis caller --entity-type group --name rate-limited-testers \
+  --user-max-requests 3 --agent-max-requests 3 --window-seconds 60
 
 # 2a. Map a USER (by username) to that rate-limit group
 uv run python registry_management.py rate-limit-member-set \
