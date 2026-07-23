@@ -480,7 +480,9 @@ async def _subject_is_admin(
         scopes = await map_cognito_groups_to_scopes(groups)
         ui_permissions = await get_ui_permissions_for_user(scopes)
     except Exception as exc:
-        logger.error("quarantine admin-guard: failed to resolve %s:%s groups: %s", subject_type, subject, exc)
+        logger.error(
+            "quarantine admin-guard: failed to resolve %s:%s groups: %s", subject_type, subject, exc
+        )
         raise HTTPException(
             status_code=503,
             detail="Unable to verify whether the subject is an administrator; quarantine refused",
