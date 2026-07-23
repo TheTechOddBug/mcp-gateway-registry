@@ -145,8 +145,9 @@ const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
         <h3 className="text-md font-semibold text-gray-900 dark:text-white">Quarantine (kill switch)</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400">
           A quarantined caller or target has ALL of its data-plane traffic dropped immediately (a
-          hard block, not a rate). Add subjects from the Users, M2M, or server/agent pages. Changes
-          take effect within ~30s.
+          hard block, not a rate). Quarantine a caller (admin only) from the Users or M2M pages via
+          the block icon on each row; targets (servers/agents) are managed via the admin API/CLI.
+          Remove a subject with the trash icon below. Changes take effect within ~30s.
         </p>
       </div>
       {isLoading ? (

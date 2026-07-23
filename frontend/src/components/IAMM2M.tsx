@@ -28,6 +28,7 @@ import DeleteConfirmation from './DeleteConfirmation';
 import ProviderBadge from './iam/ProviderBadge';
 import ListStateBoundary from './iam/ListStateBoundary';
 import RateLimitGroupsEditor from './iam/RateLimitGroupsEditor';
+import { useAuth } from '../contexts/AuthContext';
 import {
   useRateLimitDefinitions,
   useRateLimitMemberships,
@@ -56,6 +57,8 @@ interface RegisterFormErrors {
 const CLIENT_ID_REGEX = /^[A-Za-z0-9_\-.:]{1,256}$/;
 
 const IAMM2M: React.FC<IAMM2MProps> = ({ onShowToast }) => {
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.is_admin ?? false;
   const { clients, isLoading, error, refetch } = useM2MClients();
   const { groups } = useIAMGroups();
   // Rate-limit definitions + memberships fetched ONCE here and passed to each
@@ -696,6 +699,7 @@ const IAMM2M: React.FC<IAMM2MProps> = ({ onShowToast }) => {
                           memberships={rlMemberships}
                           onSaved={refetchRlMemberships}
                           onShowToast={onShowToast}
+                          isAdmin={isAdmin}
                         />
                       </td>
                       <td
