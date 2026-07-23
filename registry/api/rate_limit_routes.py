@@ -428,37 +428,109 @@ def _quarantine_group_for(
     return QUARANTINE_CALLER_GROUP
 
 
+async def _subject_is_admin(
+    subject_type: str,
+    subject: str,
+) -> bool:
+    """Return True if a caller subject (user/client) resolves to admin privileges.
+
+    Uses the SAME predicate as the request-time ``is_admin`` check: resolve the
+    subject's rate-limit-independent authz groups -> scopes -> ui_permissions, and
+    apply ``_user_is_admin`` (admin == a MUTATING ui action granted to ``all``).
+    This is deliberately NOT the broader privileged-write predicate used by the
+    last-admin guard: a read-only ``list_service: ["all"]`` grant (e.g. the
+    public-mcp-users group) must NOT count as admin here.
+
+    Raises HTTPException(503) if group resolution fails, so the caller can fail
+    closed (refuse the quarantine) rather than proceed on an unverifiable picture.
+    """
+    from registry.auth.dependencies import (
+        _user_is_admin,
+        get_ui_permissions_for_user,
+        map_cognito_groups_to_scopes,
+    )
+
+    try:
+        groups = await _resolve_caller_authz_groups(subject_type, subject)
+        scopes = await map_cognito_groups_to_scopes(groups)
+        ui_permissions = await get_ui_permissions_for_user(scopes)
+    except Exception as exc:
+        logger.error("quarantine admin-guard: failed to resolve %s:%s groups: %s", subject_type, subject, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to verify whether the subject is an administrator; quarantine refused",
+        ) from exc
+    return _user_is_admin(ui_permissions)
+
+
+async def _resolve_caller_authz_groups(
+    subject_type: str,
+    subject: str,
+) -> list[str]:
+    """Resolve a caller subject's authz (IdP) groups: username groups or M2M client groups.
+
+    Mirrors the sources the user-management listing (and admin_safety) use so the
+    admin picture matches: the IdP user listing for a user, and the
+    ``idp_m2m_clients`` collection for an M2M client (its authoritative group store
+    on non-Keycloak IdPs). For a user we also union the local fallback-group store
+    (used when an IdP JWT carries no groups claim).
+    """
+    if subject_type == "client":
+        # M2M client groups live in idp_m2m_clients (keyed by client_id or name).
+        from registry.repositories.documentdb.client import get_documentdb_client
+
+        db = await get_documentdb_client()
+        doc = await db["idp_m2m_clients"].find_one(
+            {"$or": [{"client_id": subject}, {"name": subject}]}
+        )
+        return list(doc.get("groups") or []) if doc else []
+
+    # user subject: prefer the IdP listing (authoritative for Keycloak/Cognito),
+    # union the local fallback store (non-Keycloak providers without a groups claim).
+    groups: set[str] = set()
+    from registry.utils.iam_manager import get_iam_manager
+
+    iam = get_iam_manager()
+    users = await iam.list_users(search=subject, max_results=50, include_groups=True)
+    normalized = subject.strip().casefold()
+    for user in users or []:
+        if not isinstance(user, dict):
+            continue
+        uname = user.get("username") or user.get("id") or ""
+        if str(uname).strip().casefold() == normalized:
+            groups.update(user.get("groups") or [])
+
+    from registry.services.user_group_management_service import (
+        get_user_group_management_service,
+    )
+
+    svc = await get_user_group_management_service()
+    groups.update(await svc.get_user_groups_for_username(subject))
+    return list(groups)
+
+
 async def _refuse_if_admin_caller(
     subject_type: str,
     subject: str,
 ) -> None:
-    """Refuse to quarantine a CALLER subject that belongs to an admin group.
+    """Refuse to quarantine a CALLER subject that resolves to admin privileges.
 
     A quarantined caller has ALL its data-plane traffic dropped; quarantining an
-    administrator would be a self-inflicted lockout of an operator who is supposed
-    to be able to manage the gateway. Only caller subjects (user/client) can be
-    admins -- a target (server/agent) never is -- so the check is scoped to
-    callers. Fails closed: if the admin population cannot be resolved, the
-    underlying helper raises a 503 and the quarantine is refused rather than
-    proceeding on an unverifiable picture (mirrors the last-admin guard).
+    administrator would be a self-inflicted lockout of an operator who manages the
+    gateway. Only caller subjects (user/client) can be admins -- a target
+    (server/agent) never is -- so the check is scoped to callers. Fails closed via
+    ``_subject_is_admin`` (503 on an unresolvable picture).
     """
     if subject_type not in CALLER_SUBJECT_TYPES:
         return
-    # Imported lazily to keep the auth/enforcement import graph light and to avoid
-    # a heavy scope-service dependency on modules that never quarantine.
-    from registry.services.admin_safety import list_admin_identities
-
-    admin_identities = await list_admin_identities()
-    normalized = subject.strip().casefold()
-    for aliases in admin_identities:
-        if normalized in aliases:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"Refusing to quarantine '{subject}': it belongs to an admin group. "
-                    "Administrators cannot be quarantined (self-lockout guard)."
-                ),
-            )
+    if await _subject_is_admin(subject_type, subject):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Refusing to quarantine '{subject}': it has administrator privileges. "
+                "Administrators cannot be quarantined (self-lockout guard)."
+            ),
+        )
 
 
 @router.get("/rate-limit-quarantine")

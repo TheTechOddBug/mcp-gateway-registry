@@ -477,10 +477,10 @@ class TestQuarantineEndpoints:
         mock_memberships_repository.upsert.return_value = stored
         mock_memberships_repository.count_group_members.return_value = 1
 
-        # alice is not an admin -> admin-guard resolves an admin set that excludes her.
+        # alice is not an admin -> guard resolves her as non-admin.
         with patch(
-            "registry.services.admin_safety.list_admin_identities",
-            new=AsyncMock(return_value=[frozenset({"admin"})]),
+            "registry.api.rate_limit_routes._subject_is_admin",
+            new=AsyncMock(return_value=False),
         ):
             resp = client.post("/api/rate-limit-quarantine/user:alice")
         assert resp.status_code == 200
@@ -489,26 +489,29 @@ class TestQuarantineEndpoints:
     def test_add_caller_quarantine_refuses_admin(
         self, client, mock_auth_admin, mock_memberships_repository
     ):
-        """An admin-group caller must not be quarantinable (self-lockout guard)."""
+        """An admin caller must not be quarantinable (self-lockout guard)."""
         with patch(
-            "registry.services.admin_safety.list_admin_identities",
-            new=AsyncMock(return_value=[frozenset({"alice"}), frozenset({"admin"})]),
+            "registry.api.rate_limit_routes._subject_is_admin",
+            new=AsyncMock(return_value=True),
         ):
             resp = client.post("/api/rate-limit-quarantine/user:alice")
         assert resp.status_code == 403
-        assert "admin" in resp.json()["detail"].lower()
+        assert "administrator" in resp.json()["detail"].lower()
         mock_memberships_repository.upsert.assert_not_called()
 
-    def test_add_caller_quarantine_admin_check_case_insensitive(
+    def test_add_caller_quarantine_fails_closed_on_unresolvable_admin(
         self, client, mock_auth_admin, mock_memberships_repository
     ):
-        """The admin match is case-folded so casing can't slip an admin past the guard."""
+        """If admin status can't be verified, the quarantine is refused (fail closed)."""
+        from fastapi import HTTPException
+
         with patch(
-            "registry.services.admin_safety.list_admin_identities",
-            new=AsyncMock(return_value=[frozenset({"alice"})]),
+            "registry.api.rate_limit_routes._subject_is_admin",
+            new=AsyncMock(side_effect=HTTPException(status_code=503, detail="unverifiable")),
         ):
-            resp = client.post("/api/rate-limit-quarantine/user:Alice")
-        assert resp.status_code == 403
+            resp = client.post("/api/rate-limit-quarantine/user:alice")
+        assert resp.status_code == 503
+        mock_memberships_repository.upsert.assert_not_called()
 
     def test_add_target_quarantine(self, client, mock_auth_admin, mock_memberships_repository):
         from registry.rate_limiting.models import RateLimitMembership
