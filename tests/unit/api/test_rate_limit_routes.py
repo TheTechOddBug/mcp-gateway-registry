@@ -477,9 +477,38 @@ class TestQuarantineEndpoints:
         mock_memberships_repository.upsert.return_value = stored
         mock_memberships_repository.count_group_members.return_value = 1
 
-        resp = client.post("/api/rate-limit-quarantine/user:alice")
+        # alice is not an admin -> admin-guard resolves an admin set that excludes her.
+        with patch(
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"admin"})]),
+        ):
+            resp = client.post("/api/rate-limit-quarantine/user:alice")
         assert resp.status_code == 200
         assert resp.json()["groups"] == ["quarantine-callers"]
+
+    def test_add_caller_quarantine_refuses_admin(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        """An admin-group caller must not be quarantinable (self-lockout guard)."""
+        with patch(
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"alice"}), frozenset({"admin"})]),
+        ):
+            resp = client.post("/api/rate-limit-quarantine/user:alice")
+        assert resp.status_code == 403
+        assert "admin" in resp.json()["detail"].lower()
+        mock_memberships_repository.upsert.assert_not_called()
+
+    def test_add_caller_quarantine_admin_check_case_insensitive(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        """The admin match is case-folded so casing can't slip an admin past the guard."""
+        with patch(
+            "registry.services.admin_safety.list_admin_identities",
+            new=AsyncMock(return_value=[frozenset({"alice"})]),
+        ):
+            resp = client.post("/api/rate-limit-quarantine/user:Alice")
+        assert resp.status_code == 403
 
     def test_add_target_quarantine(self, client, mock_auth_admin, mock_memberships_repository):
         from registry.rate_limiting.models import RateLimitMembership

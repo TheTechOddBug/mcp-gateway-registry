@@ -362,6 +362,11 @@ async def put_rate_limit_membership(
             ),
         )
 
+    # Closing the bypass: quarantining is also expressible by adding the reserved
+    # quarantine-callers group here. An admin caller must never be quarantined.
+    if QUARANTINE_CALLER_GROUP in (membership.groups or []):
+        await _refuse_if_admin_caller(membership.subject_type, membership.subject)
+
     stored = await _get_memberships_repository().upsert(membership)
     return stored.model_dump()
 
@@ -423,6 +428,39 @@ def _quarantine_group_for(
     return QUARANTINE_CALLER_GROUP
 
 
+async def _refuse_if_admin_caller(
+    subject_type: str,
+    subject: str,
+) -> None:
+    """Refuse to quarantine a CALLER subject that belongs to an admin group.
+
+    A quarantined caller has ALL its data-plane traffic dropped; quarantining an
+    administrator would be a self-inflicted lockout of an operator who is supposed
+    to be able to manage the gateway. Only caller subjects (user/client) can be
+    admins -- a target (server/agent) never is -- so the check is scoped to
+    callers. Fails closed: if the admin population cannot be resolved, the
+    underlying helper raises a 503 and the quarantine is refused rather than
+    proceeding on an unverifiable picture (mirrors the last-admin guard).
+    """
+    if subject_type not in CALLER_SUBJECT_TYPES:
+        return
+    # Imported lazily to keep the auth/enforcement import graph light and to avoid
+    # a heavy scope-service dependency on modules that never quarantine.
+    from registry.services.admin_safety import list_admin_identities
+
+    admin_identities = await list_admin_identities()
+    normalized = subject.strip().casefold()
+    for aliases in admin_identities:
+        if normalized in aliases:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Refusing to quarantine '{subject}': it belongs to an admin group. "
+                    "Administrators cannot be quarantined (self-lockout guard)."
+                ),
+            )
+
+
 @router.get("/rate-limit-quarantine")
 async def list_quarantine(
     request: Request,
@@ -454,6 +492,8 @@ async def add_quarantine(
     """
     _require_admin(user_context)
     subject_type, subject = _split_subject_id(subject_id)
+    # An administrator must never be quarantinable (self-lockout guard); fail closed.
+    await _refuse_if_admin_caller(subject_type, subject)
     group = _quarantine_group_for(subject_type)
     set_audit_action(request, "quarantine_add", _QUARANTINE_RESOURCE_TYPE, resource_id=subject_id)
     repo = _get_memberships_repository()

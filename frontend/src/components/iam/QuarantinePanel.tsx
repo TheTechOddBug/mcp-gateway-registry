@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { ExclamationTriangleIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon, TrashIcon, NoSymbolIcon } from '@heroicons/react/24/outline';
 import {
   useQuarantineList,
+  quarantineAdd,
   quarantineRemove,
   setRateLimitEnabled,
   useRateLimitDefinitions,
@@ -10,9 +11,14 @@ import {
   type RateLimitMembership,
   type QuarantineSubjectType,
 } from '../../hooks/useRateLimits';
+import SearchableSelect from '../SearchableSelect';
+import { useServerList } from '../../hooks/useToolCatalog';
+import { useAgentList } from '../../hooks/useAgentList';
 
 interface QuarantinePanelProps {
   onShowToast: (message: string, type: 'success' | 'error' | 'info') => void;
+  // Adding a target to quarantine is admin-only (the backend also enforces admin).
+  isAdmin?: boolean;
 }
 
 // The seeded sentinel id is 'quarantine:group:<name>:1' (window 1s is a
@@ -32,12 +38,40 @@ function apiError(err: any, fallback: string): string {
  * per-member "remove from quarantine" action. Quarantine drops ALL data-plane
  * traffic from/to a subject -- distinct from a rate limit.
  */
-const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
+const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast, isAdmin = false }) => {
   const { quarantined, isLoading, refetch } = useQuarantineList();
   const { definitions, refetch: refetchDefs } = useRateLimitDefinitions();
+  const { servers, isLoading: serversLoading } = useServerList();
+  const { agents, isLoading: agentsLoading } = useAgentList();
   const [confirmToggle, setConfirmToggle] = useState<{ group: string; enable: boolean } | null>(
     null,
   );
+  // Target-add control state: which kind of target, and the add-in-flight flag.
+  const [targetKind, setTargetKind] = useState<'server' | 'agent'>('server');
+  const [isAddingTarget, setIsAddingTarget] = useState(false);
+
+  // Options for the target typeahead: registered server paths or agent paths.
+  const targetOptions = useMemo(() => {
+    if (targetKind === 'agent') {
+      return agents.map((a) => ({ value: a.path, label: a.path, description: a.name }));
+    }
+    return servers.map((s) => ({ value: s.path, label: s.path, description: s.name }));
+  }, [targetKind, servers, agents]);
+
+  const handleAddTarget = async (subject: string) => {
+    const name = subject.trim();
+    if (!name) return;
+    setIsAddingTarget(true);
+    try {
+      await quarantineAdd(targetKind, name);
+      onShowToast(`Quarantined ${targetKind}:${name} (all traffic blocked)`, 'success');
+      refetch();
+    } catch (err) {
+      onShowToast(apiError(err, 'Failed to quarantine target'), 'error');
+    } finally {
+      setIsAddingTarget(false);
+    }
+  };
 
   const callers = useMemo(
     () => quarantined.filter((m) => m.subject_type === 'user' || m.subject_type === 'client'),
@@ -90,6 +124,7 @@ const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
     title: string,
     group: string,
     members: RateLimitMembership[],
+    addControl?: React.ReactNode,
   ) => {
     const enabled = enabledByGroup[group];
     return (
@@ -135,9 +170,45 @@ const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
             ))}
           </ul>
         )}
+        {addControl}
       </div>
     );
   };
+
+  // Admin-only "add a target to quarantine" control, rendered inside the targets group.
+  const targetAddControl = isAdmin ? (
+    <div className="mt-3 border-t border-red-100 dark:border-red-900/40 pt-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500 dark:text-gray-400">Quarantine a:</span>
+        <select
+          value={targetKind}
+          onChange={(e) => setTargetKind(e.target.value as 'server' | 'agent')}
+          className="text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white px-2 py-1"
+        >
+          <option value="server">server</option>
+          <option value="agent">agent</option>
+        </select>
+      </div>
+      <SearchableSelect
+        options={targetOptions}
+        value=""
+        onChange={handleAddTarget}
+        isLoading={targetKind === 'agent' ? agentsLoading : serversLoading}
+        disabled={isAddingTarget}
+        allowCustom
+        focusColor="focus:ring-red-500"
+        placeholder={
+          targetKind === 'agent'
+            ? 'Add an agent to quarantine… (e.g. /booking-agent)'
+            : 'Add a server to quarantine… (e.g. mcpgw)'
+        }
+      />
+      <p className="text-[11px] text-gray-400">
+        Blocks ALL traffic to this target for every caller (admins included). Use the bare
+        name/path segment the request routes to (e.g. <code>mcpgw</code>).
+      </p>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-3">
@@ -146,8 +217,9 @@ const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
         <p className="text-xs text-gray-500 dark:text-gray-400">
           A quarantined caller or target has ALL of its data-plane traffic dropped immediately (a
           hard block, not a rate). Quarantine a caller (admin only) from the Users or M2M pages via
-          the block icon on each row; targets (servers/agents) are managed via the admin API/CLI.
-          Remove a subject with the trash icon below. Changes take effect within ~30s.
+          the block icon on each row; quarantine a target (server/agent) using the control in the
+          Quarantined targets box below. Remove a subject with the trash icon. Admin-group users
+          cannot be quarantined. Changes take effect within ~30s.
         </p>
       </div>
       {isLoading ? (
@@ -155,7 +227,7 @@ const QuarantinePanel: React.FC<QuarantinePanelProps> = ({ onShowToast }) => {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {renderGroup('Quarantined callers', QUARANTINE_CALLER_GROUP, callers)}
-          {renderGroup('Quarantined targets', QUARANTINE_TARGET_GROUP, targets)}
+          {renderGroup('Quarantined targets', QUARANTINE_TARGET_GROUP, targets, targetAddControl)}
         </div>
       )}
 

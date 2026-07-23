@@ -149,11 +149,11 @@ uv run python registry_management.py rate-limit-quarantine-remove \
 
 Operational notes:
 - A quarantined subject is denied as a **plain 403** (no `X-RateLimit-*` headers, no 429 rewrite) — it is an access decision, not a throttle. Callers see `403 Access forbidden`.
-- A quarantined **caller** who is an admin is NOT blocked (no self-lockout); a quarantined **target** is blocked for everyone, admins included.
+- **Admins cannot be quarantined at all.** Adding a caller (user or client) that belongs to an admin group to quarantine is refused with a `403` at the API — on both the `rate-limit-quarantine-add` path and the general membership-PUT path (so the reserved group can't be added by the back door). The check resolves the live admin population and **fails closed** (a `503` if it can't be verified), so an operator can never lock the administrators out of the gateway. (Enforcement also still skips caller gates for admins as a second layer.) A quarantined **target** is blocked for everyone, admins included — targets are never admins.
 - Changes take effect within one cache TTL (~30s).
 - **Global off-switch:** disable a reserved group's definition (`rate-limit-disable --id quarantine:group:quarantine-callers:1`) to turn the whole caller/target kill switch off without emptying the group. The groups cannot be deleted.
 - Quarantine only acts while `RATE_LIMITING_ENABLED=true` and is **fail-open by default** (a memberships-store outage allows traffic); set `RATE_LIMIT_QUARANTINE_FAIL_CLOSED=true` to fail closed. It is best-effort containment — pair it with IdP credential revocation.
-- UI: **Settings → IAM → Rate Limits → Quarantine** shows both groups with live member counts, a per-member remove, and the global on/off toggle. See also the [FAQ: How do I quarantine a user, agent, or MCP server?](../faq/quarantine-a-caller-or-target.md).
+- UI (admin only): quarantine a **caller** from **Settings → IAM → Users** or **M2M Accounts** via the block icon on each row (admin-group users have no such control and are refused server-side); quarantine a **target** (server/agent) from the **Quarantined targets** box in **Settings → IAM → Rate Limits → Quarantine**, which also shows both groups' live member counts, a per-member remove, and the global on/off toggle. See also the [FAQ: How do I quarantine a user, agent, or MCP server?](../faq/quarantine-a-caller-or-target.md).
 
 ---
 

@@ -24,6 +24,7 @@ import DeleteConfirmation from './DeleteConfirmation';
 import ListStateBoundary from './iam/ListStateBoundary';
 import SearchableSelect from './SearchableSelect';
 import QuarantinePanel from './iam/QuarantinePanel';
+import { useAuth } from '../contexts/AuthContext';
 import { useServerList } from '../hooks/useToolCatalog';
 import { useAgentList } from '../hooks/useAgentList';
 
@@ -59,6 +60,8 @@ const StatTile: React.FC<{ label: string; value: number; hint?: string }> = ({
 );
 
 const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.is_admin ?? false;
   const { definitions, isLoading, error, refetch } = useRateLimitDefinitions();
   // Memberships feed the "callers governed" summary tile (users + agents mapped
   // into rate-limit groups). Read-only here; the editor lives on Users/M2M.
@@ -566,7 +569,7 @@ const IAMRateLimits: React.FC<IAMRateLimitsProps> = ({ onShowToast }) => {
 
       {/* Quarantine (kill switch): the two seeded reserved groups with member
           counts, a global on/off toggle, and per-member remove. */}
-      <QuarantinePanel onShowToast={onShowToast} />
+      <QuarantinePanel onShowToast={onShowToast} isAdmin={isAdmin} />
 
       {deleteTarget && (
         <DeleteConfirmation
