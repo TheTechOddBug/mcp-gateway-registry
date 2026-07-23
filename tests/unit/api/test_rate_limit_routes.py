@@ -526,6 +526,44 @@ class TestQuarantineEndpoints:
         assert resp.status_code == 200
         assert resp.json()["groups"] == ["quarantine-targets"]
 
+    def test_add_target_quarantine_normalizes_server_slashes(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        """A server subject with leading/trailing slashes is normalized to the bare name.
+
+        Guards against a silently-inert quarantine: the request classifier keys on
+        'aws-kb', so a subject stored as '/aws-kb' would never match. The route must
+        upsert the normalized 'aws-kb'.
+        """
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.upsert.return_value = RateLimitMembership(
+            subject_type="server", subject="aws-kb", groups=["quarantine-targets"]
+        )
+        mock_memberships_repository.count_group_members.return_value = 1
+
+        resp = client.post("/api/rate-limit-quarantine/server:/aws-kb/")
+        assert resp.status_code == 200
+        # The membership actually upserted must carry the BARE name.
+        upserted = mock_memberships_repository.upsert.call_args.args[0]
+        assert upserted.subject == "aws-kb"
+
+    def test_add_target_quarantine_normalizes_agent_path(
+        self, client, mock_auth_admin, mock_memberships_repository
+    ):
+        """An agent subject is normalized to the leading-slash form the classifier uses."""
+        from registry.rate_limiting.models import RateLimitMembership
+
+        mock_memberships_repository.upsert.return_value = RateLimitMembership(
+            subject_type="agent", subject="/booking-agent", groups=["quarantine-targets"]
+        )
+        mock_memberships_repository.count_group_members.return_value = 1
+
+        resp = client.post("/api/rate-limit-quarantine/agent:booking-agent")
+        assert resp.status_code == 200
+        upserted = mock_memberships_repository.upsert.call_args.args[0]
+        assert upserted.subject == "/booking-agent"
+
     def test_add_quarantine_bad_subject_type(
         self, client, mock_auth_admin, mock_memberships_repository
     ):

@@ -30,6 +30,7 @@ from registry.rate_limiting.models import (
     UNENFORCED_ENTITY_TYPES,
     RateLimitDefinition,
     RateLimitMembership,
+    normalize_target_subject,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,8 +353,22 @@ async def put_rate_limit_membership(
     set_audit_action(request, "update", _MEMBERSHIP_RESOURCE_TYPE, resource_id=membership_id)
     membership = _parse_membership(body)
 
+    # Normalize a TARGET subject to the classifier's form (server -> bare name,
+    # agent -> leading-slash) so a membership stored here can't silently miss at
+    # enforcement. The URL id is normalized the same way before the match, so both
+    # 'server:/aws-kb' and 'server:aws-kb' are accepted and stored canonically.
+    normalized_subject = normalize_target_subject(membership.subject_type, membership.subject)
+    if normalized_subject != membership.subject:
+        membership = RateLimitMembership(
+            subject_type=membership.subject_type,
+            subject=normalized_subject,
+            groups=membership.groups,
+        )
+    url_type, _, url_subject = membership_id.partition(":")
+    normalized_membership_id = f"{url_type}:{normalize_target_subject(url_type, url_subject)}"
+
     built_id = membership.build_id()
-    if built_id != membership_id:
+    if built_id != normalized_membership_id:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -415,6 +430,16 @@ def _split_subject_id(
         raise HTTPException(
             status_code=400,
             detail=f"invalid subject_type '{subject_type}'",
+        )
+    # Normalize a TARGET subject to the form the request classifier keys on
+    # (server -> bare name, agent -> leading-slash path). Without this a subject
+    # stored as '/aws-kb' never matches the classified 'aws-kb' and the quarantine
+    # is silently inert. Caller subjects (user/client) are identities, left as-is.
+    subject = normalize_target_subject(subject_type, subject)
+    if not subject:
+        raise HTTPException(
+            status_code=400,
+            detail=f"empty subject for subject_type '{subject_type}'",
         )
     return subject_type, subject
 

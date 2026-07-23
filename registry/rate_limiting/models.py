@@ -92,6 +92,64 @@ CALLER_TYPE_USER: str = "user"
 CALLER_TYPE_AGENT: str = "agent"
 
 
+def normalize_server_name(name: str) -> str:
+    """Canonicalize a server target name to the form the request classifier keys on.
+
+    The auth-server classifies an MCP request's target as ``path.strip("/").split("/")[0]``
+    -- the BARE first path segment, no slashes (e.g. a request to ``/aws-kb/mcp`` keys
+    on ``aws-kb``). A quarantine or server_group member stored as ``/aws-kb`` (or
+    ``/aws-kb/``) would therefore never match at enforcement and the control would be
+    silently inert (fail-open). Normalizing on the way in makes ``aws-kb``, ``/aws-kb``,
+    and ``/aws-kb/`` all resolve to the same enforceable subject. An empty string is
+    returned as-is so callers can reject it.
+    """
+    if not isinstance(name, str):
+        return name
+    stripped = name.strip().strip("/")
+    if not stripped:
+        return ""
+    return stripped.split("/")[0]
+
+
+def normalize_agent_path(path: str) -> str:
+    """Canonicalize an agent target path to the form the request classifier keys on.
+
+    The auth-server classifies an A2A request's target as the agent path WITH a
+    leading slash and (possibly) multiple segments (e.g. ``/flight-booking-agent``),
+    the opposite convention from a server name. Mirror that: ensure a single leading
+    slash and strip a trailing slash, so ``flight-booking-agent`` and
+    ``/flight-booking-agent/`` both resolve to ``/flight-booking-agent``. An empty
+    string is returned as-is so callers can reject it.
+    """
+    if not isinstance(path, str):
+        return path
+    stripped = path.strip()
+    if not stripped:
+        return ""
+    if not stripped.startswith("/"):
+        stripped = "/" + stripped
+    if len(stripped) > 1:
+        stripped = stripped.rstrip("/")
+    return stripped
+
+
+def normalize_target_subject(
+    subject_type: str,
+    subject: str,
+) -> str:
+    """Normalize a target subject to the classifier's form, by entity type.
+
+    ``server`` -> bare first segment; ``agent`` -> leading-slash path. Any other
+    subject type (caller: user/client) is returned unchanged -- a caller subject is
+    an identity, not a path, and must not be slash-mangled.
+    """
+    if subject_type == "server":
+        return normalize_server_name(subject)
+    if subject_type == "agent":
+        return normalize_agent_path(subject)
+    return subject
+
+
 class RateLimitDefinition(BaseModel):
     """A rate-limit definition on one axis, for one entity type, at one window.
 
@@ -205,15 +263,25 @@ class RateLimitDefinition(BaseModel):
         return self
 
     def _check_members(self) -> None:
-        """Validate the ``members`` list: required and clean for server_group, absent otherwise."""
+        """Validate + normalize the ``members`` list (server_group only; absent otherwise).
+
+        Members are normalized to the bare server name the request classifier keys on
+        (``/aws-kb`` -> ``aws-kb``), so a member stored with a leading/trailing slash
+        can't silently miss at enforcement. Normalization happens before the
+        duplicate check so ``aws-kb`` and ``/aws-kb`` are caught as the same member.
+        """
         if self.entity_type == SERVER_GROUP_ENTITY_TYPE:
             # A server_group must name at least one member; each gets its own bucket.
             if not self.members:
                 raise ValueError("a server_group definition must set a non-empty members list")
             if any(not isinstance(m, str) or not m.strip() for m in self.members):
                 raise ValueError("server_group members must be non-empty server-path strings")
-            if len(set(self.members)) != len(self.members):
+            normalized = [normalize_server_name(m) for m in self.members]
+            if any(not m for m in normalized):
+                raise ValueError("server_group members must be non-empty server-path strings")
+            if len(set(normalized)) != len(normalized):
                 raise ValueError("server_group members must not contain duplicates")
+            self.members = normalized
         elif self.members is not None:
             # members is meaningless for a single-target definition; reject it so a
             # caller can't set a field that would be silently ignored.

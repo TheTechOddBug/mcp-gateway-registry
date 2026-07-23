@@ -140,6 +140,28 @@ class TestRateLimitDefinition:
         )
         assert d.members is None
 
+    def test_server_group_members_normalized(self):
+        """Members with leading/trailing slashes normalize to the bare classifier name."""
+        d = RateLimitDefinition(
+            axis="target",
+            entity_type="server_group",
+            name="grp",
+            max_requests=10,
+            members=["/aws-kb", "airegistry-tools/", "/mcpgw/"],
+        )
+        assert d.members == ["aws-kb", "airegistry-tools", "mcpgw"]
+
+    def test_server_group_members_dedup_after_normalization(self):
+        """'aws-kb' and '/aws-kb' are the same member after normalization -> rejected as dup."""
+        with pytest.raises(ValidationError, match="duplicates"):
+            RateLimitDefinition(
+                axis="target",
+                entity_type="server_group",
+                name="grp",
+                max_requests=10,
+                members=["aws-kb", "/aws-kb"],
+            )
+
     def test_daily_volume_window_is_allowed(self):
         """A full-day window (volume cap) is within bounds."""
         d = RateLimitDefinition(
@@ -330,3 +352,36 @@ class TestCallerTargetAndQuarantineModels:
         d = RateLimitDecision.quarantine_deny("clr", "group")
         assert d.allowed is False
         assert d.quarantined is True
+
+
+class TestTargetSubjectNormalization:
+    """Tests for the target-name normalizers (match the request classifier's forms)."""
+
+    def test_normalize_server_name_strips_slashes(self):
+        from registry.rate_limiting.models import normalize_server_name
+
+        assert normalize_server_name("aws-kb") == "aws-kb"
+        assert normalize_server_name("/aws-kb") == "aws-kb"
+        assert normalize_server_name("/aws-kb/") == "aws-kb"
+        # Only the first path segment (the classifier keys on path_parts[0]).
+        assert normalize_server_name("/aws-kb/mcp") == "aws-kb"
+        assert normalize_server_name("") == ""
+
+    def test_normalize_agent_path_ensures_leading_slash(self):
+        from registry.rate_limiting.models import normalize_agent_path
+
+        assert normalize_agent_path("/flight-booking-agent") == "/flight-booking-agent"
+        assert normalize_agent_path("flight-booking-agent") == "/flight-booking-agent"
+        assert normalize_agent_path("/flight-booking-agent/") == "/flight-booking-agent"
+        # Multi-segment agent paths are preserved (agents can be multi-segment).
+        assert normalize_agent_path("agents/booking") == "/agents/booking"
+        assert normalize_agent_path("") == ""
+
+    def test_normalize_target_subject_by_type(self):
+        from registry.rate_limiting.models import normalize_target_subject
+
+        assert normalize_target_subject("server", "/aws-kb") == "aws-kb"
+        assert normalize_target_subject("agent", "booking") == "/booking"
+        # Caller subjects are identities, never slash-mangled.
+        assert normalize_target_subject("user", "/alice") == "/alice"
+        assert normalize_target_subject("client", "my-client") == "my-client"
