@@ -385,15 +385,23 @@ class TestRateLimiter:
 
         # Exhaust mcpgw's own bucket (2/60s).
         mcpgw_allowed = await _count_allowed(
-            limiter, 5, username="u", client_id=None,
-            target_entity_type="mcp_server", target_name="mcpgw",
+            limiter,
+            5,
+            username="u",
+            client_id=None,
+            target_entity_type="mcp_server",
+            target_name="mcpgw",
         )
         assert mcpgw_allowed == 2
         assert backend.counts.get("tgt:server_group:mcpgw:60") == 2
         # atlas has its OWN independent bucket (per-member uniform, not pooled).
         atlas_allowed = await _count_allowed(
-            limiter, 5, username="u", client_id=None,
-            target_entity_type="mcp_server", target_name="atlas",
+            limiter,
+            5,
+            username="u",
+            client_id=None,
+            target_entity_type="mcp_server",
+            target_name="atlas",
         )
         assert atlas_allowed == 2
         assert backend.counts.get("tgt:server_group:atlas:60") == 2
@@ -402,12 +410,19 @@ class TestRateLimiter:
         """A server in a group AND with its own mcp_server limit gets two buckets, both enforced."""
         backend = _FakeBackend()
         group_def = RateLimitDefinition(
-            axis="target", entity_type="server_group", name="grp",
-            max_requests=5, window_seconds=60, members=["mcpgw"],
+            axis="target",
+            entity_type="server_group",
+            name="grp",
+            max_requests=5,
+            window_seconds=60,
+            members=["mcpgw"],
         )
         indiv_def = RateLimitDefinition(
-            axis="target", entity_type="mcp_server", name="mcpgw",
-            max_requests=2, window_seconds=60,
+            axis="target",
+            entity_type="mcp_server",
+            name="mcpgw",
+            max_requests=2,
+            window_seconds=60,
         )
         limiter = _make_limiter(backend)
 
@@ -419,8 +434,12 @@ class TestRateLimiter:
         limiter._definitions.list_target_limits = _list_target_limits  # type: ignore[attr-defined]
         # The tighter individual limit (2) governs; both buckets exist.
         allowed = await _count_allowed(
-            limiter, 6, username="u", client_id=None,
-            target_entity_type="mcp_server", target_name="mcpgw",
+            limiter,
+            6,
+            username="u",
+            client_id=None,
+            target_entity_type="mcp_server",
+            target_name="mcpgw",
         )
         assert allowed == 2
         assert backend.counts.get("tgt:mcp_server:mcpgw:60") == 2
