@@ -333,6 +333,18 @@ async def logout_handler(
         # so it is configured and reachable in every deployment mode (EKS,
         # Docker/Compose, ECS, EC2, local).
         if provider:
+            # Post-logout landing page: "/logout" renders the "Successfully Logged
+            # Out" confirmation screen (frontend/src/pages/Logout.tsx), then
+            # auto-redirects to /login after 5s. The IdP returns the browser here
+            # after terminating the session, so this URL MUST be registered as a
+            # valid post-logout / sign-out redirect in the IdP:
+            #   - Cognito: add "<host>/logout" to the app client's Sign-out URLs
+            #     (an unregistered logout_uri is rejected with "Required parameters
+            #     missing" -- issue #1503).
+            #   - Keycloak/Entra/Okta: add "<host>/logout" to the client's valid
+            #     post-logout redirect URIs.
+            # See docs/idp/*.md. If a deployment cannot register "/logout", point
+            # this at a registered page (e.g. "/login") at the cost of the screen.
             redirect_uri = _build_external_url(request, "/logout")
             logout_params: dict[str, str] = {"redirect_uri": redirect_uri}
 

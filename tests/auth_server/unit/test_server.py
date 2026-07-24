@@ -323,6 +323,38 @@ class TestIsRedirectWithinCookieDomain:
         request = self._request(forwarded_host="localhost:7860", forwarded_proto="http")
         assert not _is_redirect_within_cookie_domain("https://localhost:7860/logout", "", request)
 
+    def test_configured_external_host_trusted_on_s2s_hop(self, monkeypatch):
+        """Issue #1503: on the internal S2S logout hop the request scheme reconstructs
+        as http and X-Forwarded-Host is absent, so the same-origin match fails for a
+        legitimate https public redirect_uri. The redirect_uri host matching the
+        deployment's own AUTH_SERVER_EXTERNAL_URL must still be accepted."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        monkeypatch.setenv("AUTH_SERVER_EXTERNAL_URL", "https://d2xl2zfuhgc4l0.cloudfront.net")
+        # Reconstructed request origin is internal (http, no forwarded host).
+        request = self._request(forwarded_host="", forwarded_proto="", url_host="127.0.0.1")
+        assert _is_redirect_within_cookie_domain(
+            "https://d2xl2zfuhgc4l0.cloudfront.net/logout", "", request
+        )
+
+    def test_configured_external_host_falls_back_to_registry_url(self, monkeypatch):
+        """REGISTRY_URL is used when AUTH_SERVER_EXTERNAL_URL is unset."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        monkeypatch.delenv("AUTH_SERVER_EXTERNAL_URL", raising=False)
+        monkeypatch.setenv("REGISTRY_URL", "https://app.example.com")
+        request = self._request(forwarded_host="", forwarded_proto="", url_host="127.0.0.1")
+        assert _is_redirect_within_cookie_domain("https://app.example.com/logout", "", request)
+
+    def test_non_configured_host_still_rejected_on_s2s_hop(self, monkeypatch):
+        """A redirect to a host that is NOT the configured external host is still
+        rejected even on the internal hop (the fix does not open a general bypass)."""
+        from auth_server.server import _is_redirect_within_cookie_domain
+
+        monkeypatch.setenv("AUTH_SERVER_EXTERNAL_URL", "https://d2xl2zfuhgc4l0.cloudfront.net")
+        request = self._request(forwarded_host="", forwarded_proto="", url_host="127.0.0.1")
+        assert not _is_redirect_within_cookie_domain("https://evil.example.net/logout", "", request)
+
 
 class TestGroupToScopeMapping:
     """Tests for mapping IdP groups to MCP scopes."""
