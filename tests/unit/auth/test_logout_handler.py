@@ -171,6 +171,20 @@ class TestLogoutHandlerS2S:
         assert kwargs["headers"]["X-Forwarded-Proto"] == "https"
 
     @pytest.mark.asyncio
+    async def test_post_logout_redirect_uri_lands_on_logout_screen(self):
+        """The post-logout redirect_uri lands on /logout, which renders the
+        'Successfully Logged Out' confirmation screen. This URL must be registered
+        as a valid sign-out redirect in the IdP (Cognito rejects an unregistered
+        logout_uri with 'Required parameters missing' -- issue #1503); the
+        same-origin fix lets the https public /logout through on the S2S hop."""
+        factory, instance = _mock_s2s_client(_s2s_response())
+        await self._run(factory)
+
+        _, kwargs = instance.get.call_args
+        redirect_uri = kwargs["params"]["redirect_uri"]
+        assert redirect_uri.endswith("/logout"), redirect_uri
+
+    @pytest.mark.asyncio
     async def test_cookie_cleared_on_success(self):
         """The session cookie must be cleared on the IdP redirect response."""
         factory, _ = _mock_s2s_client(_s2s_response())

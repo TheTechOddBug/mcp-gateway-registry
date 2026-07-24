@@ -1155,10 +1155,43 @@ def _is_redirect_within_cookie_domain(
         if request_host and parsed.scheme == request_scheme and hostname == request_host:
             return True
 
+    # Trust the deployment's own configured external host. On the internal
+    # server-to-server logout hop (issue #1503), the registry reaches auth-server
+    # over the cluster network, so the request origin auth-server reconstructs is
+    # the internal scheme/host (e.g. http/loopback), NOT the public URL — the
+    # same-origin match above then fails for a legitimate https public
+    # redirect_uri and the redirect is wrongly dropped (Cognito then rejects the
+    # logout with "Required parameters missing"). The redirect_uri's host being
+    # the deployment's OWN declared public host is safe by definition (it is not
+    # user-controlled here; it is derived from the registry's trusted-host
+    # allowlist), so accept it regardless of the reconstructed request scheme.
+    configured_host = _configured_external_host()
+    if configured_host and hostname == configured_host:
+        return True
+
     if not cookie_domain:
         return False
     apex = cookie_domain.lstrip(".").lower()
     return hostname == apex or hostname.endswith(f".{apex}")
+
+
+def _configured_external_host() -> str:
+    """Return the deployment's own public host from configured external URLs.
+
+    Prefers ``AUTH_SERVER_EXTERNAL_URL`` (the public URL, distinct from the
+    internal ``registry_url``/service URL), falling back to ``REGISTRY_URL``.
+    Returns a lower-cased hostname (no scheme/port) or "" if none is configured.
+    This is the deployment's own declared host, used to approve a same-origin
+    redirect_uri even when the request reaches auth-server over the internal
+    network (where the reconstructed request scheme/host is not the public one).
+    """
+    for env_name in ("AUTH_SERVER_EXTERNAL_URL", "REGISTRY_URL"):
+        raw = os.environ.get(env_name, "").strip()
+        if raw:
+            host = (urlparse(raw).hostname or "").lower()
+            if host:
+                return host
+    return ""
 
 
 def _is_safe_redirect_url(
